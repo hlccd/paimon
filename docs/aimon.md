@@ -46,7 +46,7 @@
     - [**三月女神**](foundation/march.md)：守护进程、任务观测（✅ 观测面板）、定时调度、推送响铃（定时 + 事件）
     - [**地脉**](foundation/leyline.md)：全局事件总线（所有模块间事件流转）
     - [**世界树**](foundation/irminsul.md)：知识持久化 + 缓存 + skill 生态声明 + 用户授权记录（权威源）
-    - [**神之眼**](foundation/vision.md)：独立 LLM 资源池（浅层 / 深层分层）
+    - [**神之心**](foundation/gnosis.md)：独立 LLM 资源池（浅层 / 深层分层）
     - [**原石**](foundation/primogem.md)：Token + 花费统计（按模块 / 用途 / 会话 多维度聚合）
 
 ### 跨模块参考
