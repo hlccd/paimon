@@ -11,9 +11,9 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 5 | 三频道、神之心、原石 |
-| 部分实现 | 2 | 派蒙核心、时执(上下文压缩) |
-| 未开始 | 14 | 天使体系、四影、七神、地脉、世界树、三月、权限、进化 |
+| 已实现 | 6 | 三频道、神之心、原石、天使体系(部分) |
+| 部分实现 | 3 | 派蒙核心、时执(上下文压缩)、天使体系(魔女会桥未完成) |
+| 未开始 | 13 | 四影、七神、地脉、世界树、三月、权限、进化 |
 
 ---
 
@@ -46,13 +46,15 @@
 
 ## 三、天使体系 (Track 1) — `docs/angels/angels.md`
 
-| 规划职责 | 状态 |
-|----------|------|
-| Skill 解析器 (SKILL.md YAML) | **未开始** |
-| Skill 注册表 | **未开始** |
-| 天使调度器 | **未开始** |
-| 魔女会桥 (失败→四影) | **未开始** |
-| 现有 skills 迁移 (bili/xhs/web/dividend) | **未开始** |
+| 规划职责 | 状态 | 实现位置 |
+|----------|------|----------|
+| Skill 解析器 (SKILL.md YAML) | **已实现** | `paimon/angels/parser.py` |
+| Skill 注册表 | **已实现** | `paimon/angels/registry.py` |
+| 天使调度器 (tool calling loop) | **已实现** | `paimon/llm/model.py` + `paimon/core/commands.py` |
+| 工具系统 (exec/video_process/audio_process) | **已实现** | `paimon/tools/` + `tools/` |
+| 魔女会桥 (失败→四影) | **未开始** | — |
+| 现有 skills 迁移: bili/xhs | **已实现** | `skills/bili/` + `skills/xhs/` |
+| 现有 skills 迁移: web/dividend | **未开始** | — |
 
 ---
 
@@ -203,6 +205,18 @@ paimon/
     anthropic.py                     Anthropic Provider
     openai.py                        OpenAI Provider
     model.py                         Model 封装
+  angels/
+    __init__.py
+    parser.py                        SKILL.md 解析器
+    registry.py                      Skill 注册表
+  tools/
+    __init__.py
+    base.py                          BaseTool ABC + ToolContext
+    registry.py                      工具注册表
+    builtin/
+      __init__.py
+      exec.py                        Shell 执行工具
+      skill.py                       use_skill 工具
   foundation/
     __init__.py
     gnosis.py                        神之心 (LLM 资源池管理)
@@ -213,6 +227,12 @@ paimon/
     webui/                           WebUI 频道 (aiohttp + SSE)
     telegram/                        Telegram 频道 (aiogram)
     qq/                              QQ 频道 (qq-botpy)
+tools/
+  video_process.py                   MiMo 视频处理 (外部工具)
+  audio_process.py                   MiMo 音频处理 (外部工具)
+skills/
+  bili/SKILL.md                      B站视频分析 Skill
+  xhs/SKILL.md                       小红书内容分析 Skill
 templates/
   paimon.t                           派蒙人格 prompt
 ```

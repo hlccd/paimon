@@ -60,6 +60,15 @@ def create_app(cfg: Config) -> list[Channel]:
 
     state.model = Model(primary_provider, gnosis)
 
+    from pathlib import Path
+    from paimon.tools.registry import ToolRegistry
+    from paimon.angels.registry import SkillRegistry
+
+    project_root = Path(__file__).parent.parent
+    state.tool_registry = ToolRegistry.load(project_root / "tools")
+    state.skill_registry = SkillRegistry(project_root / "skills")
+    state.skill_registry.scan_and_load()
+
     channels: list[Channel] = []
 
     if cfg.webui_enabled:

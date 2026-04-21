@@ -35,10 +35,19 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
         session = session_mgr.create()
         session_mgr.switch(channel_key, session.id)
 
-    await run_session_chat(msg, channel, session)
+    from paimon.core.intent import classify_intent
+    intent = await classify_intent(model, session, msg.text, state.skill_registry)
+
+    if intent.kind == "skill":
+        await run_session_chat(msg, channel, session, skill_name=intent.skill_name)
+    else:
+        await run_session_chat(msg, channel, session)
 
 
-async def run_session_chat(msg: IncomingMessage, channel: Channel, session: Session):
+async def run_session_chat(
+    msg: IncomingMessage, channel: Channel, session: Session,
+    skill_name: str = "",
+):
     lock = state.session_task_locks.setdefault(session.id, asyncio.Lock())
     task: asyncio.Task | None = None
 
@@ -53,7 +62,7 @@ async def run_session_chat(msg: IncomingMessage, channel: Channel, session: Sess
             except Exception as e:
                 logger.debug("[派蒙·对话] 会话{}旧任务结束: {}", session.id, e)
 
-        task = asyncio.create_task(handle_chat(msg, channel, session))
+        task = asyncio.create_task(handle_chat(msg, channel, session, skill_name=skill_name))
         state.session_tasks[session.id] = task
 
     try:
@@ -86,17 +95,38 @@ async def handle_chat(
     msg: IncomingMessage,
     channel: Channel,
     session: Session,
+    skill_name: str = "",
 ):
     start_time = time.time()
     cfg, session_mgr, model = _require_runtime()
 
-    sp = _build_system_prompt()
+    sp = _build_system_prompt(skill_name=skill_name)
     if session.messages and session.messages[0].get("role") == "system":
         session.messages[0] = {"role": "system", "content": sp}
     else:
         session.messages.insert(0, {"role": "system", "content": sp})
 
     logger.info("[派蒙·对话] [{}] 用户: {}", session.id[:8], msg.text[:200])
+
+    tools = None
+    tool_executor = None
+    component = skill_name or "chat"
+    purpose = skill_name or "闲聊"
+
+    if skill_name and state.tool_registry:
+        tools = state.tool_registry.to_openai_tools()
+        from paimon.tools.base import ToolContext
+        tool_ctx = ToolContext(
+            registry=state.tool_registry,
+            channel=channel,
+            chat_id=msg.chat_id,
+            session=session,
+        )
+
+        async def _execute_tool(name: str, arguments: str) -> str:
+            return await state.tool_registry.execute(name, arguments, tool_ctx)
+
+        tool_executor = _execute_tool
 
     reply = await channel.make_reply(msg)
     buf = ""
@@ -110,7 +140,11 @@ async def handle_chat(
         pass
 
     try:
-        async for text in model.chat(session, msg.text):
+        async for text in model.chat(
+            session, msg.text,
+            tools=tools, tool_executor=tool_executor,
+            component=component, purpose=purpose,
+        ):
             buf += text
             await reply.send(text)
             any_text_sent = True
@@ -200,7 +234,7 @@ async def handle_chat(
             logger.info("[派蒙·对话] 会话{}标题: {}", session.id, title)
 
 
-def _build_system_prompt() -> str:
+def _build_system_prompt(skill_name: str = "") -> str:
     from pathlib import Path
 
     cfg = state.cfg
@@ -209,10 +243,24 @@ def _build_system_prompt() -> str:
 
     template_path = Path(__file__).parent.parent.parent / "templates" / "paimon.t"
     if template_path.exists():
-        return template_path.read_text(encoding="utf-8")
+        base = template_path.read_text(encoding="utf-8")
+    else:
+        home_template = cfg.paimon_home / "paimon.t"
+        if home_template.exists():
+            base = home_template.read_text(encoding="utf-8")
+        else:
+            base = "你是派蒙，一个友好的AI助手。请用中文回复。"
 
-    home_template = cfg.paimon_home / "paimon.t"
-    if home_template.exists():
-        return home_template.read_text(encoding="utf-8")
+    skill_registry = state.skill_registry
 
-    return "你是派蒙，一个友好的AI助手。请用中文回复。"
+    if skill_name and skill_registry:
+        skill = skill_registry.get(skill_name)
+        if skill:
+            return (
+                f"{base}\n\n"
+                f"---\n# 当前任务: Skill「{skill.name}」\n\n"
+                f"{skill.body}\n\n"
+                f"请严格按照以上 Skill 指令处理用户的请求。"
+            )
+
+    return base

@@ -13,6 +13,37 @@ from paimon.session import Session
 if TYPE_CHECKING:
     from paimon.foundation.gnosis import Gnosis
 
+from paimon.llm.base import ToolCallFragment
+
+
+class _ToolCallAccumulator:
+    def __init__(self):
+        self._calls: dict[int, dict[str, str]] = {}
+
+    def update(self, frag: ToolCallFragment) -> None:
+        idx = frag.index
+        if idx not in self._calls:
+            self._calls[idx] = {"id": "", "name": "", "arguments": ""}
+        if frag.id:
+            self._calls[idx]["id"] = frag.id
+        if frag.name:
+            self._calls[idx]["name"] = frag.name
+        if frag.arguments:
+            self._calls[idx]["arguments"] += frag.arguments
+
+    def get_tool_calls(self) -> list[dict]:
+        if not self._calls:
+            return []
+        return [
+            {
+                "id": v["id"],
+                "type": "function",
+                "function": {"name": v["name"], "arguments": v["arguments"]},
+            }
+            for _, v in sorted(self._calls.items())
+            if v["name"]
+        ]
+
 
 class Model:
     def __init__(self, provider: Provider, gnosis: Gnosis | None = None):
@@ -100,6 +131,17 @@ class Model:
             parts.append(f"{idx}. {memory}")
 
         return "\n".join(parts)
+
+    @staticmethod
+    def _sanitize_session_messages(messages: list[dict[str, Any]]) -> None:
+        while messages:
+            last = messages[-1]
+            if last.get("role") == "tool":
+                messages.pop()
+            elif last.get("role") == "assistant" and last.get("tool_calls"):
+                messages.pop()
+            else:
+                break
 
     def _build_runtime_messages(self, session: Session) -> list[dict[str, Any]]:
         msgs = list(session.messages)
@@ -233,82 +275,126 @@ class Model:
         self,
         session: Session,
         user_input: str,
+        tools: list[dict] | None = None,
+        tool_executor: Any = None,
+        component: str = "chat",
+        purpose: str = "闲聊",
     ) -> AsyncIterator[str]:
         self.last_chat_cost_usd = 0.0
+        total_usage = self._empty_usage()
+        self._sanitize_session_messages(session.messages)
         session.messages.append({"role": "user", "content": user_input})
-        runtime_messages = self._build_runtime_messages(session)
 
-        text_buf = ""
-        usage = self._empty_usage()
+        max_rounds = 15
+        for round_idx in range(max_rounds):
+            runtime_messages = self._build_runtime_messages(session)
+            text_buf = ""
+            usage = self._empty_usage()
+            tc_acc = _ToolCallAccumulator()
 
-        active_provider = self.provider
-        try:
-            stream_iter = active_provider.chat_stream(runtime_messages)
-        except Exception as e:
-            if self.gnosis:
-                self.gnosis.report_failure(active_provider.model_name)
-                fallback = self.gnosis.get_provider("shallow")
-                if fallback is not active_provider:
-                    logger.warning("[神之心·故障切换] chat 切换到备用 provider")
-                    active_provider = fallback
-                    try:
-                        stream_iter = active_provider.chat_stream(runtime_messages)
-                    except Exception as e2:
-                        logger.error("[神之心·模型] 备用 provider 也失败: {}", e2)
-                        session.messages.pop()
-                        yield f"\n\n> [错误] {e2}"
+            active_provider = self.provider
+            try:
+                stream_iter = active_provider.chat_stream(runtime_messages, tools=tools)
+            except Exception as e:
+                if self.gnosis:
+                    self.gnosis.report_failure(active_provider.model_name)
+                    fallback = self.gnosis.get_provider("shallow")
+                    if fallback is not active_provider:
+                        logger.warning("[神之心·故障切换] chat 切换到备用 provider")
+                        active_provider = fallback
+                        try:
+                            stream_iter = active_provider.chat_stream(runtime_messages, tools=tools)
+                        except Exception as e2:
+                            logger.error("[神之心·模型] 备用也失败: {}", e2)
+                            if round_idx == 0:
+                                session.messages.pop()
+                            yield f"\n\n> [错误] {e2}"
+                            return
+                    else:
+                        logger.error("[神之心·模型] 流式初始化失败: {}", e)
+                        if round_idx == 0:
+                            session.messages.pop()
+                        yield f"\n\n> [错误] {e}"
                         return
                 else:
                     logger.error("[神之心·模型] 流式初始化失败: {}", e)
-                    session.messages.pop()
+                    if round_idx == 0:
+                        session.messages.pop()
                     yield f"\n\n> [错误] {e}"
                     return
-            else:
-                logger.error("[神之心·模型] 流式初始化失败: {}", e)
-                session.messages.pop()
+
+            try:
+                async for chunk in stream_iter:
+                    if chunk.usage:
+                        self._merge_usage(usage, chunk.usage)
+                        continue
+                    if chunk.reasoning_content:
+                        logger.trace("[神之心·模型] 推理: {}", chunk.reasoning_content[:100])
+                    if chunk.tool_calls:
+                        for frag in chunk.tool_calls:
+                            tc_acc.update(frag)
+                    if chunk.content:
+                        text_buf += chunk.content
+                        yield chunk.content
+            except Exception as e:
+                logger.error("[神之心·模型] 流式传输异常: {}", e)
+                if text_buf:
+                    session.messages.append({"role": "assistant", "content": text_buf})
+                elif round_idx == 0:
+                    session.messages.pop()
                 yield f"\n\n> [错误] {e}"
                 return
 
-        try:
-            async for chunk in stream_iter:
-                if chunk.usage:
-                    self._merge_usage(usage, chunk.usage)
-                    continue
+            if self.gnosis:
+                self.gnosis.report_success(active_provider.model_name)
+            self._merge_usage(total_usage, usage)
 
-                if chunk.reasoning_content:
-                    logger.trace("[神之心·模型] 推理: {}", chunk.reasoning_content[:100])
+            tool_calls = tc_acc.get_tool_calls()
 
-                if chunk.content:
-                    text_buf += chunk.content
-                    yield chunk.content
-        except Exception as e:
-            logger.error("[神之心·模型] 流式传输异常: {}", e)
-            if text_buf:
+            if not tool_calls:
                 session.messages.append({"role": "assistant", "content": text_buf})
-            else:
-                session.messages.pop()
-            yield f"\n\n> [错误] {e}"
-            return
+                break
 
-        session.messages.append({"role": "assistant", "content": text_buf})
+            assistant_msg: dict[str, Any] = {"role": "assistant", "tool_calls": tool_calls}
+            if text_buf:
+                assistant_msg["content"] = text_buf
+            session.messages.append(assistant_msg)
 
-        if self.gnosis:
-            self.gnosis.report_success(active_provider.model_name)
+            if not tool_executor:
+                logger.warning("[神之心·模型] 有 tool_calls 但无 executor")
+                break
 
-        if usage["input_tokens"] == 0 and usage["output_tokens"] == 0:
-            usage["input_tokens"] = self.estimate_messages_tokens(runtime_messages)
-            usage["output_tokens"] = max(1, (len(text_buf) + 3) // 4)
+            for tc in tool_calls:
+                fn = tc["function"]
+                tc_id = tc["id"]
+                logger.info("[天使·工具调用] {}({})", fn["name"], fn["arguments"][:100])
+                try:
+                    result = await tool_executor(fn["name"], fn["arguments"])
+                except Exception as e:
+                    result = f"工具执行错误: {e}"
+                    logger.error("[天使·工具调用] {} 失败: {}", fn["name"], e)
+                session.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": str(result),
+                })
+                logger.info("[天使·工具结果] {} -> {}字符", fn["name"], len(str(result)))
 
-        total = usage["input_tokens"] + usage["output_tokens"]
-        cost = await self._compute_and_record(session.id, "chat", usage, purpose="闲聊")
+        if total_usage["input_tokens"] == 0 and total_usage["output_tokens"] == 0:
+            runtime_messages = self._build_runtime_messages(session)
+            total_usage["input_tokens"] = self.estimate_messages_tokens(runtime_messages)
+            total_usage["output_tokens"] = max(1, (len(text_buf) + 3) // 4)
+
+        total = total_usage["input_tokens"] + total_usage["output_tokens"]
+        cost = await self._compute_and_record(session.id, component, total_usage, purpose=purpose)
         self.last_chat_cost_usd = cost
         cache_info = ""
-        cw, cr = usage["cache_creation_tokens"], usage["cache_read_tokens"]
+        cw, cr = total_usage["cache_creation_tokens"], total_usage["cache_read_tokens"]
         if cw or cr:
             cache_info = f" 缓存写入={cw} 缓存命中={cr}"
         logger.info(
             "[神之心·模型] token统计: 输入={} 输出={} 总计={}{} 模型={}",
-            usage["input_tokens"], usage["output_tokens"], total,
+            total_usage["input_tokens"], total_usage["output_tokens"], total,
             cache_info, active_provider.model_name,
         )
 

@@ -46,17 +46,46 @@ async def dispatch_command(msg: IncomingMessage, channel: Channel) -> str | None
     args = parts[1].strip() if len(parts) > 1 else ""
 
     handler = _commands.get(cmd_name)
-    if handler is None:
-        return None
+    if handler is not None:
+        ctx = CommandContext(msg=msg, channel=channel, args=args)
+        logger.info("[派蒙·指令] /{} (频道={})", cmd_name, msg.channel_name)
+        try:
+            return await handler(ctx)
+        except Exception as e:
+            logger.error("[派蒙·指令] /{} 执行失败: {}", cmd_name, e)
+            return f"指令执行失败: {e}"
 
-    ctx = CommandContext(msg=msg, channel=channel, args=args)
-    logger.info("[派蒙·指令] /{} (频道={})", cmd_name, msg.channel_name)
+    skill_registry = state.skill_registry
+    if skill_registry and skill_registry.exists(cmd_name):
+        await _invoke_skill(cmd_name, args, msg, channel)
+        return ""
 
-    try:
-        return await handler(ctx)
-    except Exception as e:
-        logger.error("[派蒙·指令] /{} 执行失败: {}", cmd_name, e)
-        return f"指令执行失败: {e}"
+    return None
+
+
+async def _invoke_skill(skill_name: str, args: str, msg: IncomingMessage, channel: Channel):
+    from paimon.core.chat import run_session_chat
+
+    logger.info("[天使·调度] /{} args={}", skill_name, args[:100])
+
+    session_mgr = state.session_mgr
+    if not session_mgr:
+        await msg.reply("会话管理器未初始化")
+        return
+
+    session = session_mgr.get_current(msg.channel_key)
+    if not session:
+        session = session_mgr.create()
+        session_mgr.switch(msg.channel_key, session.id)
+
+    skill_msg = IncomingMessage(
+        channel_name=msg.channel_name,
+        chat_id=msg.chat_id,
+        text=args or f"请执行 {skill_name} skill",
+        _reply=msg._reply,
+    )
+
+    await run_session_chat(skill_msg, channel, session, skill_name=skill_name)
 
 
 # --------------- 指令实现 ---------------
@@ -252,6 +281,17 @@ async def cmd_stat(ctx: CommandContext) -> str:
     return "\n".join(lines)
 
 
+@command("skills")
+async def cmd_skills(ctx: CommandContext) -> str:
+    skill_registry = state.skill_registry
+    if not skill_registry or not skill_registry.skills:
+        return "暂无可用 Skill"
+    lines = ["可用 Skills:"]
+    for s in skill_registry.list_all():
+        lines.append(f"  /{s.name} - {s.description}")
+    return "\n".join(lines)
+
+
 @command("help")
 async def cmd_help(ctx: CommandContext) -> str:
     return (
@@ -264,5 +304,6 @@ async def cmd_help(ctx: CommandContext) -> str:
         "  /rename <新名称> - 重命名当前会话\n"
         "  /delete [ID/名称] - 删除会话\n"
         "  /stat - 查看token用量统计\n"
+        "  /skills - 查看可用 Skill\n"
         "  /help - 显示此帮助"
     )

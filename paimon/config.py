@@ -30,9 +30,9 @@ class Config(BaseSettings):
     openai_model: str = "gpt-4"
 
     # ========== MiMo (音视频理解) ==========
-    mimo_api_key: str = ""
+    mimo_key: str = ""
     mimo_base_url: str = "https://api.xiaomimimo.com/v1"
-    mimo_model: str = "mimo-v2-pro"
+    mimo_model: str = "mimo-v2-omni"
 
     # ========== 渠道配置 ==========
     webui_enabled: bool = True
