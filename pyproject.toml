@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "paimon"
 version = "0.1.0"
 description = "个人 AI 助手系统 — 神圣规划 (AIMON)"
-readme = "docs/aimon.md"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     # LLM Providers
