@@ -1,16 +1,23 @@
+"""派蒙会话管理 —— 服务层
+
+存储落盘走世界树 session 域，本模块只持有运行时缓存 + 业务逻辑（切换 / 绑定 / 新建）。
+"""
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from loguru import logger
 
+if TYPE_CHECKING:
+    from paimon.foundation.irminsul import Irminsul
+
 
 @dataclass
 class Session:
+    """和旧 Session 字段保持一致（新增 channel_key 内部字段；archived_at 不对 app 层暴露）。"""
     id: str
     name: str
     messages: list[dict] = field(default_factory=list)
@@ -22,64 +29,94 @@ class Session:
     created_at: float = 0.0
     updated_at: float = 0.0
     response_status: str = "idle"
+    # 内部字段：当前绑定的 channel_key；随 switch 更新
+    _channel_key: str = ""
 
 
 class SessionManager:
-    def __init__(self, home: Path):
-        self.home = home
+    """会话管理器：内存缓存 + 委托世界树落盘。"""
+
+    def __init__(self, irminsul: Irminsul):
+        self._irminsul = irminsul
         self.sessions: dict[str, Session] = {}
+        # channel_key -> session_id 绑定（从 session._channel_key 字段派生）
         self.bindings: dict[str, str] = {}
-        self._sessions_dir = home / "sessions"
-        self._sessions_dir.mkdir(parents=True, exist_ok=True)
-
-    def save_session(self, s: Session):
-        s.updated_at = time.time()
-        path = self._sessions_dir / f"{s.id}.json"
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(asdict(s), ensure_ascii=False, indent=2))
-        tmp.replace(path)
-        logger.trace("[派蒙·会话] 会话已保存: {}", s.id)
-
-    def _save_state(self):
-        data = {
-            "bindings": self.bindings,
-            "session_ids": list(self.sessions.keys()),
-        }
-        path = self.home / "state.json"
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-        tmp.replace(path)
-        logger.trace("[派蒙·会话] 状态已保存")
 
     @classmethod
-    def load(cls, home: Path) -> SessionManager:
-        mgr = cls(home)
-        state_path = home / "state.json"
-        if not state_path.exists():
-            logger.info("[派蒙·会话] 未找到历史状态，全新启动")
-            return mgr
+    async def load(cls, irminsul: Irminsul) -> SessionManager:
+        """启动时从世界树恢复所有活跃会话 + 绑定。"""
+        mgr = cls(irminsul)
+        records = await irminsul.session_list_all_full()
 
-        data = json.loads(state_path.read_text())
-        for sid in data.get("session_ids", []):
-            sp = mgr._sessions_dir / f"{sid}.json"
-            if sp.exists():
-                sd = json.loads(sp.read_text())
-                sd.setdefault("response_status", "idle")
-                mgr.sessions[sid] = Session(**sd)
-
-        mgr.bindings = data.get("bindings", {})
-
-        for s in mgr.sessions.values():
+        for rec in records:
+            s = Session(
+                id=rec.id, name=rec.name,
+                messages=rec.messages,
+                session_memory=rec.session_memory,
+                last_context_tokens=rec.last_context_tokens,
+                last_context_ratio=rec.last_context_ratio,
+                last_compressed_at=rec.last_compressed_at,
+                compressed_rounds=rec.compressed_rounds,
+                response_status=rec.response_status,
+                created_at=rec.created_at,
+                updated_at=rec.updated_at,
+                _channel_key=rec.channel_key,
+            )
+            # 审计 REL-012 P2：异常中断的 generating 改回 interrupted
             if s.response_status == "generating":
                 s.response_status = "interrupted"
-                mgr.save_session(s)
+                await mgr._save(s)
+
+            mgr.sessions[s.id] = s
+            if rec.channel_key:
+                mgr.bindings[rec.channel_key] = s.id
 
         logger.info(
-            "[派蒙·会话] 恢复{}个会话，{}个绑定",
-            len(mgr.sessions),
-            len(mgr.bindings),
+            "[派蒙·会话] 恢复 {} 个会话，{} 个绑定",
+            len(mgr.sessions), len(mgr.bindings),
         )
         return mgr
+
+    async def _save(self, s: Session) -> None:
+        """落盘：转成 SessionRecord 调世界树。"""
+        from paimon.foundation.irminsul import SessionRecord
+        s.updated_at = time.time()
+        rec = SessionRecord(
+            id=s.id, name=s.name,
+            channel_key=s._channel_key,
+            messages=s.messages,
+            session_memory=s.session_memory,
+            last_context_tokens=s.last_context_tokens,
+            last_context_ratio=s.last_context_ratio,
+            last_compressed_at=s.last_compressed_at,
+            compressed_rounds=s.compressed_rounds,
+            response_status=s.response_status,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+        )
+        await self._irminsul.session_upsert(rec, actor="派蒙")
+
+    # ---------- 对外 API（保持原同名同语义）----------
+    def save_session(self, s: Session) -> None:
+        """同步入口：旧代码大量使用。内部 schedule 异步落盘任务。"""
+        import asyncio
+        s.updated_at = time.time()
+        # 先更新内存
+        self.sessions[s.id] = s
+        # 异步触发落盘（不阻塞调用方）
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._save(s))
+        except RuntimeError:
+            # 无运行中事件循环（不应该发生在派蒙业务代码中）
+            asyncio.run(self._save(s))
+        logger.trace("[派蒙·会话] 会话已保存: {}", s.id)
+
+    async def save_session_async(self, s: Session) -> None:
+        """显式异步入口，供新代码使用。"""
+        s.updated_at = time.time()
+        self.sessions[s.id] = s
+        await self._save(s)
 
     def create(self) -> Session:
         sid = uuid4().hex[:8]
@@ -92,7 +129,6 @@ class SessionManager:
         )
         self.sessions[sid] = s
         self.save_session(s)
-        self._save_state()
         logger.info("[派蒙·会话] 新建会话: {}", sid)
         return s
 
@@ -100,8 +136,16 @@ class SessionManager:
         s = self.sessions.get(sid)
         if not s:
             return None
+
+        # 清理同 channel 其他会话的绑定（保持一 channel 一活跃会话）
+        for other_sid, other in list(self.sessions.items()):
+            if other_sid != sid and other._channel_key == channel_key:
+                other._channel_key = ""
+                self.save_session(other)
+
+        s._channel_key = channel_key
         self.bindings[channel_key] = sid
-        self._save_state()
+        self.save_session(s)
         logger.debug("[派蒙·会话] 绑定: {} → 会话 {}", channel_key, sid)
         return s
 
@@ -109,14 +153,18 @@ class SessionManager:
         sid = self.bindings.get(channel_key)
         return self.sessions.get(sid) if sid else None
 
-    def delete(self, sid: str):
+    def delete(self, sid: str) -> None:
+        import asyncio
         if sid in self.sessions:
-            del self.sessions[sid]
-        to_del = [k for k, v in self.bindings.items() if v == sid]
-        for k in to_del:
-            del self.bindings[k]
-        path = self._sessions_dir / f"{sid}.json"
-        if path.exists():
-            path.unlink()
-        self._save_state()
-        logger.info("[派蒙·会话] 已删除会话: {}", sid)
+            s = self.sessions.pop(sid)
+            # 清除绑定
+            to_del = [k for k, v in self.bindings.items() if v == sid]
+            for k in to_del:
+                del self.bindings[k]
+            # 异步落盘：从世界树删除
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._irminsul.session_delete(sid, actor="派蒙"))
+            except RuntimeError:
+                asyncio.run(self._irminsul.session_delete(sid, actor="派蒙"))
+            logger.info("[派蒙·会话] 已删除会话: {}", sid)

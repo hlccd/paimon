@@ -68,6 +68,8 @@ cd paimon
 pip install -e .
 ```
 
+> Windows 用户若 `pip` 提示"无法识别"，改用 `python -m pip install -e .`（或 `py -3.12 -m pip install -e .`）。
+
 ### 2. 配置 `.env`
 
 在项目根目录新建 `.env`，按实际需要填写。最小可跑示例（OpenAI + WebUI）：

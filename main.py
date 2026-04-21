@@ -9,7 +9,7 @@ from paimon.state import state
 async def main():
     setup_logging(debug=config.debug, log_dir=config.paimon_home)
 
-    channels = create_app(config)
+    channels = await create_app(config)
 
     if not channels:
         raise RuntimeError(
@@ -19,16 +19,13 @@ async def main():
     if state.gnosis:
         state.gnosis.setup_pools()
 
-    if state.primogem:
-        await state.primogem.initialize()
-
     try:
         await asyncio.gather(*(ch.start() for ch in channels))
     except KeyboardInterrupt:
         pass
     finally:
-        if state.primogem:
-            await state.primogem.close()
+        if state.irminsul:
+            await state.irminsul.close()
 
 
 def entry():

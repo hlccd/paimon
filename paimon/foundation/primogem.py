@@ -1,20 +1,20 @@
-"""
-原石 (Primogem) — Token 用量追踪模块
+"""原石 · Primogem —— Token 用量业务服务层
 
-基于 SQLite 持久化记录每次 LLM 调用的 token 消耗与费用。
-费用为估算值，缓存 token 按折扣价计入。
+架构定位：服务层模块。业务逻辑留原石（费率查表 + 缓存折扣 + 多维聚合 + dashboard），
+**数据落盘统一调世界树 `token_*` API**。不自建 SQLite 或独立文件库。
 """
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import aiosqlite
 from loguru import logger
 
-# (input_per_tok, output_per_tok, cache_write_per_tok, cache_read_per_tok)
+if TYPE_CHECKING:
+    from paimon.foundation.irminsul import Irminsul
+
+
 @dataclass
 class ModelRate:
     input: float
@@ -22,6 +22,8 @@ class ModelRate:
     cache_write: float
     cache_read: float
 
+
+# 费率表（USD per token）
 _RATES: dict[str, ModelRate] = {
     "claude-opus-4":   ModelRate(15e-6,  75e-6,  18.75e-6, 1.5e-6),
     "claude-sonnet-4": ModelRate(3e-6,   15e-6,  3.75e-6,  0.3e-6),
@@ -33,66 +35,16 @@ _RATES: dict[str, ModelRate] = {
 }
 _DEFAULT_RATE = ModelRate(3e-6, 15e-6, 3.75e-6, 0.3e-6)
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS token_usage (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp REAL NOT NULL,
-    session_id TEXT NOT NULL DEFAULT '',
-    component TEXT NOT NULL,
-    model_name TEXT NOT NULL,
-    input_tokens INTEGER NOT NULL,
-    output_tokens INTEGER NOT NULL,
-    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cost_usd REAL NOT NULL,
-    purpose TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_token_session ON token_usage(session_id);
-CREATE INDEX IF NOT EXISTS idx_token_ts ON token_usage(timestamp);
-CREATE INDEX IF NOT EXISTS idx_token_component ON token_usage(component);
-CREATE INDEX IF NOT EXISTS idx_token_purpose ON token_usage(purpose);
-"""
-
-_MIGRATION_COLUMNS = [
-    ("cache_creation_tokens", "INTEGER NOT NULL DEFAULT 0"),
-    ("cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"),
-    ("purpose", "TEXT NOT NULL DEFAULT ''"),
-]
-
 
 class Primogem:
-    def __init__(self, db_path: Path):
-        self._db_path = db_path
-        self._db: aiosqlite.Connection | None = None
+    """Token 业务服务方；数据落盘走世界树 `token_*`。"""
 
-    async def initialize(self) -> None:
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = await aiosqlite.connect(str(self._db_path))
-        await self._db.executescript(_SCHEMA)
-        await self._migrate()
-        await self._db.commit()
-        logger.info("[原石] 数据库就绪 {}", self._db_path)
-
-    async def _migrate(self) -> None:
-        if not self._db:
-            return
-        async with self._db.execute("PRAGMA table_info(token_usage)") as cur:
-            existing = {row[1] async for row in cur}
-        for col_name, col_def in _MIGRATION_COLUMNS:
-            if col_name not in existing:
-                await self._db.execute(
-                    f"ALTER TABLE token_usage ADD COLUMN {col_name} {col_def}"
-                )
-                logger.info("[原石] 迁移: 添加列 {}", col_name)
-
-    async def close(self) -> None:
-        if self._db:
-            await self._db.close()
-            self._db = None
+    def __init__(self, irminsul: Irminsul):
+        self._irminsul = irminsul
 
     @staticmethod
     def _match_rate(model_name: str) -> ModelRate:
-        name = model_name.lower()
+        name = (model_name or "").lower()
         for prefix, rate in _RATES.items():
             if prefix in name:
                 return rate
@@ -129,205 +81,111 @@ class Primogem:
         cache_read_tokens: int = 0,
         purpose: str = "",
     ) -> None:
-        if not self._db:
-            return
-        await self._db.execute(
-            "INSERT INTO token_usage "
-            "(timestamp, session_id, component, model_name, "
-            "input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, "
-            "cost_usd, purpose) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                time.time(), session_id, component, model_name,
-                input_tokens, output_tokens,
-                cache_creation_tokens, cache_read_tokens, cost_usd, purpose,
-            ),
+        await self._irminsul.token_write(
+            session_id=session_id,
+            component=component,
+            model_name=model_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            cache_creation_tokens=cache_creation_tokens,
+            cache_read_tokens=cache_read_tokens,
+            purpose=purpose,
+            actor="原石",
         )
-        await self._db.commit()
 
+    # ---------- 聚合查询 ----------
     async def get_session_stats(self, session_id: str) -> dict[str, Any]:
-        return await self._aggregate("WHERE session_id = ?", (session_id,))
+        rows = await self._irminsul.token_aggregate(
+            group_by=["component"], session_id=session_id,
+        )
+        return self._assemble_stats(rows, key="component")
 
     async def get_global_stats(self) -> dict[str, Any]:
-        return await self._aggregate("", ())
+        rows = await self._irminsul.token_aggregate(group_by=["component"])
+        return self._assemble_stats(rows, key="component")
 
-    async def _aggregate(
-        self, where: str, params: tuple
-    ) -> dict[str, Any]:
-        if not self._db:
-            return self._empty_stats()
+    async def get_purpose_stats(self) -> dict[str, dict[str, Any]]:
+        rows = await self._irminsul.token_aggregate(group_by=["purpose"])
+        result: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            k = r.get("purpose") or "(未标记)"
+            result[k] = self._row_to_entry(r)
+        return result
 
-        sql = (
-            "SELECT COALESCE(SUM(input_tokens),0), "
-            "COALESCE(SUM(output_tokens),0), "
-            "COALESCE(SUM(cache_creation_tokens),0), "
-            "COALESCE(SUM(cache_read_tokens),0), "
-            "COALESCE(SUM(cost_usd),0), "
-            "COUNT(*) "
-            f"FROM token_usage {where}"
-        )
-        async with self._db.execute(sql, params) as cur:
-            row = await cur.fetchone()
+    async def get_detail_stats(self) -> list[dict[str, Any]]:
+        rows = await self._irminsul.token_aggregate(group_by=["component", "purpose"])
+        return [
+            {
+                "component": r.get("component"),
+                "purpose": r.get("purpose") or "",
+                **self._row_to_entry(r),
+            }
+            for r in rows
+        ]
 
-        total_in, total_out, total_cw, total_cr, total_cost, count = row or (0, 0, 0, 0, 0.0, 0)
+    async def get_distribution_stats(self, by: str = "hour") -> list[dict[str, Any]]:
+        key = "weekday" if by == "weekday" else "hour"
+        rows = await self._irminsul.token_aggregate(group_by=[key])
+        rows.sort(key=lambda r: r.get(key) or 0)
+        return [{"period": r.get(key), **self._row_to_entry(r)} for r in rows]
 
-        by_component: dict[str, dict] = {}
-        sql_comp = (
-            "SELECT component, "
-            "SUM(input_tokens), SUM(output_tokens), "
-            "SUM(cache_creation_tokens), SUM(cache_read_tokens), "
-            "SUM(cost_usd), COUNT(*) "
-            f"FROM token_usage {where} "
-            "GROUP BY component ORDER BY SUM(cost_usd) DESC"
-        )
-        async with self._db.execute(sql_comp, params) as cur:
-            async for r in cur:
-                by_component[r[0]] = {
-                    "input_tokens": r[1],
-                    "output_tokens": r[2],
-                    "cache_creation_tokens": r[3],
-                    "cache_read_tokens": r[4],
-                    "cost_usd": r[5],
-                    "count": r[6],
-                }
+    async def get_timeline_stats(
+        self, period: str = "day", count: int = 7,
+    ) -> list[dict[str, Any]]:
+        if period == "week":
+            seconds = count * 7 * 86400
+            key = "week"
+        elif period == "month":
+            seconds = count * 30 * 86400
+            key = "month"
+        else:
+            seconds = count * 86400
+            key = "day"
+        cutoff = time.time() - seconds
+        rows = await self._irminsul.token_aggregate(group_by=[key], since=cutoff)
+        rows.sort(key=lambda r: r.get(key) or "")
+        return [{"period": r.get(key), **self._row_to_entry(r)} for r in rows]
 
+    # ---------- helpers ----------
+    @staticmethod
+    def _row_to_entry(r: dict) -> dict[str, Any]:
+        return {
+            "input_tokens": r.get("sum_input_tokens") or 0,
+            "output_tokens": r.get("sum_output_tokens") or 0,
+            "cache_creation_tokens": r.get("sum_cache_creation_tokens") or 0,
+            "cache_read_tokens": r.get("sum_cache_read_tokens") or 0,
+            "cost_usd": r.get("sum_cost_usd") or 0.0,
+            "count": r.get("count") or 0,
+        }
+
+    @staticmethod
+    def _assemble_stats(rows: list[dict], *, key: str) -> dict[str, Any]:
+        """兼容旧 get_global_stats / get_session_stats 返回结构：
+        {
+            total_input_tokens, total_output_tokens, total_cache_creation_tokens,
+            total_cache_read_tokens, total_cost_usd, count, by_component: {...}
+        }
+        """
+        total_in = total_out = total_cw = total_cr = 0
+        total_cost = 0.0
+        total_count = 0
+        by_group: dict[str, dict] = {}
+        for r in rows:
+            entry = Primogem._row_to_entry(r)
+            total_in += entry["input_tokens"]
+            total_out += entry["output_tokens"]
+            total_cw += entry["cache_creation_tokens"]
+            total_cr += entry["cache_read_tokens"]
+            total_cost += entry["cost_usd"]
+            total_count += entry["count"]
+            by_group[r.get(key) or "(unknown)"] = entry
         return {
             "total_input_tokens": total_in,
             "total_output_tokens": total_out,
             "total_cache_creation_tokens": total_cw,
             "total_cache_read_tokens": total_cr,
             "total_cost_usd": total_cost,
-            "count": count,
-            "by_component": by_component,
-        }
-
-    async def get_purpose_stats(self) -> dict[str, dict[str, Any]]:
-        if not self._db:
-            return {}
-        sql = (
-            "SELECT purpose, "
-            "SUM(input_tokens), SUM(output_tokens), "
-            "SUM(cache_creation_tokens), SUM(cache_read_tokens), "
-            "SUM(cost_usd), COUNT(*) "
-            "FROM token_usage "
-            "GROUP BY purpose ORDER BY SUM(cost_usd) DESC"
-        )
-        result: dict[str, dict[str, Any]] = {}
-        async with self._db.execute(sql) as cur:
-            async for r in cur:
-                result[r[0] or "(未标记)"] = {
-                    "input_tokens": r[1],
-                    "output_tokens": r[2],
-                    "cache_creation_tokens": r[3],
-                    "cache_read_tokens": r[4],
-                    "cost_usd": r[5],
-                    "count": r[6],
-                }
-        return result
-
-    async def get_detail_stats(self) -> list[dict[str, Any]]:
-        if not self._db:
-            return []
-        sql = (
-            "SELECT component, purpose, "
-            "SUM(input_tokens), SUM(output_tokens), "
-            "SUM(cache_creation_tokens), SUM(cache_read_tokens), "
-            "SUM(cost_usd), COUNT(*) "
-            "FROM token_usage "
-            "GROUP BY component, purpose ORDER BY SUM(cost_usd) DESC"
-        )
-        result: list[dict[str, Any]] = []
-        async with self._db.execute(sql) as cur:
-            async for r in cur:
-                result.append({
-                    "component": r[0],
-                    "purpose": r[1] or "",
-                    "input_tokens": r[2],
-                    "output_tokens": r[3],
-                    "cache_creation_tokens": r[4],
-                    "cache_read_tokens": r[5],
-                    "cost_usd": r[6],
-                    "count": r[7],
-                })
-        return result
-
-    async def get_distribution_stats(self, by: str = "hour") -> list[dict[str, Any]]:
-        if not self._db:
-            return []
-        if by == "weekday":
-            group_expr = "CAST(strftime('%w', timestamp, 'unixepoch', 'localtime') AS INTEGER)"
-        else:
-            group_expr = "CAST(strftime('%H', timestamp, 'unixepoch', 'localtime') AS INTEGER)"
-        sql = (
-            f"SELECT {group_expr} as period, "
-            "SUM(input_tokens), SUM(output_tokens), "
-            "SUM(cache_creation_tokens), SUM(cache_read_tokens), "
-            "SUM(cost_usd), COUNT(*) "
-            "FROM token_usage "
-            f"GROUP BY {group_expr} ORDER BY period"
-        )
-        async with self._db.execute(sql) as cur:
-            rows = await cur.fetchall()
-        return [
-            {
-                "period": row[0],
-                "input_tokens": row[1],
-                "output_tokens": row[2],
-                "cache_creation_tokens": row[3],
-                "cache_read_tokens": row[4],
-                "cost_usd": row[5],
-                "count": row[6],
-            }
-            for row in rows
-        ]
-
-    async def get_timeline_stats(
-        self, period: str = "day", count: int = 7,
-    ) -> list[dict[str, Any]]:
-        if not self._db:
-            return []
-
-        if period == "week":
-            cutoff = time.time() - count * 7 * 86400
-            group_expr = "strftime('%Y-W%W', timestamp, 'unixepoch', 'localtime')"
-        elif period == "month":
-            cutoff = time.time() - count * 30 * 86400
-            group_expr = "strftime('%Y-%m', timestamp, 'unixepoch', 'localtime')"
-        else:
-            cutoff = time.time() - count * 86400
-            group_expr = "date(timestamp, 'unixepoch', 'localtime')"
-
-        sql = (
-            f"SELECT {group_expr} as period, "
-            "SUM(input_tokens), SUM(output_tokens), "
-            "SUM(cache_creation_tokens), SUM(cache_read_tokens), "
-            "SUM(cost_usd), COUNT(*) "
-            "FROM token_usage WHERE timestamp >= ? "
-            "GROUP BY period ORDER BY period"
-        )
-        async with self._db.execute(sql, (cutoff,)) as cur:
-            rows = await cur.fetchall()
-        return [
-            {
-                "period": row[0],
-                "input_tokens": row[1],
-                "output_tokens": row[2],
-                "cache_creation_tokens": row[3],
-                "cache_read_tokens": row[4],
-                "cost_usd": row[5],
-                "count": row[6],
-            }
-            for row in rows
-        ]
-
-    @staticmethod
-    def _empty_stats() -> dict[str, Any]:
-        return {
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_cache_creation_tokens": 0,
-            "total_cache_read_tokens": 0,
-            "total_cost_usd": 0.0,
-            "count": 0,
-            "by_component": {},
+            "count": total_count,
+            "by_component": by_group,  # 保留旧键名，即使 key 是 purpose 也叫 by_component
         }

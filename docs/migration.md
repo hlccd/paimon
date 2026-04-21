@@ -43,13 +43,18 @@
 
 ### SQLite 表归属
 
-| 旧表 | 新归属 |
-|---|---|
-| `edicts` / `subtasks` / `flow_history` / `progress_log` | 活跃 → 世界树；归档 → 时执 |
-| `token_usage` | 原石 |
-| `revision_records` | 时执 |
-| `dividend_*` | 岩神 |
-| **新增** `authorizations` | 世界树 |
+**架构铁律**：世界树是**全系统唯一存储层**，所有表物理归属为世界树；**业务服务方**持有业务逻辑并通过世界树 API 读写。
+
+| 旧表 | 物理归属 | 业务服务方 |
+|---|---|---|
+| `edicts` / `subtasks` / `flow_history` / `progress_log` | 世界树（活跃 + 归档同库，只是由服务方打生命周期标签） | 活跃阶段 → 生执/空执/七神；归档阶段 → 时执 |
+| `token_usage` | 世界树 | 原石 |
+| `revision_records` | 世界树 | 时执 |
+| `dividend_*` | 世界树 | 岩神 |
+| `sessions`（原 JSON 文件） | 世界树 | 派蒙 |
+| **新增** `authorizations` | 世界树 | 派蒙 / 草神面板 |
+| **新增** `skills` | 世界树 | 冰神 |
+| **新增** `memory_index` | 世界树 | 草神 |
 
 ### 代码审计概况
 
@@ -97,8 +102,9 @@
 
 ## Phase A · 基础层骨架
 
-> 新建 `fairy/leyline/` `fairy/irminsul/` `fairy/primogem/` `fairy/march/`。
-> 仅搭接口骨架，暂无上层消费者。
+> 新建 `paimon/foundation/leyline/` `paimon/foundation/irminsul/` `paimon/foundation/march/`。
+> 世界树是**唯一存储层**，率先落地；原石当前仍自持 SQLite，会在 A3 重构时剥离 DB 代码改为调世界树 `token_*`。
+> 仅搭接口骨架 + 服务层骨架调用，暂无上层消费者。
 
 ### 待澄清
 
@@ -110,26 +116,50 @@
 
 ### 待执行
 
-#### A1 · 地脉 `fairy/leyline/`
+#### A1 · 地脉 `paimon/foundation/leyline/`
 
 - [ ] 搭 publish/subscribe 接口（暂无订阅者）
 - [ ] 定义核心事件名规范（如 `vision.chat_complete`、`task.state_changed`）
 
-#### A2 · 世界树 `fairy/irminsul/`
+#### A2 · 世界树 `paimon/foundation/irminsul/`
 
-- [ ] 逻辑统一接口（底层仍 SQLite + markdown），对外只暴露领域 API
-- [ ] 新增 `authorizations` 表
-- [ ] ⚠️ 审计 SEC-003（P1）：**所有文件读写 API 必须内置路径校验**——`resolve()` 后确认不超出根目录。不留给调用方自行校验。这是知识库路径遍历 + 模板 RCE 链的根因
-- [ ] ⚠️ 审计 SEC-027（P2）：`authorizations` 表设计时 session_id 字段考虑延长到 128bit
+**定位**：全系统**唯一存储层**，承载 9 个数据域。其他所有模块的持久化落盘统一走世界树 API，不自建 SQLite / 文件库。详见 [docs/foundation/irminsul.md](foundation/irminsul.md)。
+
+- [ ] 按域分组的语义化 API（9 组，非通用 KV）：
+  - [ ] `authz_*`：用户授权（新增 `authorizations` 表）
+  - [ ] `skill_*`：Skill 生态声明（新增 `skills` 表）
+  - [ ] `knowledge_*`：知识库（文件系统 markdown）
+  - [ ] `memory_*`：记忆（新增 `memory_index` 表 + 文件 body，含个人偏好/习惯）
+  - [ ] `task_*`：活跃任务（迁移 `edicts` / `subtasks` / `flow_history` / `progress_log` 表；归档不分库，用生命周期字段）
+  - [ ] `token_*`：Token 记录（迁移 `token_usage` 表，原石剥离 DB 代码后调本接口）
+  - [ ] `audit_*`：审计 / 归档（迁移 `revision_records` 表）
+  - [ ] `dividend_*` / `zhongli_*`：理财数据（迁移 `dividend_*` 表）
+  - [ ] `session_*`：聊天会话（**新增 `sessions` 表，把 `paimon_home/sessions/*.json` 迁入**）
+- [ ] **路径安全**：所有文件 API 内部 `resolve()` 校验，调用方不传路径字符串
+  - [ ] ⚠️ 审计 SEC-003（P1）：**所有文件读写 API 必须内置路径校验**——`resolve()` 后确认不超出根目录。不留给调用方自行校验。这是知识库路径遍历 + 模板 RCE 链的根因
+- [ ] **写入日志**：每次 `*_set` / `*_delete` 打 INFO 日志，格式 `[世界树] <服务方>·<动作> <对象+参数>`（详见 [irminsul.md §日志约定](foundation/irminsul.md)）
+  - [ ] 每个写 / 删方法签名要求调用方传 `actor` 参数（服务方中文名）
+- [ ] **三原语**：每个域提供 CRUD / snapshot / list 三类接口；**不提供** subscribe / watch
+- [ ] **只存不推**：不发事件、不订阅地脉
+- [ ] **schema 集中迁移**：所有表的建表与增量 ALTER 在世界树内部完成，幂等
+- [ ] ⚠️ 审计 SEC-027（P2）：`authorizations` 表设计时 session_id 字段延长到 128bit（`uuid4().hex` 全 32 字符）
 - [ ] ⚠️ 审计 COR-005（P2）：世界树 API 的序列化 key 与 DB 列名保持一致（`from_agent`/`to_agent`/`progress_pct`/`creator`），不再沿用旧 `to_dict()` 的 `from`/`to`/`progress`/`created_by`
+- [ ] **会话迁移脚本**：启动时检测 `paimon_home/sessions/*.json` 存在 → 逐个导入 `sessions` 表 → 标记原 JSON 目录为 `sessions.migrated/`
+- [ ] **横向独立**：irminsul 包不 import `gnosis` / `model` / `primogem 业务接口` / `leyline`
 
-#### A3 · 原石 `fairy/primogem/`
+#### A3 · 原石 `paimon/foundation/primogem.py`
 
+**定位**：服务层模块。业务逻辑留原石（费率查表 / 缓存折扣计算 / 多维聚合 / dashboard），**数据落盘统一调世界树 `token_*` API**。详见 [foundation/primogem.md](foundation/primogem.md)。
+
+- [ ] **剥离 DB 代码**：原 `Primogem` 类里的 `aiosqlite.connect` / `executescript` / `_migrate` / `_SCHEMA` 全部删除，统一迁到世界树
+- [ ] **重构为服务层**：`Primogem` 不再拿 `db_path`，改为 `Primogem(irminsul: Irminsul)` 持有世界树引用
+- [ ] `record()` 内部改调 `irminsul.token_write(..., actor="原石")`
+- [ ] `get_session_stats()` / `get_global_stats()` / `get_timeline_stats()` 等聚合查询通过世界树的 `token_*` 查询接口拿行，原石做二次聚合 / 格式化
 - [ ] 订阅地脉 `vision.chat_complete` 事件累积成本
 - [ ] ⚠️ 审计 COR-007（P2）：费用计算**按模型查表**，不硬编码。接口 `model_name` 为必传参数
 - [ ] 接入三月 Web 观测面板（A4 之后）
 
-#### A4 · 三月 `fairy/march/`
+#### A4 · 三月 `paimon/foundation/march/`
 
 - [ ] 吸收 `scheduler/` + `diagnostics.py`，预留响铃接口
 - [ ] ⚠️ 审计 OPS-005（P1）：调度循环必须有 **Task 级别健康检查 + 自动重启**，不仅是进程拉起
@@ -225,7 +255,7 @@
 |---|------|------|------|
 | C-Q1 | **生执依赖环回滚机制**：saga 补偿 / 状态快照 / 其他？ | C2 | |
 | C-Q2 | **时执压缩阈值**：旧 3.5k 偏低，目标阈值是多少？ | C4 | 需调研主流方案 |
-| C-Q3 | **时执归档存储介质**：本地 SQLite / 独立归档库 / 对象存储？ | C4 | 影响归档生命周期实现 |
+| C-Q3 | ~~**时执归档存储介质**：本地 SQLite / 独立归档库 / 对象存储？~~ | — | **已解决**：架构升级为"世界树唯一存储层"后，归档同库，由时执打生命周期字段（热/冷/过期）区分；不分独立库 |
 
 ### 待执行
 
@@ -344,7 +374,7 @@
 ### 验收条件
 
 - [ ] 派蒙路由全链路可跑通（闲聊 / 天使 / 四影-七神三条路径）
-- [ ] 单个 session JSON 损坏时其他 session 正常加载（测试）
+- [ ] 单个 session 记录（世界树 sessions 表的行）损坏时其他 session 正常加载（测试）
 - [ ] WebUI Cookie 含 HttpOnly + SameSite（浏览器 DevTools 确认）
 - [ ] 认证失败 5 次/分钟后被限速（测试，与 D1-WebUI 速率限制一致）
 - [ ] `session_id` 长度 ≥ 32 hex 字符

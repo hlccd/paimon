@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from paimon.channels.base import Channel
     from paimon.config import Config
     from paimon.foundation.gnosis import Gnosis
+    from paimon.foundation.irminsul import Irminsul
     from paimon.foundation.primogem import Primogem
     from paimon.llm import Model
     from paimon.session import SessionManager
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 @dataclass
 class RuntimeState:
     cfg: Config | None = None
+    irminsul: Irminsul | None = None
     session_mgr: SessionManager | None = None
     model: Model | None = None
     gnosis: Gnosis | None = None

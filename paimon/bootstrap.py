@@ -5,6 +5,7 @@ from loguru import logger
 from paimon.channels.base import Channel
 from paimon.config import Config
 from paimon.foundation.gnosis import Gnosis
+from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.primogem import Primogem
 from paimon.llm import AnthropicProvider, Model, OpenAIProvider
 from paimon.llm.base import Provider
@@ -37,15 +38,22 @@ def _make_provider(cfg: Config, name: str) -> Provider:
         raise ValueError(f"未知的 Provider: {name}")
 
 
-def create_app(cfg: Config) -> list[Channel]:
+async def create_app(cfg: Config) -> list[Channel]:
     state.cfg = cfg
     state.session_tasks.clear()
     state.session_task_locks.clear()
 
     cfg.paimon_home.mkdir(parents=True, exist_ok=True)
 
-    state.session_mgr = SessionManager.load(cfg.paimon_home)
-    state.primogem = Primogem(cfg.paimon_home / "primogem.db")
+    # 世界树最早初始化（全系统唯一存储层）
+    state.irminsul = Irminsul(cfg.paimon_home)
+    await state.irminsul.initialize()
+
+    # 会话管理器从世界树恢复
+    state.session_mgr = await SessionManager.load(state.irminsul)
+
+    # 原石持有世界树引用（服务层）
+    state.primogem = Primogem(state.irminsul)
 
     gnosis = Gnosis(cfg)
     state.gnosis = gnosis

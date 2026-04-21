@@ -46,7 +46,8 @@ class Config(BaseSettings):
     qq_owner_ids: str = ""
 
     # ========== 系统配置 ==========
-    paimon_home: Path = Path("~/.paimon").expanduser()
+    # 默认锚定仓库根目录下的 .paimon/（code 与 state 同置）
+    paimon_home: Path = Path(__file__).resolve().parent.parent / ".paimon"
     stream_interval: float = 1.0
     max_tokens: int = 64000
     context_window_tokens: int = 128000
