@@ -26,10 +26,6 @@ class Provider(abc.ABC):
     model_name: str = ""
 
     @abc.abstractmethod
-    def __init__(self, **kwargs: Any):
-        pass
-
-    @abc.abstractmethod
     def chat_stream(
         self,
         messages: Iterable[Any],

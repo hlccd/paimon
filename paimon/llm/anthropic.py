@@ -26,6 +26,22 @@ class AnthropicProvider(Provider):
         self.model_name = cfg.model
         self.max_tokens = cfg.max_tokens
 
+    @classmethod
+    def from_params(
+        cls, *, api_key: str, base_url: str, model: str, max_tokens: int,
+    ) -> AnthropicProvider:
+        from anthropic import AsyncAnthropic
+
+        instance = object.__new__(cls)
+        kwargs: dict[str, Any] = {"api_key": api_key, "max_retries": 10}
+        if base_url:
+            kwargs["base_url"] = base_url
+        instance.client = AsyncAnthropic(**kwargs)
+        instance.model = model
+        instance.model_name = model
+        instance.max_tokens = max_tokens
+        return instance
+
     @staticmethod
     def _convert_tools(
         openai_tools: list[dict[str, Any]] | None,
@@ -158,20 +174,29 @@ class AnthropicProvider(Provider):
                     usage = final.usage
                     input_tokens = getattr(usage, "input_tokens", 0) or 0
                     output_tokens = getattr(usage, "output_tokens", 0) or 0
+                    cache_creation = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
                     if input_tokens > 0 or output_tokens > 0:
+                        cache_info = ""
+                        if cache_creation or cache_read:
+                            cache_info = f" 缓存写入={cache_creation} 缓存命中={cache_read}"
                         logger.debug(
-                            "[神之心] token用量: 输入={} 输出={}",
-                            input_tokens, output_tokens,
+                            "[神之心] token用量: 输入={} 输出={}{}",
+                            input_tokens, output_tokens, cache_info,
                         )
                     yield StreamChunk(usage={
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
+                        "cache_creation_tokens": cache_creation,
+                        "cache_read_tokens": cache_read,
                     })
                 except Exception as e:
                     logger.debug("[神之心] 获取最终消息失败: {}", e)
                     yield StreamChunk(usage={
                         "input_tokens": 0,
                         "output_tokens": 0,
+                        "cache_creation_tokens": 0,
+                        "cache_read_tokens": 0,
                     })
         except Exception as e:
             if isinstance(e, APIStatusError) and e.status_code == 529:

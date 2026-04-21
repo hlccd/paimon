@@ -24,6 +24,9 @@ dependencies = [
     # WebUI
     "aiohttp>=3.9.0",
 
+    # Storage
+    "aiosqlite>=0.20.0",
+
     # Utilities
     "loguru>=0.7.0",
     "telegramify-markdown>=1.1.1",

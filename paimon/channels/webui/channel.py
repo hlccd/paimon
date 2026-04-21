@@ -41,6 +41,7 @@ class WebUIChannel(Channel):
 
     def _setup_routes(self):
         self.app.router.add_get("/", self.index)
+        self.app.router.add_get("/dashboard", self.dashboard)
         self.app.router.add_post("/api/auth", self.auth)
         self.app.router.add_post("/api/chat", self.chat)
         self.app.router.add_get("/api/sessions", self.get_sessions)
@@ -48,6 +49,8 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/sessions/new", self.new_session)
         self.app.router.add_post("/api/sessions/{session_id}/delete", self.delete_session)
         self.app.router.add_post("/api/sessions/stop", self.stop_session)
+        self.app.router.add_get("/api/token_stats", self.token_stats)
+        self.app.router.add_get("/api/token_stats/timeline", self.token_stats_timeline)
 
     def _get_login_html(self) -> str:
         from paimon.channels.webui.theme import THEME_COLORS
@@ -172,6 +175,57 @@ class WebUIChannel(Channel):
             content_type="text/html",
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
+
+    async def dashboard(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.Response(text=self._get_login_html(), content_type="text/html")
+
+        from paimon.channels.webui.dashboard_html import build_dashboard_html
+        return web.Response(
+            text=build_dashboard_html(),
+            content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    async def token_stats(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        primogem = self.state.primogem
+        if not primogem:
+            return web.json_response({"error": "原石模块未启用"}, status=500)
+
+        global_stats = await primogem.get_global_stats()
+        detail_stats = await primogem.get_detail_stats()
+
+        return web.json_response({
+            "global": global_stats,
+            "detail": detail_stats,
+        })
+
+    async def token_stats_timeline(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        primogem = self.state.primogem
+        if not primogem:
+            return web.json_response({"error": "原石模块未启用"}, status=500)
+
+        period = request.query.get("period", "day")
+        count = min(int(request.query.get("count", "7")), 365)
+
+        if period in ("hour", "weekday"):
+            data = await primogem.get_distribution_stats(by=period)
+        else:
+            data = await primogem.get_timeline_stats(period, count)
+
+        return web.json_response({"period": period, "data": data})
 
     async def auth(self, request: web.Request) -> web.Response:
         data = await request.json()
@@ -404,25 +458,16 @@ class WebUIChannel(Channel):
 
     async def _handle_message(self, msg: IncomingMessage):
         from paimon.state import state
-        from paimon.core.chat import run_session_chat
+        from paimon.core.chat import on_channel_message
 
         session_mgr = state.session_mgr
-        if not session_mgr:
-            await msg.reply("会话管理器未初始化")
-            return
-
-        channel_key = msg.channel_key
-        session = session_mgr.get_current(channel_key)
-        if not session:
+        if session_mgr and not session_mgr.get_current(msg.channel_key):
             sid = msg.chat_id.removeprefix("webui-")
             session = session_mgr.sessions.get(sid)
             if session:
-                session_mgr.switch(channel_key, session.id)
-            else:
-                session = session_mgr.create()
-                session_mgr.switch(channel_key, session.id)
+                session_mgr.switch(msg.channel_key, session.id)
 
-        await run_session_chat(msg, self, session)
+        await on_channel_message(msg, self)
 
     async def start(self):
         self.runner = web.AppRunner(self.app)

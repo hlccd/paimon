@@ -63,3 +63,44 @@ NAVIGATION_HTML = """
         <div class="nav-logo">Paimon</div>
     </div>
 """
+
+NAV_LINKS_CSS = """
+    .nav-links {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+    .nav-link {
+        padding: 8px 16px;
+        border-radius: 6px;
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s;
+        border: 1px solid transparent;
+    }
+    .nav-link:hover {
+        color: var(--text-primary);
+        background: var(--paimon-panel-light);
+    }
+    .nav-link.active {
+        color: var(--gold);
+        background: var(--paimon-panel-light);
+        border-color: var(--gold-dark);
+    }
+"""
+
+
+def navigation_html(active: str = "chat") -> str:
+    chat_cls = "nav-link active" if active == "chat" else "nav-link"
+    dash_cls = "nav-link active" if active == "dashboard" else "nav-link"
+    return f"""
+    <div class="nav-bar">
+        <div class="nav-logo">Paimon</div>
+        <div class="nav-links">
+            <a href="/" class="{chat_cls}">对话</a>
+            <a href="/dashboard" class="{dash_cls}">仪表盘</a>
+        </div>
+    </div>
+    """

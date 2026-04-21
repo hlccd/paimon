@@ -1,5 +1,5 @@
 from paimon.channels.webui.theme import (
-    THEME_COLORS, BASE_CSS, NAVIGATION_CSS, NAVIGATION_HTML,
+    THEME_COLORS, BASE_CSS, NAVIGATION_CSS, NAV_LINKS_CSS, navigation_html,
 )
 
 CHAT_HTML = (
@@ -13,6 +13,7 @@ CHAT_HTML = (
     + THEME_COLORS
     + BASE_CSS
     + NAVIGATION_CSS
+    + NAV_LINKS_CSS
     + """
         body { height: 100vh; overflow: hidden; }
 
@@ -224,7 +225,7 @@ CHAT_HTML = (
 </head>
 <body>
 """
-    + NAVIGATION_HTML
+    + navigation_html("chat")
     + """
     <div class="app-container">
         <div class="sidebar">

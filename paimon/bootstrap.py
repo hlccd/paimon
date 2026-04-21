@@ -4,9 +4,37 @@ from loguru import logger
 
 from paimon.channels.base import Channel
 from paimon.config import Config
+from paimon.foundation.gnosis import Gnosis
+from paimon.foundation.primogem import Primogem
 from paimon.llm import AnthropicProvider, Model, OpenAIProvider
+from paimon.llm.base import Provider
 from paimon.session import SessionManager
 from paimon.state import state
+
+
+def _make_provider(cfg: Config, name: str) -> Provider:
+    if name == "claude-xiaomi":
+        return AnthropicProvider.from_params(
+            api_key=cfg.claude_xiaomi_api_key,
+            base_url=cfg.claude_xiaomi_base_url,
+            model=cfg.claude_xiaomi_model,
+            max_tokens=cfg.max_tokens,
+        )
+    elif name == "claude-official":
+        return AnthropicProvider.from_params(
+            api_key=cfg.claude_official_api_key,
+            base_url=cfg.claude_official_base_url,
+            model=cfg.claude_official_model,
+            max_tokens=cfg.max_tokens,
+        )
+    elif name == "openai":
+        return OpenAIProvider.from_params(
+            api_key=cfg.openai_api_key,
+            base_url=cfg.openai_base_url,
+            model=cfg.openai_model,
+        )
+    else:
+        raise ValueError(f"未知的 Provider: {name}")
 
 
 def create_app(cfg: Config) -> list[Channel]:
@@ -17,12 +45,20 @@ def create_app(cfg: Config) -> list[Channel]:
     cfg.paimon_home.mkdir(parents=True, exist_ok=True)
 
     state.session_mgr = SessionManager.load(cfg.paimon_home)
+    state.primogem = Primogem(cfg.paimon_home / "primogem.db")
 
-    if cfg.provider == "anthropic":
-        provider = AnthropicProvider(cfg)
-    else:
-        provider = OpenAIProvider(cfg)
-    state.model = Model(provider)
+    gnosis = Gnosis(cfg)
+    state.gnosis = gnosis
+
+    primary_provider = _make_provider(cfg, cfg.llm_provider)
+    gnosis.register(cfg.llm_provider, primary_provider)
+
+    deep_name = cfg.llm_deep_provider or cfg.llm_provider
+    if deep_name != cfg.llm_provider:
+        deep_provider = _make_provider(cfg, deep_name)
+        gnosis.register(deep_name, deep_provider)
+
+    state.model = Model(primary_provider, gnosis)
 
     channels: list[Channel] = []
 

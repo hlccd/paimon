@@ -3,17 +3,21 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from paimon.llm.base import Provider
 from paimon.session import Session
 
+if TYPE_CHECKING:
+    from paimon.foundation.gnosis import Gnosis
+
 
 class Model:
-    def __init__(self, provider: Provider):
+    def __init__(self, provider: Provider, gnosis: Gnosis | None = None):
         self.provider = provider
+        self.gnosis = gnosis
         self.last_chat_cost_usd: float = 0.0
 
     @staticmethod
@@ -48,12 +52,35 @@ class Model:
             return "\n".join(lines[1:-1]).strip()
         return s
 
-    async def _stream_text(self, messages: list[dict[str, Any]]) -> str:
+    @staticmethod
+    def _empty_usage() -> dict[str, int]:
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
+        }
+
+    @staticmethod
+    def _merge_usage(target: dict[str, int], source: dict[str, Any]) -> None:
+        for key in ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens"):
+            target[key] = target.get(key, 0) + (source.get(key, 0) or 0)
+
+    async def _stream_text(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[str, dict[str, int]]:
         text = ""
+        usage = self._empty_usage()
         async for chunk in self.provider.chat_stream(messages):
+            if chunk.usage:
+                self._merge_usage(usage, chunk.usage)
+                continue
             if chunk.content:
                 text += chunk.content
-        return text
+        if usage["input_tokens"] == 0 and usage["output_tokens"] == 0:
+            usage["input_tokens"] = self.estimate_messages_tokens(messages)
+            usage["output_tokens"] = max(1, (len(text) + 3) // 4)
+        return text, usage
 
     def _build_memory_prompt(
         self,
@@ -136,6 +163,7 @@ class Model:
         summary = await self._build_memory_block(
             archived,
             existing_memories=session.session_memory,
+            session_id=session.id,
         )
         if summary not in session.session_memory:
             session.session_memory.append(summary)
@@ -150,6 +178,7 @@ class Model:
         self,
         archived_messages: list[dict],
         existing_memories: list[str],
+        session_id: str = "",
     ) -> str:
         transcript = [
             {"role": msg.get("role", ""), "content": msg.get("content")}
@@ -181,7 +210,7 @@ class Model:
         last_error = "unknown"
         for attempt in range(1, 4):
             try:
-                raw = await self._stream_text(messages)
+                raw, usage = await self._stream_text(messages)
             except Exception as e:
                 last_error = f"模型调用失败: {e}"
                 logger.warning(
@@ -195,6 +224,7 @@ class Model:
                 last_error = "模型输出为空"
                 logger.warning("[派蒙·压缩] 记忆生成第{}/3次结果为空", attempt)
                 continue
+            await self._record_primogem(session_id, "compress", usage, purpose="上下文压缩")
             return summary
 
         raise RuntimeError(f"记忆生成3次尝试均失败: {last_error}")
@@ -209,22 +239,40 @@ class Model:
         runtime_messages = self._build_runtime_messages(session)
 
         text_buf = ""
-        round_input_tokens = 0
-        round_output_tokens = 0
+        usage = self._empty_usage()
 
+        active_provider = self.provider
         try:
-            stream_iter = self.provider.chat_stream(runtime_messages)
+            stream_iter = active_provider.chat_stream(runtime_messages)
         except Exception as e:
-            logger.error("[神之心·模型] 流式初始化失败: {}", e)
-            session.messages.pop()
-            yield f"\n\n> [错误] {e}"
-            return
+            if self.gnosis:
+                self.gnosis.report_failure(active_provider.model_name)
+                fallback = self.gnosis.get_provider("shallow")
+                if fallback is not active_provider:
+                    logger.warning("[神之心·故障切换] chat 切换到备用 provider")
+                    active_provider = fallback
+                    try:
+                        stream_iter = active_provider.chat_stream(runtime_messages)
+                    except Exception as e2:
+                        logger.error("[神之心·模型] 备用 provider 也失败: {}", e2)
+                        session.messages.pop()
+                        yield f"\n\n> [错误] {e2}"
+                        return
+                else:
+                    logger.error("[神之心·模型] 流式初始化失败: {}", e)
+                    session.messages.pop()
+                    yield f"\n\n> [错误] {e}"
+                    return
+            else:
+                logger.error("[神之心·模型] 流式初始化失败: {}", e)
+                session.messages.pop()
+                yield f"\n\n> [错误] {e}"
+                return
 
         try:
             async for chunk in stream_iter:
                 if chunk.usage:
-                    round_input_tokens += chunk.usage.get("input_tokens", 0)
-                    round_output_tokens += chunk.usage.get("output_tokens", 0)
+                    self._merge_usage(usage, chunk.usage)
                     continue
 
                 if chunk.reasoning_content:
@@ -244,19 +292,68 @@ class Model:
 
         session.messages.append({"role": "assistant", "content": text_buf})
 
-        if round_input_tokens == 0 and round_output_tokens == 0:
-            round_input_tokens = self.estimate_messages_tokens(runtime_messages)
-            round_output_tokens = max(1, (len(text_buf) + 3) // 4)
+        if self.gnosis:
+            self.gnosis.report_success(active_provider.model_name)
 
-        total = round_input_tokens + round_output_tokens
-        cost = round_input_tokens * 0.000003 + round_output_tokens * 0.000015
+        if usage["input_tokens"] == 0 and usage["output_tokens"] == 0:
+            usage["input_tokens"] = self.estimate_messages_tokens(runtime_messages)
+            usage["output_tokens"] = max(1, (len(text_buf) + 3) // 4)
+
+        total = usage["input_tokens"] + usage["output_tokens"]
+        cost = await self._compute_and_record(session.id, "chat", usage, purpose="闲聊")
         self.last_chat_cost_usd = cost
+        cache_info = ""
+        cw, cr = usage["cache_creation_tokens"], usage["cache_read_tokens"]
+        if cw or cr:
+            cache_info = f" 缓存写入={cw} 缓存命中={cr}"
         logger.info(
-            "[神之心·模型] token统计: 输入={} 输出={} 总计={} 模型={}",
-            round_input_tokens, round_output_tokens, total, self.provider.model_name,
+            "[神之心·模型] token统计: 输入={} 输出={} 总计={}{} 模型={}",
+            usage["input_tokens"], usage["output_tokens"], total,
+            cache_info, active_provider.model_name,
         )
 
-    async def generate_title(self, user_input: str) -> str:
+    async def _compute_and_record(
+        self,
+        session_id: str,
+        component: str,
+        usage: dict[str, int],
+        purpose: str = "",
+    ) -> float:
+        from paimon.state import state
+        from paimon.foundation.primogem import Primogem
+
+        cost = Primogem.compute_cost(
+            self.provider.model_name,
+            usage["input_tokens"],
+            usage["output_tokens"],
+            usage.get("cache_creation_tokens", 0),
+            usage.get("cache_read_tokens", 0),
+        )
+        primogem = state.primogem
+        if primogem:
+            await primogem.record(
+                session_id=session_id,
+                component=component,
+                model_name=self.provider.model_name,
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                cost_usd=cost,
+                cache_creation_tokens=usage.get("cache_creation_tokens", 0),
+                cache_read_tokens=usage.get("cache_read_tokens", 0),
+                purpose=purpose,
+            )
+        return cost
+
+    async def _record_primogem(
+        self,
+        session_id: str,
+        component: str,
+        usage: dict[str, int],
+        purpose: str = "",
+    ) -> None:
+        await self._compute_and_record(session_id, component, usage, purpose=purpose)
+
+    async def generate_title(self, user_input: str, session_id: str = "") -> str:
         prompt = (
             "请根据以下用户输入，总结一个 3 到 5 个词的简短标题。"
             "你的回答必须只有标题，不要有任何其他修饰语或标点符号。\n\n"
@@ -264,7 +361,8 @@ class Model:
         )
         msgs = [{"role": "user", "content": prompt}]
         try:
-            title = await self._stream_text(msgs)
+            title, usage = await self._stream_text(msgs)
+            await self._record_primogem(session_id, "title", usage, purpose="标题生成")
             return title.strip().strip('"').strip("'")
         except Exception as e:
             logger.error("[神之心·模型] 标题生成失败: {}", e)

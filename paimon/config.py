@@ -10,6 +10,9 @@ class Config(BaseSettings):
     # ========== LLM Provider 选择 ==========
     # 选项: "claude-xiaomi" | "claude-official" | "openai"
     llm_provider: str = "openai"
+    llm_deep_provider: str = ""
+    gnosis_shallow_concurrency: int = 5
+    gnosis_deep_concurrency: int = 2
 
     # ========== Claude 小米内网 ==========
     claude_xiaomi_api_key: str = ""
@@ -25,6 +28,11 @@ class Config(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4"
+
+    # ========== MiMo (音视频理解) ==========
+    mimo_api_key: str = ""
+    mimo_base_url: str = "https://api.xiaomimimo.com/v1"
+    mimo_model: str = "mimo-v2-pro"
 
     # ========== 渠道配置 ==========
     webui_enabled: bool = True

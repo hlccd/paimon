@@ -20,6 +20,13 @@ def _require_runtime():
 
 
 async def on_channel_message(msg: IncomingMessage, channel: Channel):
+    from paimon.core.commands import dispatch_command
+
+    reply_text = await dispatch_command(msg, channel)
+    if reply_text is not None:
+        await msg.reply(reply_text)
+        return
+
     cfg, session_mgr, model = _require_runtime()
 
     channel_key = msg.channel_key
@@ -124,7 +131,7 @@ async def handle_chat(
                     time_str = f"{minutes}分{seconds:.1f}秒"
                 cost = model.last_chat_cost_usd
                 cost_str = f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}"
-                await reply.send(f"\n\n---\n{time_str} | {cost_str}")
+                await reply.send(f"\n\n---\n{time_str} | ~{cost_str}")
             except Exception:
                 pass
             try:
@@ -186,7 +193,7 @@ async def handle_chat(
     user_msgs = [m for m in session.messages if m.get("role") == "user"]
     if len(user_msgs) == 1 and session.name.startswith("s-"):
         logger.debug("[派蒙·对话] 自动生成标题 {}", session.id)
-        title = await model.generate_title(user_msgs[0]["content"])
+        title = await model.generate_title(user_msgs[0]["content"], session_id=session.id)
         if title:
             session.name = title
             session_mgr.save_session(session)
