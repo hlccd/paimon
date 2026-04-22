@@ -20,6 +20,15 @@ def _require_runtime():
 
 
 async def on_channel_message(msg: IncomingMessage, channel: Channel):
+    # 0) 若有挂起的权限询问，本条消息当作答复消化，不走正常 chat 流
+    channel_key = msg.channel_key
+    pending = state.pending_asks.get(channel_key)
+    if pending is not None and not pending.done():
+        pending.set_result(msg.text)
+        logger.info("[派蒙·授权] 收到答复 channel_key={} text='{}'",
+                    channel_key, msg.text[:40])
+        return
+
     from paimon.core.commands import dispatch_command
 
     reply_text = await dispatch_command(msg, channel)
@@ -29,7 +38,6 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
 
     cfg, session_mgr, model = _require_runtime()
 
-    channel_key = msg.channel_key
     session = session_mgr.get_current(channel_key)
     if not session:
         session = session_mgr.create()
@@ -50,6 +58,20 @@ async def run_session_chat(
     msg: IncomingMessage, channel: Channel, session: Session,
     skill_name: str = "",
 ):
+    # 天使路径权限闸（docs/aimon.md §2.4）：敏感 skill 需询问用户
+    if skill_name and state.authz_decision is not None:
+        from paimon.core.authz import Verdict
+        verdict, hint = await state.authz_decision.check_skill(
+            skill_name, channel=channel, chat_id=msg.chat_id, session=session,
+        )
+        if verdict == Verdict.DENY:
+            if hint:
+                await msg.reply(hint)
+            return
+        if hint:
+            # 放行时附带的友好提示（如"按之前的永久授权放行"）
+            await msg.reply(hint + "\n")
+
     lock = state.session_task_locks.setdefault(session.id, asyncio.Lock())
     task: asyncio.Task | None = None
 

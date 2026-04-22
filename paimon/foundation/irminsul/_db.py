@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS skill_declarations (
     description TEXT NOT NULL DEFAULT '',
     triggers TEXT NOT NULL DEFAULT '',
     allowed_tools TEXT NOT NULL DEFAULT '[]',
+    sensitive_tools TEXT NOT NULL DEFAULT '[]',
     manifest_json TEXT NOT NULL DEFAULT '{}',
     orphaned INTEGER NOT NULL DEFAULT 0,
     installed_at REAL NOT NULL,
@@ -201,7 +202,8 @@ CREATE INDEX IF NOT EXISTS idx_session_updated ON session_records(updated_at);
 
 # 未来新增列时，在此注册一条 (table, column, col_def)；启动时幂等 ALTER
 _MIGRATIONS: list[tuple[str, str, str]] = [
-    # ("skill_declarations", "new_column", "TEXT NOT NULL DEFAULT ''"),
+    # 授权体系：skill_declarations 加 sensitive_tools（allowed_tools 命中敏感清单的子集）
+    ("skill_declarations", "sensitive_tools", "TEXT NOT NULL DEFAULT '[]'"),
 ]
 
 

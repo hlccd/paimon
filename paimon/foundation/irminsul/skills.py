@@ -18,10 +18,11 @@ class SkillDecl:
     name: str
     source: str = "builtin"                   # 'builtin' | 'plugin' | 'ai_gen'
     origin: str = ""                          # ai_gen 场景记 proposed_by_session
-    sensitivity: str = "normal"               # 'normal' | 'sensitive'
+    sensitivity: str = "normal"               # 'normal' | 'sensitive' —— 冰神装载时由 allowed_tools 派生
     description: str = ""
     triggers: str = ""
     allowed_tools: list[str] = field(default_factory=list)
+    sensitive_tools: list[str] = field(default_factory=list)  # allowed_tools 命中敏感清单的子集
     manifest_json: dict = field(default_factory=dict)
     orphaned: bool = False
     installed_at: float = 0.0                 # 0 → 写入时 repo 填 time.time()
@@ -39,8 +40,8 @@ class SkillRepo:
         await self._db.execute(
             "INSERT INTO skill_declarations "
             "(name, source, origin, sensitivity, description, triggers, "
-            " allowed_tools, manifest_json, orphaned, installed_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            " allowed_tools, sensitive_tools, manifest_json, orphaned, installed_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) DO UPDATE SET "
             "  source = excluded.source, "
             "  origin = excluded.origin, "
@@ -48,6 +49,7 @@ class SkillRepo:
             "  description = excluded.description, "
             "  triggers = excluded.triggers, "
             "  allowed_tools = excluded.allowed_tools, "
+            "  sensitive_tools = excluded.sensitive_tools, "
             "  manifest_json = excluded.manifest_json, "
             "  orphaned = excluded.orphaned, "
             "  updated_at = excluded.updated_at",
@@ -55,6 +57,7 @@ class SkillRepo:
                 decl.name, decl.source, decl.origin, decl.sensitivity,
                 decl.description, decl.triggers,
                 json.dumps(decl.allowed_tools, ensure_ascii=False),
+                json.dumps(decl.sensitive_tools, ensure_ascii=False),
                 json.dumps(decl.manifest_json, ensure_ascii=False),
                 1 if decl.orphaned else 0,
                 installed_at, now,
@@ -69,7 +72,7 @@ class SkillRepo:
     async def get(self, name: str) -> SkillDecl | None:
         async with self._db.execute(
             "SELECT name, source, origin, sensitivity, description, triggers, "
-            "allowed_tools, manifest_json, orphaned, installed_at, updated_at "
+            "allowed_tools, sensitive_tools, manifest_json, orphaned, installed_at, updated_at "
             "FROM skill_declarations WHERE name = ?",
             (name,),
         ) as cur:
@@ -90,7 +93,7 @@ class SkillRepo:
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = (
             "SELECT name, source, origin, sensitivity, description, triggers, "
-            "allowed_tools, manifest_json, orphaned, installed_at, updated_at "
+            "allowed_tools, sensitive_tools, manifest_json, orphaned, installed_at, updated_at "
             f"FROM skill_declarations {where} ORDER BY name"
         )
         async with self._db.execute(sql, tuple(params)) as cur:
@@ -126,7 +129,8 @@ def _row_to_skill(row) -> SkillDecl:
         name=row[0], source=row[1], origin=row[2], sensitivity=row[3],
         description=row[4], triggers=row[5],
         allowed_tools=json.loads(row[6]) if row[6] else [],
-        manifest_json=json.loads(row[7]) if row[7] else {},
-        orphaned=bool(row[8]),
-        installed_at=row[9], updated_at=row[10],
+        sensitive_tools=json.loads(row[7]) if row[7] else [],
+        manifest_json=json.loads(row[8]) if row[8] else {},
+        orphaned=bool(row[9]),
+        installed_at=row[10], updated_at=row[11],
     )

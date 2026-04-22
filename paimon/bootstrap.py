@@ -85,6 +85,14 @@ async def create_app(cfg: Config) -> list[Channel]:
     state.skill_registry = SkillRegistry(project_root / "skills")
     state.skill_registry.scan_and_load()
 
+    # 授权体系：世界树灌缓存 + 决策器初始化
+    from paimon.core.authz import AuthzCache, AuthzDecision
+    state.authz_cache = AuthzCache()
+    await state.authz_cache.load(state.irminsul)
+    state.authz_decision = AuthzDecision(
+        state.authz_cache, state.irminsul, state.skill_registry,
+    )
+
     channels: list[Channel] = []
 
     if cfg.webui_enabled:
@@ -150,6 +158,15 @@ async def create_app(cfg: Config) -> list[Channel]:
                 await channel.send_text(chat_id, message)
 
     state.leyline.subscribe("march.ring", _on_march_ring)
+
+    # 权限缓存：新 skill 上线（冰神审过 → 四影通知）时失效对应缓存
+    async def _on_skill_loaded(event: Event) -> None:
+        payload = event.payload
+        name = payload.get("name")
+        if state.authz_cache and name:
+            state.authz_cache.invalidate("skill", name)
+
+    state.leyline.subscribe("skill.loaded", _on_skill_loaded)
 
     logger.info(
         "[派蒙·启动] 系统就绪 (模型={}, 频道={})",

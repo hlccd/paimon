@@ -48,3 +48,12 @@ class Channel(ABC):
 
     @abstractmethod
     async def stop(self) -> None: ...
+
+    async def ask_user(self, chat_id: str, prompt: str, *, timeout: float = 30.0) -> str:
+        """向用户询问并等待纯文本答复。
+
+        默认实现抛 NotImplementedError —— 表示该频道不支持交互式询问；
+        调用方（如授权决策）应捕获并降级（通常保守拒绝）。
+        超时抛 asyncio.TimeoutError。
+        """
+        raise NotImplementedError(f"频道 {getattr(self, 'name', '?')} 未实现 ask_user")

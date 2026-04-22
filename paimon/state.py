@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from paimon.angels.registry import SkillRegistry
     from paimon.channels.base import Channel
     from paimon.config import Config
+    from paimon.core.authz import AuthzCache, AuthzDecision
     from paimon.foundation.gnosis import Gnosis
     from paimon.foundation.irminsul import Irminsul
     from paimon.foundation.leyline import Leyline
@@ -33,6 +34,11 @@ class RuntimeState:
     channels: dict[str, "Channel"] = field(default_factory=dict)
     session_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     session_task_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
+    # 授权体系
+    authz_cache: AuthzCache | None = None
+    authz_decision: AuthzDecision | None = None
+    # 挂起中的权限询问 future：channel_key -> Future[str]
+    pending_asks: dict[str, asyncio.Future] = field(default_factory=dict)
 
 
 state = RuntimeState()

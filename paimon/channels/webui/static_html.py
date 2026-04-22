@@ -268,6 +268,8 @@ CHAT_HTML = (
     <script>
         let currentSession = 'default';
         let isWaitingResponse = false;
+        // 权限询问挂起标记：true 时允许输入答复，sendMessage 走 /api/authz/answer
+        let pendingAuthzAsk = false;
 
         document.addEventListener('DOMContentLoaded', () => {
             loadSessions();
@@ -365,7 +367,36 @@ CHAT_HTML = (
         async function sendMessage() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
-            if (!message || isWaitingResponse) return;
+            // 允许在"挂起权限询问"时发送答复；否则 isWaitingResponse 阻断
+            if (!message || (isWaitingResponse && !pendingAuthzAsk)) return;
+
+            // 答复权限询问走专用端点：不创建新的 typing bubble（原 SSE 流会继续写）
+            if (pendingAuthzAsk) {
+                pendingAuthzAsk = false;
+                appendMessage('user', message);
+                input.value = '';
+                input.style.height = 'auto';
+                updateStatus('处理中…');
+                try {
+                    const resp = await fetch('/api/authz/answer', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: currentSession, answer: message })
+                    });
+                    if (!resp.ok) {
+                        const err = await resp.json().catch(() => ({}));
+                        appendMessage('assistant', '⚠️ ' + (err.error || '权限询问已关闭，请稍后重试'));
+                        isWaitingResponse = false;
+                        updateStatus('就绪');
+                    }
+                } catch (e) {
+                    console.error('权限答复发送失败:', e);
+                    appendMessage('assistant', '⚠️ 答复发送失败: ' + e.message);
+                    isWaitingResponse = false;
+                    updateStatus('就绪');
+                }
+                return;
+            }
 
             appendMessage('user', message);
             input.value = '';
@@ -404,6 +435,16 @@ CHAT_HTML = (
                                 if (data.type === 'message') {
                                     fullResponse += (data.content || '');
                                     typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
+                                    scrollToBottom();
+                                } else if (data.type === 'question') {
+                                    // 权限询问气泡：提示用户回复「放行/拒绝/永久放行/永久禁止」
+                                    const q = '🛡️ **权限询问**\\n\\n' + (data.content || '') +
+                                        '\\n\\n*直接在下方输入回复即可。默认 30 秒无答复视为拒绝。*';
+                                    fullResponse += (fullResponse ? '\\n\\n---\\n\\n' : '') + q;
+                                    typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
+                                    // 解除输入锁：允许用户输入答复（走 /api/authz/answer）
+                                    pendingAuthzAsk = true;
+                                    updateStatus('等你答复…');
                                     scrollToBottom();
                                 } else if (data.type === 'done') {
                                     isWaitingResponse = false;

@@ -37,6 +37,9 @@ class WebUIChannel(Channel):
         self.require_auth = bool(self.access_code)
         self.valid_tokens: set[str] = set()
 
+        # chat_id -> 当前活跃 SSE reply 回调（供 ask_user 推送询问用）
+        self._active_replies: dict[str, object] = {}
+
         self._setup_routes()
 
     def _setup_routes(self):
@@ -53,6 +56,11 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/token_stats/timeline", self.token_stats_timeline)
         self.app.router.add_get("/tasks", self.tasks_page)
         self.app.router.add_get("/api/tasks", self.tasks_api)
+        self.app.router.add_get("/plugins", self.plugins_page)
+        self.app.router.add_get("/api/plugins/skills", self.plugins_skills_api)
+        self.app.router.add_get("/api/plugins/authz", self.plugins_authz_api)
+        self.app.router.add_post("/api/plugins/authz/revoke", self.plugins_authz_revoke_api)
+        self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
 
     async def tasks_page(self, request: web.Request) -> web.Response:
         if self.require_auth:
@@ -66,6 +74,129 @@ class WebUIChannel(Channel):
             content_type="text/html",
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
+
+    async def plugins_page(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.Response(text=self._get_login_html(), content_type="text/html")
+
+        from paimon.channels.webui.plugins_html import build_plugins_html
+        return web.Response(
+            text=build_plugins_html(),
+            content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    async def plugins_skills_api(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        registry = self.state.skill_registry
+        cache = self.state.authz_cache
+        skills = []
+        if registry:
+            for s in registry.list_all():
+                authz_decision = cache.get("skill", s.name) if cache else None
+                skills.append({
+                    "name": s.name,
+                    "description": s.description,
+                    "triggers": s.triggers,
+                    "allowed_tools": s.allowed_tools or [],
+                    "sensitive_tools": getattr(s, "sensitive_tools", []),
+                    "sensitivity": getattr(s, "sensitivity", "normal"),
+                    "authz": authz_decision,
+                })
+        return web.json_response({"skills": skills})
+
+    async def plugins_authz_api(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"records": []})
+        records = await irminsul.authz_list()
+        return web.json_response({
+            "records": [
+                {
+                    "id": r.id,
+                    "subject_type": r.subject_type,
+                    "subject_id": r.subject_id,
+                    "decision": r.decision,
+                    "reason": r.reason,
+                    "created_at": r.created_at,
+                    "updated_at": r.updated_at,
+                }
+                for r in records
+            ]
+        })
+
+    async def authz_answer_api(self, request: web.Request) -> web.Response:
+        """权限询问专用答复端点。
+
+        不经 /api/chat 流程，直接把答复文本塞给挂起的 Future。
+        这样原 SSE 流不会被并发 chat 流程干扰。
+        """
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            session_id = data.get("session_id", "").strip()
+            answer = data.get("answer", "").strip()
+            if not session_id or not answer:
+                return web.json_response({"ok": False, "error": "缺少 session_id 或 answer"}, status=400)
+
+            chat_id = f"webui-{session_id}"
+            channel_key = f"{self.name}:{chat_id}"
+            fut = self.state.pending_asks.get(channel_key)
+            if fut is None or fut.done():
+                return web.json_response({"ok": False, "error": "当前无挂起的权限询问"}, status=404)
+
+            fut.set_result(answer)
+            logger.info(
+                "[派蒙·WebUI] 权限答复送达 session={} answer='{}'",
+                session_id[:8], answer[:40],
+            )
+            return web.json_response({"ok": True})
+        except Exception as e:
+            logger.error("[派蒙·WebUI] 权限答复异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def plugins_authz_revoke_api(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            subject_type = data.get("subject_type", "")
+            subject_id = data.get("subject_id", "")
+            if not subject_type or not subject_id:
+                return web.json_response({"ok": False, "error": "缺少 subject_type 或 subject_id"}, status=400)
+
+            irminsul = self.state.irminsul
+            if not irminsul:
+                return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+
+            ok = await irminsul.authz_revoke(
+                subject_type, subject_id, actor="冰神面板",
+            )
+            # 同步撤销本地缓存
+            if self.state.authz_cache:
+                self.state.authz_cache.invalidate(subject_type, subject_id)
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            logger.error("[派蒙·WebUI] 撤销授权异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     async def tasks_api(self, request: web.Request) -> web.Response:
         if self.require_auth:
@@ -317,10 +448,10 @@ class WebUIChannel(Channel):
 
         connection_closed = False
 
-        async def reply(text: str) -> None:
+        async def reply(text: str, msg_type: str = "message") -> None:
             nonlocal connection_closed
             try:
-                sse_data = json.dumps({"type": "message", "content": text})
+                sse_data = json.dumps({"type": msg_type, "content": text})
                 await response.write(f"data: {sse_data}\n\n".encode())
             except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
                 connection_closed = True
@@ -330,6 +461,9 @@ class WebUIChannel(Channel):
                 logger.error("[派蒙·WebUI] SSE发送失败: {}", e)
                 raise
 
+        # 注册活跃回调，供 ask_user 推送询问
+        self._active_replies[chat_id] = reply
+
         msg = IncomingMessage(
             channel_name=self.name,
             chat_id=chat_id,
@@ -338,47 +472,51 @@ class WebUIChannel(Channel):
         )
 
         try:
-            await response.write(
-                f'data: {json.dumps({"type": "user", "content": user_message})}\n\n'.encode()
-            )
-        except Exception:
-            connection_closed = True
+            try:
+                await response.write(
+                    f'data: {json.dumps({"type": "user", "content": user_message})}\n\n'.encode()
+                )
+            except Exception:
+                connection_closed = True
 
-        from paimon.state import state
-        backend_session = None
-        if state.session_mgr:
-            channel_key = f"webui:{chat_id}"
-            backend_session = state.session_mgr.get_current(channel_key)
+            from paimon.state import state
+            backend_session = None
+            if state.session_mgr:
+                channel_key = f"webui:{chat_id}"
+                backend_session = state.session_mgr.get_current(channel_key)
 
-        try:
-            await self._handle_message(msg)
+            try:
+                await self._handle_message(msg)
 
-            if not connection_closed:
-                await response.write(f'data: {json.dumps({"type": "done"})}\n\n'.encode())
-                logger.info("[派蒙·WebUI] 消息处理完成 session={}", session_id[:8])
+                if not connection_closed:
+                    await response.write(f'data: {json.dumps({"type": "done"})}\n\n'.encode())
+                    logger.info("[派蒙·WebUI] 消息处理完成 session={}", session_id[:8])
 
-        except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
-            logger.warning("[派蒙·WebUI] 连接断开 session={}", session_id[:8])
-            if backend_session:
-                from paimon.core.chat import stop_session_task
-                await stop_session_task(backend_session.id)
+            except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
+                logger.warning("[派蒙·WebUI] 连接断开 session={}", session_id[:8])
+                if backend_session:
+                    from paimon.core.chat import stop_session_task
+                    await stop_session_task(backend_session.id)
+                return response
+
+            except Exception as e:
+                logger.error("[派蒙·WebUI] 处理异常 session={}: {}", session_id[:8], e)
+                if not connection_closed:
+                    try:
+                        error_data = json.dumps({"type": "error", "content": str(e)})
+                        await response.write(f"data: {error_data}\n\n".encode())
+                    except Exception:
+                        pass
+
+            try:
+                await response.write_eof()
+            except Exception:
+                pass
+
             return response
-
-        except Exception as e:
-            logger.error("[派蒙·WebUI] 处理异常 session={}: {}", session_id[:8], e)
-            if not connection_closed:
-                try:
-                    error_data = json.dumps({"type": "error", "content": str(e)})
-                    await response.write(f"data: {error_data}\n\n".encode())
-                except Exception:
-                    pass
-
-        try:
-            await response.write_eof()
-        except Exception:
-            pass
-
-        return response
+        finally:
+            # 无论上面走哪条分支（含早退 return / 异常），都清理活跃回调
+            self._active_replies.pop(chat_id, None)
 
     async def get_sessions(self, request: web.Request) -> web.Response:
         if self.require_auth:
@@ -499,6 +637,41 @@ class WebUIChannel(Channel):
 
     async def make_reply(self, msg: IncomingMessage) -> ChannelReply:
         return WebUIChannelReply(msg._reply)
+
+    async def ask_user(self, chat_id: str, prompt: str, *, timeout: float = 30.0) -> str:
+        """权限询问：通过当前活跃 SSE 推问题，挂起等下一条用户消息作答。
+
+        约束：调用方必须在 on_channel_message → chat() 的请求处理链路内触发，
+        这样才有活跃 SSE 可以推。无活跃连接则抛 NotImplementedError。
+        答复由 /api/authz/answer 直投 Future，避免与另一条 /api/chat 并发。
+        """
+        send = self._active_replies.get(chat_id)
+        if not send:
+            raise NotImplementedError(
+                f"chat_id={chat_id} 无活跃 SSE 连接，无法询问"
+            )
+
+        channel_key = f"{self.name}:{chat_id}"
+
+        # 已有挂起询问（并发重入）直接拒绝
+        if channel_key in self.state.pending_asks:
+            raise NotImplementedError("已有挂起的权限询问，拒绝并发")
+
+        # 推问题到前端（type=question 供前端渲染成特殊气泡 + 解锁输入）
+        try:
+            await send(prompt, msg_type="question")
+        except TypeError:
+            # reply 回调不支持关键字参数（非 WebUI 频道的自定义实现）→ 退化为普通文本
+            await send(prompt)
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        self.state.pending_asks[channel_key] = fut
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            # 无论 Future 怎样结束（成功/取消/超时），都清理
+            self.state.pending_asks.pop(channel_key, None)
 
     async def _handle_message(self, msg: IncomingMessage):
         from paimon.state import state

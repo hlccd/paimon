@@ -97,6 +97,7 @@ def navigation_html(active: str = "chat") -> str:
         ("chat", "/", "对话"),
         ("dashboard", "/dashboard", "仪表盘"),
         ("tasks", "/tasks", "任务"),
+        ("plugins", "/plugins", "插件"),
     ]
     links = "".join(
         f'<a href="{href}" class="nav-link{" active" if key == active else ""}">{label}</a>'
