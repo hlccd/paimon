@@ -21,8 +21,13 @@ if TYPE_CHECKING:
 
 from paimon.foundation.irminsul.schedule import ScheduledTask
 
-POLL_INTERVAL = 30
+# 轮询粒度：每分钟的 :00 对齐
+# 设计取舍：多数定时场景（新闻、股价、提醒）精度到分钟已经足够；
+# 对齐 :00 之后，`cron * * * * *` / `interval=60` 都会在整分钟触发，日志时间戳整齐好读。
+POLL_INTERVAL = 60
 MAX_FAILURES = 3
+# interval 下限：小于 60s 的设置会被提升到 60s，避免虚假的高精度预期
+MIN_INTERVAL = 60
 
 
 class MarchService:
@@ -34,14 +39,33 @@ class MarchService:
 
     async def start(self) -> None:
         self._running = True
-        logger.info("[三月] 调度服务已启动 (轮询间隔={}s)", POLL_INTERVAL)
+
+        # 启动对齐：算到下一个整分钟（:00）还有多久，先睡到那里再开始轮询
+        # 之后每轮都按"当前时间到下一个 :00"精确睡眠，避免长期漂移
+        now = time.time()
+        initial_delay = 60 - (now % 60)
+        if initial_delay < 0.5:
+            initial_delay += 60  # 极少见的恰好在 :00 启动，再等一分钟
+        logger.info(
+            "[三月] 调度服务已启动 (轮询=每分钟 :00；首次对齐延迟 {:.1f}s)",
+            initial_delay,
+        )
+
         try:
+            await asyncio.sleep(initial_delay)
+
             while self._running:
                 try:
                     await self._poll()
                 except Exception as e:
                     logger.error("[三月] 轮询异常: {}", e)
-                await asyncio.sleep(POLL_INTERVAL)
+
+                # 每次睡到下一个 :00，而不是 sleep(60)——后者会累积漂移
+                now = time.time()
+                next_delay = 60 - (now % 60)
+                if next_delay < 0.5:
+                    next_delay += 60
+                await asyncio.sleep(next_delay)
         except asyncio.CancelledError:
             pass
         finally:
@@ -124,6 +148,8 @@ class MarchService:
         if task.trigger_type == "interval":
             seconds = task.trigger_value.get("seconds", 0)
             if seconds > 0:
+                # 最小间隔保护：避免 LLM 参数解析偏差或用户笔误产生过短周期
+                seconds = max(seconds, MIN_INTERVAL)
                 return finished_at + seconds
             return None
 
@@ -196,6 +222,7 @@ class MarchService:
 
         if trigger_type == "interval":
             seconds = trigger_value.get("seconds", 60)
+            seconds = max(seconds, MIN_INTERVAL)  # 最小 interval 保护
             return now + seconds
 
         if trigger_type == "cron":

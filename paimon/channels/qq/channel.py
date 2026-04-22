@@ -13,6 +13,9 @@ from paimon.channels.qq.reply import QQ_MAX_MESSAGE_LENGTH, QQChannelReply, _chu
 
 class QQChannel(Channel):
     name = "qq"
+    # QQ 开放平台限制：主动推送必须依附最近入站消息上下文，无法做真正的定时推送
+    # docs 规则：QQ 上不推送，数据仍存，用户需主动查询
+    supports_push = False
 
     def __init__(self, appid: str, secret: str, owner_ids: str = ""):
         self._appid = appid

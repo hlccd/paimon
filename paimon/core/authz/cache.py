@@ -1,7 +1,7 @@
 """授权本地缓存 —— 派蒙持有
 
 启动时从世界树灌入；运行时写世界树后同步更新本机；
-地脉 skill.registered 事件触发 invalidate。
+地脉 skill.loaded 事件触发 invalidate（冰神 AI 自举新 skill 时）。
 遵守 docs/permissions.md "只存不推，派蒙不订阅世界树变更" 原则：
   这里的"订阅"订的是地脉事件，世界树本身仍然是被动存储。
 """

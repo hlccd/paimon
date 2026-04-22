@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 对照 docs/ 架构设计文档，梳理当前代码实现状态。
-> 更新时间：2026-04-22
+> 更新时间：2026-04-23
 
 ---
 
@@ -11,9 +11,9 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 18 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、四影(MVP)、七神全部(MVP) |
-| 部分实现 | 2 | 派蒙核心(权限/安全未做)、时执(压缩在Model中未独立) |
-| 未开始 | 2 | 权限体系、自进化 |
+| 已实现 | 21 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、四影(MVP)、七神全部(MVP)、**权限体系(MVP)**、**WebUI 推送链路**、**插件面板** |
+| 部分实现 | 2 | 派蒙核心(轻量安全过滤未做)、时执(压缩在Model中未独立) |
+| 未开始 | 1 | 自进化 |
 
 ---
 
@@ -26,11 +26,11 @@
 | 会话管理 | **已实现** | `paimon/session.py` (数据走世界树) |
 | 指令系统 | **已实现** | `paimon/core/commands.py` |
 | 人格包装 | **已实现** | `templates/paimon.t` |
-| 意图粗分类 | **已实现** | `paimon/core/intent.py` (chat/skill/complex) |
+| 意图粗分类 | **已实现** | `paimon/core/intent.py` (chat/skill/complex) + 规则引擎前置 + LLM 兜底 + skill 二次校验 |
 | 复杂任务路由 | **已实现** | `paimon/core/chat.py` → `run_shades_pipeline()` |
 | `/task` 强制指令 | **已实现** | `paimon/core/commands.py` |
 | 轻量安全过滤 | **未开始** | — |
-| 权限查询/授权 | **未开始** | — |
+| 权限查询/授权 | **已实现** | `paimon/core/authz/` + `Channel.ask_user` + 世界树 authz 域 |
 
 ---
 
@@ -147,8 +147,8 @@
 
 | 数据域 | 状态 | 业务服务方 |
 |--------|------|-----------|
-| 用户授权记录 | **API 就绪** | 派蒙 (待接入) |
-| Skill 生态声明 | **API 就绪** | 冰神 (待接入) |
+| 用户授权记录 | **已接入** | 派蒙 `paimon/core/authz/` + 启动灌缓存 + 运行时写入 |
+| Skill 生态声明 | **API 就绪** | 冰神 (装载时派生 sensitivity，但未写世界树——内存 registry 即可用) |
 | 知识库 | **API 就绪** | 草神 (待接入) |
 | 记忆 | **API 就绪** | 草神 (待接入) |
 | 活跃任务记录 | **已实现** | 四影管线 |
@@ -163,11 +163,11 @@
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
 | 守护进程 (崩溃重启) | **已实现** | `main.py` entry() |
-| 定时调度 (cron/interval/once) | **已实现** | `paimon/foundation/march.py` |
+| 定时调度 (cron/interval/once) | **已实现** | `paimon/foundation/march.py` (按分钟 :00 对齐轮询) |
 | 推送响铃 (定时触发) | **已实现** | 走地脉 march.ring → 派蒙投递 |
 | 推送响铃 (事件触发) | **未开始** | — |
 | 任务观测面板 | **已实现** | `paimon/channels/webui/tasks_html.py` |
-| WebUI 推送通知 | **未开始** | send_text 为空实现 |
+| WebUI 推送通知 | **已实现** | `send_text` / `send_file` 落推送会话 + PushHub 扇出 SSE；QQ 因 API 限制关闭 |
 | 自检系统 | **未开始** | — |
 
 ---
@@ -176,7 +176,7 @@
 
 | 机制 | 文档 | 状态 |
 |------|------|------|
-| 权限体系 | `docs/permissions.md` | **未开始** |
+| 权限体系 | `docs/permissions.md` | **已实现 MVP** — 天使路径单项询问已贯通；四影路径 DAG 批量询问未做；冰神·插件面板可查/撤 |
 | 自进化 | `docs/evolution.md` | **未开始** |
 
 ---
@@ -192,9 +192,15 @@ paimon/
   session.py                         会话管理 (数据走世界树)
   bootstrap.py                       启动组装 + 地脉订阅
   core/
-    chat.py                          对话核心 + 四影管线入口
+    chat.py                          对话核心 + 四影管线入口 + 天使路径权限闸
     commands.py                      指令系统
-    intent.py                        意图粗分类
+    intent.py                        意图粗分类（规则引擎前置 + LLM 兜底 + skill 二次校验）
+    authz/
+      __init__.py                    授权体系门面
+      sensitive_tools.py             工具敏感清单 + 装载时派生
+      keywords.py                    用户答复关键词识别（"永久/以后都..."）
+      cache.py                       授权本地缓存（启动灌 + 运行时写）
+      decision.py                    天使路径决策树
   llm/
     base.py                          Provider ABC
     anthropic.py / openai.py         LLM Provider
@@ -231,10 +237,12 @@ paimon/
       task.py / token.py / audit.py / dividend.py
       session.py / schedule.py
   channels/
-    base.py                          Channel ABC
-    webui/                           WebUI (aiohttp + SSE + 仪表盘 + 任务面板)
+    base.py                          Channel ABC（含 supports_push 能力声明 + ask_user 交互式询问）
+    webui/                           WebUI (aiohttp + SSE + 仪表盘 + 任务面板 + 插件面板)
+      push_hub.py                    推送扇出器（支持多标签 fan-out）
+      plugins_html.py                冰神·插件面板（skill 生态 + 永久授权 tab）
     telegram/                        Telegram (aiogram)
-    qq/                              QQ (qq-botpy)
+    qq/                              QQ (qq-botpy, supports_push=False)
 tools/
   video_process.py                   MiMo 视频处理
   audio_process.py                   MiMo 音频处理

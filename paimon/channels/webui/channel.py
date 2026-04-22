@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+import uuid
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,6 +15,13 @@ from paimon.channels.base import Channel, ChannelReply, IncomingMessage
 
 if TYPE_CHECKING:
     from paimon.state import RuntimeState
+
+
+# 推送会话（固定收件箱）—— 所有由派蒙推送来的消息都落在这里
+# docs/aimon.md §2.6：推送不干扰正常会话，用户可随时切换过去看历史
+PUSH_SESSION_ID = "push"
+PUSH_SESSION_NAME = "📨 推送"
+PUSH_CHAT_ID = f"webui-{PUSH_SESSION_ID}"  # "webui-push"
 
 
 class WebUIChannelReply(ChannelReply):
@@ -40,6 +50,15 @@ class WebUIChannel(Channel):
         # chat_id -> 当前活跃 SSE reply 回调（供 ask_user 推送询问用）
         self._active_replies: dict[str, object] = {}
 
+        # 推送静态文件根目录（send_file 落在这里）
+        self._pushes_root: Path = state.cfg.paimon_home / "webui_pushes"
+        self._pushes_root.mkdir(parents=True, exist_ok=True)
+
+        # PushHub 挂到 state（供 send_text / send_file 与 /api/push 共享）
+        if state.push_hub is None:
+            from paimon.channels.webui.push_hub import PushHub
+            state.push_hub = PushHub()
+
         self._setup_routes()
 
     def _setup_routes(self):
@@ -61,6 +80,12 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/plugins/authz", self.plugins_authz_api)
         self.app.router.add_post("/api/plugins/authz/revoke", self.plugins_authz_revoke_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
+        # 推送长连接
+        self.app.router.add_get("/api/push", self.push_stream)
+        # 推送文件静态目录
+        self.app.router.add_static(
+            "/static/pushes/", path=str(self._pushes_root), show_index=False,
+        )
 
     async def tasks_page(self, request: web.Request) -> web.Response:
         if self.require_auth:
@@ -433,6 +458,12 @@ class WebUIChannel(Channel):
         if not user_message:
             return web.json_response({"error": "Empty message"}, status=400)
 
+        # 推送会话是只读收件箱，不允许在里面发消息污染历史
+        if session_id == PUSH_SESSION_ID:
+            return web.json_response(
+                {"error": "推送收件箱是只读的，请在其他会话中对话"}, status=400,
+            )
+
         chat_id = f"webui-{session_id}"
 
         response = web.StreamResponse(
@@ -589,6 +620,11 @@ class WebUIChannel(Channel):
                 return web.json_response({"error": "Unauthorized"}, status=401)
 
         session_id = request.match_info["session_id"]
+        # 推送收件箱不允许删除（docs/aimon.md §2.6：派蒙独占出口的固定接收点）
+        if session_id == PUSH_SESSION_ID:
+            return web.json_response(
+                {"error": "推送收件箱不可删除"}, status=400,
+            )
         if not self.state.session_mgr:
             return web.json_response({"error": "会话管理器未初始化"}, status=500)
 
@@ -630,13 +666,172 @@ class WebUIChannel(Channel):
             return web.json_response({"error": str(e)}, status=500)
 
     async def send_text(self, chat_id: str, text: str) -> None:
-        pass
+        """派蒙侧推送入口。忽略外部 chat_id，统一落到固定"📨 推送"会话。
+
+        行为：
+          1) 在推送会话历史里追加一条 assistant 消息（落世界树）
+          2) 通过 PushHub 扇出到所有在线的 /api/push 客户端
+        规则对齐 docs/aimon.md §2.6：推送不干扰正常会话。
+        """
+        if not text or not text.strip():
+            return
+
+        session_mgr = self.state.session_mgr
+        if not session_mgr:
+            logger.warning("[派蒙·WebUI·推送] 会话管理器未就绪，丢弃推送")
+            return
+
+        # 保底确保推送会话存在（启动时已建，这里幂等兜底）
+        await self._ensure_push_session()
+
+        push_session = session_mgr.sessions.get(PUSH_SESSION_ID)
+        if push_session is not None:
+            # 追加为 assistant 消息，持久化到世界树
+            ts = time.time()
+            push_session.messages.append({
+                "role": "assistant",
+                "content": text,
+                "_push_ts": ts,
+                "_push_source": chat_id,  # 溯源：原计划投递的 chat_id
+            })
+            push_session.updated_at = ts
+            try:
+                await session_mgr.save_session_async(push_session)
+            except Exception as e:
+                logger.warning("[派蒙·WebUI·推送] 会话落盘失败: {}", e)
+
+        # 扇出到在线客户端
+        payload = {
+            "type": "push",
+            "content": text,
+            "ts": time.time(),
+            "source": chat_id,
+        }
+        delivered = 0
+        if self.state.push_hub:
+            delivered = await self.state.push_hub.publish(PUSH_CHAT_ID, payload)
+
+        if delivered == 0:
+            logger.info(
+                "[派蒙·WebUI·推送] 无在线监听者，已写入推送会话 (chat_id={} len={})",
+                chat_id, len(text),
+            )
+        else:
+            logger.info(
+                "[派蒙·WebUI·推送] 已扇出 {} 路 (源 chat_id={} len={})",
+                delivered, chat_id, len(text),
+            )
 
     async def send_file(self, chat_id: str, file_path: Path, caption: str = "") -> None:
-        pass
+        """推送文件：拷贝到静态目录 + 推送带下载链接的消息。"""
+        if not file_path.exists() or not file_path.is_file():
+            logger.warning("[派蒙·WebUI·推送] 文件不存在: {}", file_path)
+            return
+
+        token = uuid.uuid4().hex[:8]
+        dest_dir = self._pushes_root / token
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_file = dest_dir / file_path.name
+
+        try:
+            shutil.copy2(str(file_path), str(dest_file))
+        except Exception as e:
+            logger.error("[派蒙·WebUI·推送] 文件拷贝失败: {}", e)
+            return
+
+        url = f"/static/pushes/{token}/{file_path.name}"
+        size_kb = dest_file.stat().st_size / 1024
+        header = caption.strip() or f"📎 {file_path.name}"
+        text = (
+            f"{header}\n\n"
+            f"[⬇️ 下载 {file_path.name}]({url})  · {size_kb:.1f} KB"
+        )
+        await self.send_text(chat_id, text)
 
     async def make_reply(self, msg: IncomingMessage) -> ChannelReply:
         return WebUIChannelReply(msg._reply)
+
+    async def _ensure_push_session(self) -> None:
+        """幂等保障 "📨 推送" 会话存在（ID 固定，首次启动时创建）。"""
+        session_mgr = self.state.session_mgr
+        if not session_mgr:
+            return
+        if PUSH_SESSION_ID in session_mgr.sessions:
+            return
+
+        from paimon.session import Session
+        now = time.time()
+        push_session = Session(
+            id=PUSH_SESSION_ID,
+            name=PUSH_SESSION_NAME,
+            created_at=now,
+            updated_at=now,
+        )
+        session_mgr.sessions[PUSH_SESSION_ID] = push_session
+        try:
+            await session_mgr.save_session_async(push_session)
+            logger.info("[派蒙·WebUI·推送] 推送会话已创建 id={}", PUSH_SESSION_ID)
+        except Exception as e:
+            logger.warning("[派蒙·WebUI·推送] 推送会话落盘失败: {}", e)
+
+    async def push_stream(self, request: web.Request) -> web.StreamResponse:
+        """前端长连接 SSE：订阅所有推送消息。每个连接一个独占 queue。"""
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        hub = self.state.push_hub
+        if hub is None:
+            return web.json_response({"error": "PushHub 未初始化"}, status=500)
+
+        response = web.StreamResponse(
+            status=200, reason="OK",
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # 禁用 nginx 代理缓冲
+            },
+        )
+        await response.prepare(request)
+
+        queue = await hub.register(PUSH_CHAT_ID)
+        # 首帧：告诉前端连接已建立
+        try:
+            await response.write(b': connected\n\n')
+        except Exception:
+            await hub.unregister(PUSH_CHAT_ID, queue)
+            return response
+
+        try:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=25.0)
+                except asyncio.TimeoutError:
+                    # 心跳：防止中间代理断连
+                    try:
+                        await response.write(b': ping\n\n')
+                    except (ConnectionResetError, ConnectionError):
+                        break
+                    continue
+
+                try:
+                    data = json.dumps(payload, ensure_ascii=False)
+                    await response.write(f"data: {data}\n\n".encode())
+                except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
+                    break
+                except Exception as e:
+                    logger.warning("[派蒙·WebUI·推送] SSE 写入异常: {}", e)
+                    break
+        finally:
+            await hub.unregister(PUSH_CHAT_ID, queue)
+            try:
+                await response.write_eof()
+            except Exception:
+                pass
+
+        return response
 
     async def ask_user(self, chat_id: str, prompt: str, *, timeout: float = 30.0) -> str:
         """权限询问：通过当前活跃 SSE 推问题，挂起等下一条用户消息作答。
@@ -687,6 +882,9 @@ class WebUIChannel(Channel):
         await on_channel_message(msg, self)
 
     async def start(self):
+        # 确保推送会话（📨 收件箱）存在
+        await self._ensure_push_session()
+
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
 

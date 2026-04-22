@@ -33,6 +33,10 @@ class ChannelReply(ABC):
 
 class Channel(ABC):
     name: str
+    # 是否支持由派蒙主动推送（定时任务、事件响铃等）
+    # docs/aimon.md §2.6：派蒙是推送出口，但具体频道是否支持由频道自己决定
+    # WebUI / Telegram 默认 True；QQ 技术上不允许主动推送（必须依附入站消息）
+    supports_push: bool = True
 
     @abstractmethod
     async def send_text(self, chat_id: str, text: str) -> None: ...

@@ -33,7 +33,11 @@ class ScheduleTool(BaseTool):
             },
             "trigger_value": {
                 "type": "string",
-                "description": "触发参数：once 填秒级时间戳，interval 填秒数，cron 填表达式如 '0 9 * * *'",
+                "description": (
+                    "触发参数：once 填秒级时间戳；"
+                    "interval 填秒数（最小 60；轮询按分钟 :00 对齐，小于 60 会自动提升）；"
+                    "cron 填表达式如 '0 9 * * *'"
+                ),
             },
             "task_id": {
                 "type": "string",
@@ -84,20 +88,37 @@ class ScheduleTool(BaseTool):
                 seconds = int(trigger_str) if trigger_str else 3600
             except ValueError:
                 seconds = 3600
+            # 同步三月的 MIN_INTERVAL：小于 60 秒无意义（轮询按分钟对齐），直接提升
+            from paimon.foundation.march import MIN_INTERVAL
+            if seconds < MIN_INTERVAL:
+                seconds = MIN_INTERVAL
             trigger_value = {"seconds": seconds}
         elif trigger_type == "cron":
             trigger_value = {"expr": trigger_str or "0 * * * *"}
         else:
             return f"未知触发类型: {trigger_type}"
 
+        # 用当前频道名，不要硬编码 webui——否则在 Telegram 上创建的任务会失败投递
+        channel_name = ctx.channel.name if ctx.channel else "webui"
+
         task_id = await march.create_task(
             chat_id=ctx.chat_id,
-            channel_name="webui",
+            channel_name=channel_name,
             prompt=prompt,
             trigger_type=trigger_type,
             trigger_value=trigger_value,
         )
-        return f"定时任务已创建: {task_id} (类型={trigger_type})"
+
+        # 可读的触发摘要（让 LLM 回复时可以准确告知用户实际生效的频率）
+        if trigger_type == "interval":
+            summary = f"每 {trigger_value['seconds']} 秒"
+        elif trigger_type == "once":
+            summary = f"一次性，at={int(trigger_value['at'])}"
+        elif trigger_type == "cron":
+            summary = f"cron={trigger_value['expr']}"
+        else:
+            summary = trigger_type
+        return f"定时任务已创建: {task_id} ({summary})"
 
     async def _list(self, march) -> str:
         tasks = await march.list_tasks()

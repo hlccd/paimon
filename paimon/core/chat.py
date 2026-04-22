@@ -183,7 +183,18 @@ async def handle_chat(
         if skill_name:
             tools = state.tool_registry.to_openai_tools()
         else:
-            _CHAT_TOOLS = {"schedule"}
+            # 闲聊模式下派蒙可以调用的"安全"工具集 —— 单次调用、无破坏性副作用
+            # 严格排除的：
+            #   - exec / file_ops —— 需要走四影安全审查
+            #   - use_skill —— 会绕过 AuthzDecision 直接注入 skill 指令；改由意图分类走 skill 路径
+            #   - skill_manage —— 冰神专属
+            #   - audio/video_process —— 重型，归七神
+            _CHAT_TOOLS = {
+                "schedule",       # 定时任务（写世界树 scheduled_tasks 域，无副作用）
+                "web_fetch",      # 抓取 URL（只读外部）
+                "knowledge",      # 知识库读写（写的是用户自己的域）
+                "memory",         # 记忆读写
+            }
             tools = [
                 t for t in state.tool_registry.to_openai_tools()
                 if t["function"]["name"] in _CHAT_TOOLS

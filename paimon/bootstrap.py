@@ -136,10 +136,21 @@ async def create_app(cfg: Config) -> list[Channel]:
             logger.warning("[派蒙·响铃] 频道不存在: {}", channel_name)
             return
 
+        # 频道能力分流（docs/aimon.md §2.6）：QQ 等不支持主动推送的频道静默跳过
+        if not getattr(channel, "supports_push", True):
+            logger.info(
+                "[派蒙·响铃] 频道 {} 不支持推送，跳过投递（数据已落盘，用户需主动查询）",
+                channel_name,
+            )
+            return
+
         if prompt and state.model:
             try:
                 from paimon.session import Session
-                temp_session = Session(id="march-tmp", name="三月任务")
+                # 每次响铃用独立 session id，避免并发任务的 token 记录全聚合到 "march-tmp"
+                task_id = payload.get("task_id", "")
+                tmp_sid = f"march-{task_id[:12]}" if task_id else "march-tmp"
+                temp_session = Session(id=tmp_sid, name="三月任务")
                 text_parts = []
                 async for chunk in state.model.chat(
                     temp_session, prompt,
@@ -150,12 +161,18 @@ async def create_app(cfg: Config) -> list[Channel]:
                 if result.strip():
                     await channel.send_text(chat_id, result)
             except Exception as e:
-                logger.error("[派蒙·响铃] LLM 处理失败: {}", e)
-                await channel.send_text(chat_id, f"定时任务执行失败: {e}")
+                logger.error("[派蒙·响铃] LLM 处理失败 task={}: {}", payload.get("task_id", ""), e)
+                try:
+                    await channel.send_text(chat_id, f"定时任务执行失败: {e}")
+                except Exception as e2:
+                    logger.error("[派蒙·响铃] 错误信息投递也失败: {}", e2)
         else:
             message = payload.get("message", "")
             if message:
-                await channel.send_text(chat_id, message)
+                try:
+                    await channel.send_text(chat_id, message)
+                except Exception as e:
+                    logger.error("[派蒙·响铃] 无 prompt 投递失败: {}", e)
 
     state.leyline.subscribe("march.ring", _on_march_ring)
 
