@@ -113,8 +113,7 @@ async def handle_chat(
     component = skill_name or "chat"
     purpose = skill_name or "闲聊"
 
-    if skill_name and state.tool_registry:
-        tools = state.tool_registry.to_openai_tools()
+    if state.tool_registry:
         from paimon.tools.base import ToolContext
         tool_ctx = ToolContext(
             registry=state.tool_registry,
@@ -127,6 +126,15 @@ async def handle_chat(
             return await state.tool_registry.execute(name, arguments, tool_ctx)
 
         tool_executor = _execute_tool
+
+        if skill_name:
+            tools = state.tool_registry.to_openai_tools()
+        else:
+            _CHAT_TOOLS = {"schedule"}
+            tools = [
+                t for t in state.tool_registry.to_openai_tools()
+                if t["function"]["name"] in _CHAT_TOOLS
+            ] or None
 
     reply = await channel.make_reply(msg)
     buf = ""

@@ -31,3 +31,58 @@
 - 不做审计、不做异常归因（归属见 [边界对照表](../boundaries.md)）
 - 不干预任何业务
 - 不自己运行 LLM（定时任务需要 LLM 时转发派蒙/七神）
+
+## 实现
+
+### 数据持久化
+
+定时任务存储在世界树 `scheduled_tasks` 表（域 10），通过 `schedule_*` API 访问。
+
+### 任务模型
+
+```python
+@dataclass
+class ScheduledTask:
+    id: str                      # 12 位 hex
+    chat_id: str                 # 投递目标
+    channel_name: str            # 频道名
+    task_prompt: str             # 任务内容/提示词
+    trigger_type: str            # "once" | "interval" | "cron"
+    trigger_value: dict          # {"at": ts} | {"seconds": n} | {"expr": "cron表达式"}
+    enabled: bool
+    next_run_at: float
+    last_run_at: float
+    last_error: str
+    consecutive_failures: int
+    created_at: float
+    updated_at: float
+```
+
+### 执行流程
+
+```
+三月轮询 (每 30s)
+  → 检测 next_run_at <= now 的 enabled 任务
+  → 通过地脉发布 march.ring 事件
+  → 派蒙订阅 march.ring:
+      - 有 prompt → 创建临时会话，跑 model.chat，投递结果
+      - 无 prompt → 直接投递 message
+  → 三月更新 last_run_at，计算 next_run_at
+```
+
+### 失败处理
+
+- 指数退避：`min(60 × 2^(failures-1), 3600)` 秒
+- 连续 3 次失败自动 disable
+- 恢复：用户通过 `/tasks` 或 ScheduleTool 手动 resume
+
+### 用户接口
+
+- **ScheduleTool** — LLM 通过 tool calling 管理定时任务 (create/list/pause/resume/delete)
+- **`/tasks`** — 列出所有定时任务
+
+## 代码位置
+
+- `paimon/foundation/march.py` — MarchService
+- `paimon/foundation/irminsul/schedule.py` — ScheduleRepo + ScheduledTask
+- `paimon/tools/builtin/schedule.py` — ScheduleTool

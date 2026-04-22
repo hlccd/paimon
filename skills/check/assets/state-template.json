@@ -1,0 +1,104 @@
+{
+  "version": "4.0",
+  "started_at": "{started_at}",
+  "updated_at": "{updated_at}",
+  "generated_at": null,
+  "duration_seconds": null,
+  "status": "initialized",
+
+  "sub_checks": [],
+  "_sub_checks_schema": "each entry: {id: string, type: string, label: string, modules: string[], fix_strategy: string, status: pending|running|completed}",
+
+  "config": {
+    "input_mode": "{input_mode}",
+    "modules": [],
+    "src_path": "{src_path}",
+    "docs_path": "{docs_path}",
+    "spec_path": "{spec_path}",
+    "change_source": "{change_source}",
+    "level": "{level}",
+    "fix_strategy": "report-only",
+    "exclude_patterns": [],
+    "user_context": null
+  },
+
+  "iteration_config": {
+    "discovery_rounds": 0,
+    "validation_rounds": 0,
+    "regression_rounds": 0,
+    "min_iter": 0,
+    "clean_iter": 0,
+    "max_iter": 0
+  },
+
+  "iteration_state": {
+    "current_iteration": 0,
+    "consecutive_clean": 0,
+    "iterations": []
+  },
+  "_iterations_schema": "each entry: {iteration: int, confirmed: int, fixed: int, status: clean|has_findings}",
+
+  "scope": {
+    "total_files": 0,
+    "scanned_files": 0,
+    "breakdown": {},
+    "file_groups": []
+  },
+
+  "cumulative": {
+    "total_candidates": 0,
+    "total_confirmed": 0,
+    "total_rejected": 0,
+    "total_deferred": 0,
+    "total_fixed": 0
+  },
+
+  "severity_counts": {
+    "p0": 0, "p1": 0, "p2": 0, "p3": 0
+  },
+
+  "fix_counts": {
+    "p0_fixed": 0, "p1_fixed": 0, "p2_fixed": 0, "p3_fixed": 0
+  },
+
+  "engines": {
+    "discovery": {
+      "active": false,
+      "modules_processed": []
+    },
+    "alignment": {
+      "active": false,
+      "spec_extraction_completed": false,
+      "spec_points_count": 0,
+      "change_files_count": 0,
+      "alignment_score": null
+    },
+    "opportunity": {
+      "active": false,
+      "scan_completed": false,
+      "modules_identified": 0,
+      "analyze_completed": false,
+      "gaps_count": 0,
+      "recommend_completed": false,
+      "opportunities_count": 0,
+      "validate_completed": false,
+      "validation_rounds_completed": 0,
+      "confirmed_opportunities": 0,
+      "rejected_opportunities": 0,
+      "deferred_opportunities": 0
+    }
+  },
+
+  "errors": [],
+  "_errors_schema": "each entry: {phase: string, iteration: int, round: int, message: string, timestamp: ISO8601}",
+
+  "artifacts": {
+    "candidates_file": ".check/candidates.jsonl",
+    "fixes_file": ".check/fixes.jsonl",
+    "report_file": ".check/report.md",
+    "spec_points_file": ".check/spec-points.jsonl",
+    "architecture_map": ".check/architecture-map.md",
+    "gaps_file": ".check/gaps.jsonl",
+    "opportunities_file": ".check/opportunities.jsonl"
+  }
+}

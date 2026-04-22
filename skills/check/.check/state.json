@@ -1,0 +1,129 @@
+{
+  "version": "4.0",
+  "started_at": "2026-04-22T03:05:55Z",
+  "updated_at": "2026-04-22T03:23:33Z",
+  "generated_at": "2026-04-22T03:23:33Z",
+  "duration_seconds": 1058,
+  "status": "completed",
+
+  "sub_checks": [
+    {
+      "id": "sub-1",
+      "type": "docs",
+      "label": "文档质量审查 → SKILL.md + references/ + assets/*.md",
+      "modules": ["accuracy", "clarity", "consistency", "completeness", "usability", "freshness", "compliance", "maintainability", "coherence"],
+      "fix_strategy": "report-only",
+      "status": "completed"
+    },
+    {
+      "id": "sub-2",
+      "type": "code",
+      "label": "代码质量审查 → scripts/link-checker.py",
+      "modules": ["accuracy", "security", "clarity", "reliability", "consistency", "completeness", "architecture", "hygiene", "performance", "maintainability", "robustness", "testability", "compliance", "observability", "portability", "freshness", "usability", "project-health", "coherence"],
+      "fix_strategy": "report-only",
+      "status": "completed"
+    }
+  ],
+
+  "config": {
+    "input_mode": "project-health",
+    "modules": ["accuracy", "clarity", "consistency", "completeness", "usability", "freshness", "compliance", "maintainability", "coherence", "security", "reliability", "architecture", "hygiene", "performance", "robustness", "testability", "observability", "portability", "project-health"],
+    "src_path": "/home/mi/code/skills/check/scripts",
+    "docs_path": "/home/mi/code/skills/check",
+    "spec_path": null,
+    "change_source": null,
+    "level": "comprehensive",
+    "fix_strategy": "report-only",
+    "exclude_patterns": [".check/"],
+    "user_context": null
+  },
+
+  "iteration_config": {
+    "discovery_rounds": 2,
+    "validation_rounds": 3,
+    "regression_rounds": 0,
+    "min_iter": 3,
+    "clean_iter": 2,
+    "max_iter": 10
+  },
+
+  "iteration_state": {
+    "current_iteration": 6,
+    "consecutive_clean": 2,
+    "iterations": [
+      {"iteration": 1, "confirmed": 12, "fixed": 0, "status": "has_findings", "sub_check": "sub-1"},
+      {"iteration": 2, "confirmed": 0, "fixed": 0, "status": "clean", "sub_check": "sub-1"},
+      {"iteration": 3, "confirmed": 0, "fixed": 0, "status": "clean", "sub_check": "sub-1"},
+      {"iteration": 4, "confirmed": 1, "fixed": 0, "status": "has_findings", "sub_check": "sub-2"},
+      {"iteration": 5, "confirmed": 0, "fixed": 0, "status": "clean", "sub_check": "sub-2"},
+      {"iteration": 6, "confirmed": 0, "fixed": 0, "status": "clean", "sub_check": "sub-2"}
+    ]
+  },
+
+  "scope": {
+    "total_files": 33,
+    "scanned_files": 31,
+    "breakdown": {
+      "markdown": 30,
+      "python": 1,
+      "json": 2
+    },
+    "file_groups": []
+  },
+
+  "cumulative": {
+    "total_candidates": 13,
+    "total_confirmed": 13,
+    "total_rejected": 0,
+    "total_deferred": 0,
+    "total_fixed": 0
+  },
+
+  "severity_counts": {
+    "p0": 0, "p1": 2, "p2": 7, "p3": 4
+  },
+
+  "fix_counts": {
+    "p0_fixed": 0, "p1_fixed": 0, "p2_fixed": 0, "p3_fixed": 0
+  },
+
+  "engines": {
+    "discovery": {
+      "active": true,
+      "modules_processed": ["accuracy", "clarity", "consistency", "completeness", "usability", "freshness", "compliance", "maintainability", "coherence"]
+    },
+    "alignment": {
+      "active": false,
+      "spec_extraction_completed": false,
+      "spec_points_count": 0,
+      "change_files_count": 0,
+      "alignment_score": null
+    },
+    "opportunity": {
+      "active": false,
+      "scan_completed": false,
+      "modules_identified": 0,
+      "analyze_completed": false,
+      "gaps_count": 0,
+      "recommend_completed": false,
+      "opportunities_count": 0,
+      "validate_completed": false,
+      "validation_rounds_completed": 0,
+      "confirmed_opportunities": 0,
+      "rejected_opportunities": 0,
+      "deferred_opportunities": 0
+    }
+  },
+
+  "errors": [],
+
+  "artifacts": {
+    "candidates_file": ".check/candidates.jsonl",
+    "fixes_file": ".check/fixes.jsonl",
+    "report_file": ".check/report.md",
+    "spec_points_file": ".check/spec-points.jsonl",
+    "architecture_map": ".check/architecture-map.md",
+    "gaps_file": ".check/gaps.jsonl",
+    "opportunities_file": ".check/opportunities.jsonl"
+  }
+}

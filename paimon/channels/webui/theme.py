@@ -93,14 +93,18 @@ NAV_LINKS_CSS = """
 
 
 def navigation_html(active: str = "chat") -> str:
-    chat_cls = "nav-link active" if active == "chat" else "nav-link"
-    dash_cls = "nav-link active" if active == "dashboard" else "nav-link"
+    items = [
+        ("chat", "/", "对话"),
+        ("dashboard", "/dashboard", "仪表盘"),
+        ("tasks", "/tasks", "任务"),
+    ]
+    links = "".join(
+        f'<a href="{href}" class="nav-link{" active" if key == active else ""}">{label}</a>'
+        for key, href, label in items
+    )
     return f"""
     <div class="nav-bar">
         <div class="nav-logo">Paimon</div>
-        <div class="nav-links">
-            <a href="/" class="{chat_cls}">对话</a>
-            <a href="/dashboard" class="{dash_cls}">仪表盘</a>
-        </div>
+        <div class="nav-links">{links}</div>
     </div>
     """

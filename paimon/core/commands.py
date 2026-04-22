@@ -281,6 +281,24 @@ async def cmd_stat(ctx: CommandContext) -> str:
     return "\n".join(lines)
 
 
+@command("tasks")
+async def cmd_tasks(ctx: CommandContext) -> str:
+    march = state.march
+    if not march:
+        return "三月调度服务未启动"
+    tasks = await march.list_tasks()
+    if not tasks:
+        return "暂无定时任务"
+    import time as _time
+    lines = ["定时任务列表:"]
+    for t in tasks:
+        status = "启用" if t.enabled else "禁用"
+        next_str = _time.strftime("%m-%d %H:%M", _time.localtime(t.next_run_at)) if t.next_run_at > 0 else "-"
+        err = f" [错误: {t.last_error[:30]}]" if t.last_error else ""
+        lines.append(f"  {t.id} | {status} | {t.trigger_type} | 下次: {next_str} | {t.task_prompt[:40]}{err}")
+    return "\n".join(lines)
+
+
 @command("skills")
 async def cmd_skills(ctx: CommandContext) -> str:
     skill_registry = state.skill_registry
@@ -305,5 +323,6 @@ async def cmd_help(ctx: CommandContext) -> str:
         "  /delete [ID/名称] - 删除会话\n"
         "  /stat - 查看token用量统计\n"
         "  /skills - 查看可用 Skill\n"
+        "  /tasks - 查看定时任务\n"
         "  /help - 显示此帮助"
     )

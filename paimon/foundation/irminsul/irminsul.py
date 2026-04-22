@@ -18,6 +18,7 @@ from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
 from .skills import SkillDecl, SkillRepo
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict, TaskRepo
+from .schedule import ScheduleRepo, ScheduledTask
 from .token import TokenRepo, TokenRow
 
 
@@ -45,6 +46,7 @@ class Irminsul:
         self._audit: AuditRepo | None = None
         self._dividend: DividendRepo | None = None
         self._session: SessionRepo | None = None
+        self._schedule: ScheduleRepo | None = None
 
     async def initialize(self) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
@@ -63,6 +65,7 @@ class Irminsul:
         self._audit = AuditRepo(self._db)
         self._dividend = DividendRepo(self._db)
         self._session = SessionRepo(self._db)
+        self._schedule = ScheduleRepo(self._db)
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
 
@@ -320,3 +323,22 @@ class Irminsul:
 
     async def session_clear_channel_binding(self, channel_key: str, *, except_session: str = "") -> None:
         await self._session.clear_channel_binding(channel_key, except_session=except_session)
+
+    # ============ 域 10: 定时任务（三月）============
+    async def schedule_create(self, task: ScheduledTask, *, actor: str) -> str:
+        return await self._schedule.create(task, actor=actor)
+
+    async def schedule_get(self, task_id: str) -> ScheduledTask | None:
+        return await self._schedule.get(task_id)
+
+    async def schedule_list(self, *, enabled_only: bool = False) -> list[ScheduledTask]:
+        return await self._schedule.list_all(enabled_only=enabled_only)
+
+    async def schedule_list_due(self, now: float) -> list[ScheduledTask]:
+        return await self._schedule.list_due(now)
+
+    async def schedule_update(self, task_id: str, *, actor: str, **fields) -> bool:
+        return await self._schedule.update(task_id, actor=actor, **fields)
+
+    async def schedule_delete(self, task_id: str, *, actor: str) -> bool:
+        return await self._schedule.delete(task_id, actor=actor)

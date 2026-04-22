@@ -51,6 +51,50 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/sessions/stop", self.stop_session)
         self.app.router.add_get("/api/token_stats", self.token_stats)
         self.app.router.add_get("/api/token_stats/timeline", self.token_stats_timeline)
+        self.app.router.add_get("/tasks", self.tasks_page)
+        self.app.router.add_get("/api/tasks", self.tasks_api)
+
+    async def tasks_page(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.Response(text=self._get_login_html(), content_type="text/html")
+
+        from paimon.channels.webui.tasks_html import build_tasks_html
+        return web.Response(
+            text=build_tasks_html(),
+            content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    async def tasks_api(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        march = self.state.march
+        if not march:
+            return web.json_response({"tasks": []})
+
+        tasks = await march.list_tasks()
+        return web.json_response({
+            "tasks": [
+                {
+                    "id": t.id,
+                    "prompt": t.task_prompt,
+                    "trigger_type": t.trigger_type,
+                    "trigger_value": t.trigger_value,
+                    "enabled": t.enabled,
+                    "next_run_at": t.next_run_at,
+                    "last_run_at": t.last_run_at,
+                    "last_error": t.last_error,
+                    "consecutive_failures": t.consecutive_failures,
+                    "created_at": t.created_at,
+                }
+                for t in tasks
+            ]
+        })
 
     def _get_login_html(self) -> str:
         from paimon.channels.webui.theme import THEME_COLORS

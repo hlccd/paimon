@@ -159,6 +159,25 @@ CREATE TABLE IF NOT EXISTS dividend_stocks (
 CREATE INDEX IF NOT EXISTS idx_dividend_symbol ON dividend_stocks(symbol);
 CREATE INDEX IF NOT EXISTS idx_dividend_date ON dividend_stocks(record_date);
 
+-- ============ 域 10: 定时任务（三月）============
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    channel_name TEXT NOT NULL DEFAULT '',
+    task_prompt TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    trigger_value TEXT NOT NULL DEFAULT '{}',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at REAL NOT NULL DEFAULT 0,
+    last_run_at REAL NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sched_enabled ON scheduled_tasks(enabled);
+CREATE INDEX IF NOT EXISTS idx_sched_next ON scheduled_tasks(next_run_at);
+
 -- ============ 域 9: 聊天会话 ============
 CREATE TABLE IF NOT EXISTS session_records (
     id TEXT PRIMARY KEY,

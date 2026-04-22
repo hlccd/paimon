@@ -7,6 +7,7 @@ from paimon.config import Config
 from paimon.foundation.gnosis import Gnosis
 from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.leyline import Leyline
+from paimon.foundation.march import MarchService
 from paimon.foundation.primogem import Primogem
 from paimon.llm import AnthropicProvider, Model, OpenAIProvider
 from paimon.llm.base import Provider
@@ -55,6 +56,9 @@ async def create_app(cfg: Config) -> list[Channel]:
 
     # 地脉事件总线
     state.leyline = Leyline()
+
+    # 三月调度服务
+    state.march = MarchService(state.irminsul, state.leyline)
 
     # 原石持有世界树引用（服务层）
     state.primogem = Primogem(state.irminsul)
@@ -109,6 +113,43 @@ async def create_app(cfg: Config) -> list[Channel]:
         logger.info("[派蒙·启动] QQ频道已启用")
 
     state.channels = {ch.name: ch for ch in channels}
+
+    # 派蒙订阅三月响铃 → 投递给用户
+    from paimon.foundation.leyline import Event
+
+    async def _on_march_ring(event: Event) -> None:
+        payload = event.payload
+        channel_name = payload.get("channel_name", "")
+        chat_id = payload.get("chat_id", "")
+        prompt = payload.get("prompt", "")
+
+        channel = state.channels.get(channel_name)
+        if not channel:
+            logger.warning("[派蒙·响铃] 频道不存在: {}", channel_name)
+            return
+
+        if prompt and state.model:
+            try:
+                from paimon.session import Session
+                temp_session = Session(id="march-tmp", name="三月任务")
+                text_parts = []
+                async for chunk in state.model.chat(
+                    temp_session, prompt,
+                    component="march", purpose="定时任务",
+                ):
+                    text_parts.append(chunk)
+                result = "".join(text_parts)
+                if result.strip():
+                    await channel.send_text(chat_id, result)
+            except Exception as e:
+                logger.error("[派蒙·响铃] LLM 处理失败: {}", e)
+                await channel.send_text(chat_id, f"定时任务执行失败: {e}")
+        else:
+            message = payload.get("message", "")
+            if message:
+                await channel.send_text(chat_id, message)
+
+    state.leyline.subscribe("march.ring", _on_march_ring)
 
     logger.info(
         "[派蒙·启动] 系统就绪 (模型={}, 频道={})",
