@@ -6,6 +6,7 @@ from paimon.channels.base import Channel
 from paimon.config import Config
 from paimon.foundation.gnosis import Gnosis
 from paimon.foundation.irminsul import Irminsul
+from paimon.foundation.leyline import Leyline
 from paimon.foundation.primogem import Primogem
 from paimon.llm import AnthropicProvider, Model, OpenAIProvider
 from paimon.llm.base import Provider
@@ -51,6 +52,9 @@ async def create_app(cfg: Config) -> list[Channel]:
 
     # 会话管理器从世界树恢复
     state.session_mgr = await SessionManager.load(state.irminsul)
+
+    # 地脉事件总线
+    state.leyline = Leyline()
 
     # 原石持有世界树引用（服务层）
     state.primogem = Primogem(state.irminsul)

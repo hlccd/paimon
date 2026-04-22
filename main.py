@@ -19,11 +19,17 @@ async def main():
     if state.gnosis:
         state.gnosis.setup_pools()
 
+    tasks = [ch.start() for ch in channels]
+    if state.leyline:
+        tasks.append(state.leyline.start())
+
     try:
-        await asyncio.gather(*(ch.start() for ch in channels))
+        await asyncio.gather(*tasks)
     except KeyboardInterrupt:
         pass
     finally:
+        if state.leyline:
+            await state.leyline.stop()
         if state.irminsul:
             await state.irminsul.close()
 

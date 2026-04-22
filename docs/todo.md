@@ -12,7 +12,7 @@
 
 ## 2. 技术选型层面
 
-- [ ] **地脉**实现：asyncio.Queue / Redis Stream / 自研？
+- [x] ~~**地脉**实现：asyncio.Queue / Redis Stream / 自研？~~ —— 2026-04-22 已选定 asyncio.Queue 进程内发布/订阅，见 `paimon/foundation/leyline.py`
 - [ ] **神之心**分层标准：参数量 / provider / 成本？
 - [ ] **时执**上下文压缩阈值（3.5k 偏低，需调研主流方案）
 - [ ] **生执**依赖环回滚的具体机制（saga 补偿 / 状态快照）

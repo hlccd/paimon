@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from paimon.config import Config
     from paimon.foundation.gnosis import Gnosis
     from paimon.foundation.irminsul import Irminsul
+    from paimon.foundation.leyline import Leyline
     from paimon.foundation.primogem import Primogem
     from paimon.llm import Model
     from paimon.session import SessionManager
@@ -23,6 +24,7 @@ class RuntimeState:
     session_mgr: SessionManager | None = None
     model: Model | None = None
     gnosis: Gnosis | None = None
+    leyline: Leyline | None = None
     primogem: Primogem | None = None
     tool_registry: ToolRegistry | None = None
     skill_registry: SkillRegistry | None = None
