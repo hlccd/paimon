@@ -38,7 +38,9 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
     from paimon.core.intent import classify_intent
     intent = await classify_intent(model, session, msg.text, state.skill_registry)
 
-    if intent.kind == "skill":
+    if intent.kind == "complex":
+        await run_shades_pipeline(msg, channel, session)
+    elif intent.kind == "skill":
         await run_session_chat(msg, channel, session, skill_name=intent.skill_name)
     else:
         await run_session_chat(msg, channel, session)
@@ -91,6 +93,35 @@ async def stop_session_task(session_id: str) -> bool:
     return True
 
 
+async def run_shades_pipeline(msg: IncomingMessage, channel: Channel, session: Session):
+    cfg, session_mgr, model = _require_runtime()
+
+    logger.info("[派蒙·四影] [{}] 复杂任务: {}", session.id[:8], msg.text)
+
+    reply = await channel.make_reply(msg)
+
+    try:
+        from paimon.shades.pipeline import ShadesPipeline
+        pipeline = ShadesPipeline(model, state.irminsul)
+
+        result = await pipeline.run(msg.text, session_id=session.id)
+
+        if result:
+            await reply.send(result)
+
+        cost = model.last_chat_cost_usd
+        cost_str = f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}"
+        await reply.send(f"\n\n---\n~{cost_str}")
+    except Exception as e:
+        logger.error("[派蒙·四影] 管线异常: {}", e)
+        await reply.send(f"\n\n> [错误] 四影管线执行失败: {e}")
+    finally:
+        try:
+            await reply.flush()
+        except Exception:
+            pass
+
+
 async def handle_chat(
     msg: IncomingMessage,
     channel: Channel,
@@ -106,7 +137,7 @@ async def handle_chat(
     else:
         session.messages.insert(0, {"role": "system", "content": sp})
 
-    logger.info("[派蒙·对话] [{}] 用户: {}", session.id[:8], msg.text[:200])
+    logger.info("[派蒙·对话] [{}] 用户: {}", session.id[:8], msg.text)
 
     tools = None
     tool_executor = None
@@ -200,7 +231,7 @@ async def handle_chat(
                 t = f"{int(elapsed // 60)}分{elapsed % 60:.1f}秒"
             c = model.last_chat_cost_usd
             cs = f"${c:.4f}" if c < 0.01 else f"${c:.2f}"
-            logger.info("[派蒙·对话] [{}] 回复 ({} | {}): {}...", session.id[:8], t, cs, buf[:100])
+            logger.info("[派蒙·对话] [{}] 回复 ({} | {}):\n{}", session.id[:8], t, cs, buf)
         try:
             session_mgr.save_session(session)
         except Exception:

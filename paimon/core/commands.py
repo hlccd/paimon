@@ -66,7 +66,7 @@ async def dispatch_command(msg: IncomingMessage, channel: Channel) -> str | None
 async def _invoke_skill(skill_name: str, args: str, msg: IncomingMessage, channel: Channel):
     from paimon.core.chat import run_session_chat
 
-    logger.info("[天使·调度] /{} args={}", skill_name, args[:100])
+    logger.info("[天使·调度] /{} args={}", skill_name, args)
 
     session_mgr = state.session_mgr
     if not session_mgr:
@@ -299,6 +299,32 @@ async def cmd_tasks(ctx: CommandContext) -> str:
     return "\n".join(lines)
 
 
+@command("task")
+async def cmd_task(ctx: CommandContext) -> str:
+    if not ctx.args:
+        return "用法: /task <任务描述>\n强制走四影管线处理复杂任务"
+
+    from paimon.core.chat import run_shades_pipeline
+
+    session_mgr = state.session_mgr
+    if not session_mgr:
+        return "会话管理器未初始化"
+
+    session = session_mgr.get_current(ctx.msg.channel_key)
+    if not session:
+        session = session_mgr.create()
+        session_mgr.switch(ctx.msg.channel_key, session.id)
+
+    task_msg = IncomingMessage(
+        channel_name=ctx.msg.channel_name,
+        chat_id=ctx.msg.chat_id,
+        text=ctx.args,
+        _reply=ctx.msg._reply,
+    )
+    await run_shades_pipeline(task_msg, ctx.channel, session)
+    return ""
+
+
 @command("skills")
 async def cmd_skills(ctx: CommandContext) -> str:
     skill_registry = state.skill_registry
@@ -324,5 +350,6 @@ async def cmd_help(ctx: CommandContext) -> str:
         "  /stat - 查看token用量统计\n"
         "  /skills - 查看可用 Skill\n"
         "  /tasks - 查看定时任务\n"
+        "  /task <描述> - 强制走四影处理复杂任务\n"
         "  /help - 显示此帮助"
     )

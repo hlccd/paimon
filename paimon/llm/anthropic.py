@@ -120,7 +120,7 @@ class AnthropicProvider(Provider):
         system, anthropic_messages = self._convert_messages(messages)
         anthropic_tools = self._convert_tools(tools)
 
-        logger.info("[神之心] 调用LLM，消息数={}", len(anthropic_messages))
+        logger.debug("[神之心] 调用LLM，消息数={}", len(anthropic_messages))
 
         kwargs: dict[str, Any] = {
             "model": self.model,

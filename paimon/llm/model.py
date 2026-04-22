@@ -367,7 +367,7 @@ class Model:
             for tc in tool_calls:
                 fn = tc["function"]
                 tc_id = tc["id"]
-                logger.info("[天使·工具调用] {}({})", fn["name"], fn["arguments"][:100])
+                logger.debug("[天使·工具调用] {}({})", fn["name"], fn["arguments"][:100])
                 try:
                     result = await tool_executor(fn["name"], fn["arguments"])
                 except Exception as e:
@@ -378,7 +378,7 @@ class Model:
                     "tool_call_id": tc_id,
                     "content": str(result),
                 })
-                logger.info("[天使·工具结果] {} -> {}字符", fn["name"], len(str(result)))
+                logger.debug("[天使·工具结果] {} -> {}字符", fn["name"], len(str(result)))
 
         if total_usage["input_tokens"] == 0 and total_usage["output_tokens"] == 0:
             runtime_messages = self._build_runtime_messages(session)

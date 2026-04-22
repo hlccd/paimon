@@ -32,7 +32,7 @@ class OpenAIProvider(Provider):
         tools: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         msgs = list(messages)
-        logger.info("[神之心] 调用LLM，消息数={}", len(msgs))
+        logger.debug("[神之心] 调用LLM，消息数={}", len(msgs))
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": msgs,

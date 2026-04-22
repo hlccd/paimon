@@ -32,13 +32,18 @@ _CLASSIFY_PROMPT = """\
 {skill_catalog}
 
 ## 分类规则
-1. **chat** — 闲聊、问候、知识问答、普通对话、观点讨论
+1. **chat** — 闲聊、问候、简单知识问答（一两句话能回答的）、日常对话
 2. **skill:<name>** — 用户的请求明确可以被某个 skill 处理（例如发了该 skill 触发域名的链接）
-3. **complex** — 需要多个 skill 协作、或涉及复杂多步骤编排的任务
+3. **complex** — 以下任一情况：
+   - 需要深度分析、多角度论述、结构化输出的任务（如"分析优缺点"、"对比A和B"、"写一份方案/报告"）
+   - 需要多个步骤才能完成的任务（如"帮我做三件事"、"先...然后...最后..."）
+   - 需要使用工具（执行代码、读取文件、搜索等）才能完成的任务
+   - 涉及项目分析、代码审查、架构评估等需要深度思考的任务
 
 ## 注意
+- 简单问答（"Python是什么"、"今天星期几"）→ chat，不要判成 complex
 - 只有用户意图明确匹配某个 skill 时才返回 skill，不要猜测
-- 用户只是提到相关话题但不需要处理时，应返回 chat
+- 拿不准是 chat 还是 complex 时，偏向 complex（宁可多做不要少做）
 - 会话历史可作为参考，保持多轮连贯
 
 只输出分类标签，如: chat 或 skill:bili 或 complex
@@ -96,7 +101,7 @@ async def classify_intent(
         return IntentResult(kind="chat")
 
     if label == "complex":
-        logger.info("[派蒙·意图] complex (四影未实现，当前回退 chat)")
+        logger.info("[派蒙·意图] complex → 四影管线")
         return IntentResult(kind="complex")
 
     logger.info("[派蒙·意图] chat")

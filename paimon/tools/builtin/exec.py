@@ -35,7 +35,7 @@ class ExecTool(BaseTool):
         if not command:
             return "错误: 缺少 command 参数"
 
-        logger.info("[天使·exec] {}", command[:200])
+        logger.debug("[天使·exec] {}", command[:200])
 
         try:
             proc = await asyncio.create_subprocess_shell(
