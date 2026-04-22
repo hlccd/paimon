@@ -7,13 +7,25 @@ from __future__ import annotations
 from loguru import logger
 
 from paimon.archons.base import Archon
+from paimon.archons.furina import FurinaArchon
+from paimon.archons.mavuika import MavuikaArchon
 from paimon.archons.nahida import NahidaArchon
+from paimon.archons.raiden import RaidenArchon
+from paimon.archons.tsaritsa import TsaritsaArchon
+from paimon.archons.venti import VentiArchon
+from paimon.archons.zhongli import ZhongliArchon
 from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.irminsul.task import Subtask, TaskEdict
 from paimon.llm.model import Model
 
 _ARCHON_REGISTRY: dict[str, Archon] = {
     "草神": NahidaArchon(),
+    "雷神": RaidenArchon(),
+    "水神": FurinaArchon(),
+    "火神": MavuikaArchon(),
+    "风神": VentiArchon(),
+    "岩神": ZhongliArchon(),
+    "冰神": TsaritsaArchon(),
 }
 
 

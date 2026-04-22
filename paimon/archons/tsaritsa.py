@@ -1,7 +1,7 @@
-"""草神 · Nahida — 智慧·文书
+"""冰神 · Tsaritsa — 反抗·联合
 
-推理、知识整合、文书起草、偏好管理。
-专属工具：knowledge（知识库）、memory（记忆）、exec（通用）。
+Skill 生态管理：发现 + 注册世界树 + 评估。
+专属工具：skill_manage（扫描/列表/查看）、exec（补充）。
 """
 from __future__ import annotations
 
@@ -14,32 +14,31 @@ from paimon.llm.model import Model
 from paimon.session import Session
 
 _SYSTEM_PROMPT = """\
-你是草神·纳西妲，掌管智慧与知识。
+你是冰神·冰之女皇，掌管反抗与联合。你的职责是 Skill 生态管理。
 
 能力：
-1. 深度推理和分析
-2. 通过 knowledge 工具读写知识库（按 category/topic 组织的结构化知识）
-3. 通过 memory 工具管理跨会话记忆（用户偏好、项目事实、行为反馈等）
-4. 通过 exec 执行命令获取信息
+1. 用 skill_manage 工具扫描、查看、评估已有 skill
+2. 用 exec 工具查看 skill 文件内容
+3. 规划新 skill 的设计方案
 
 规则：
-1. 当前项目路径是 {project_root}
-2. 需要持久化的知识用 knowledge 工具写入，不要用 exec 写文件
-3. 需要记住的用户偏好/反馈用 memory 工具写入
+1. 当前项目路径是 {project_root}，skills 在 skills/ 目录下
+2. 每个 skill 由 SKILL.md 定义（YAML frontmatter + Markdown body）
+3. 优先用 skill_manage 工具获取 skill 信息
 4. 调用工具时不要输出过程描述，只输出最终结果
 """
 
 
-class NahidaArchon(Archon):
-    name = "草神"
-    description = "推理、知识整合、文书起草"
-    allowed_tools = {"knowledge", "memory", "exec"}
+class TsaritsaArchon(Archon):
+    name = "冰神"
+    description = "Skill 生态管理、AI 自举"
+    allowed_tools = {"skill_manage", "exec"}
 
     async def execute(
         self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
         prior_results: list[str] | None = None,
     ) -> str:
-        logger.info("[草神] 执行子任务: {}", subtask.description[:80])
+        logger.info("[冰神] 执行子任务: {}", subtask.description[:80])
 
         system = _SYSTEM_PROMPT.format(project_root=self._project_root())
         system += f"\n\n## 当前任务\n{task.title}\n\n## 你的子任务\n{subtask.description}"
@@ -48,21 +47,21 @@ class NahidaArchon(Archon):
             for i, pr in enumerate(prior_results, 1):
                 system += f"\n### 子任务 {i}\n{pr[:2000]}\n"
 
-        temp_session = Session(id=f"nahida-{task.id[:8]}", name="草神执行")
+        temp_session = Session(id=f"tsaritsa-{task.id[:8]}", name="冰神管理")
         temp_session.messages.append({"role": "system", "content": system})
 
         tools, executor = self._setup_tools(temp_session)
         async for _ in model.chat(
             temp_session, subtask.description,
             tools=tools, tool_executor=executor,
-            component="草神", purpose="推理执行",
+            component="冰神", purpose="Skill管理",
         ):
             pass
 
         result = self._extract_result(temp_session)
         await irminsul.progress_append(
-            task_id=task.id, agent="草神", progress_pct=100,
-            message=result[:200], subtask_id=subtask.id, actor="草神",
+            task_id=task.id, agent="冰神", progress_pct=100,
+            message=result[:200], subtask_id=subtask.id, actor="冰神",
         )
-        logger.info("[草神] 子任务完成, 结果长度={}", len(result))
+        logger.info("[冰神] 子任务完成, 结果长度={}", len(result))
         return result
