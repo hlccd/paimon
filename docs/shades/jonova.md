@@ -18,7 +18,11 @@
   - 避免执行中反复打断用户
 - **新 skill / plugin 上线审查**（冰神动态新增的才过审）：
   - 接收冰神提交的权限声明 → 审查 → 返回**通过 / 拒绝**
-  - 预装 skill（随代码提交的）靠 git 代码审查把关，不走运行时审查
+  - 启动扫的 builtin skill 靠 git 代码审查把关，不走运行时审查
+  - **`skills_hot_reload=true` 的热重载路径需要过审**（SKILL.md 变更在 git commit 之前，review 前提不成立）
+  - 接口：[`paimon.shades.jonova.review_skill_declaration(decl, model) -> (passed, reason)`](../../paimon/shades/jonova.py)
+  - 审查维度：description 与 allowed_tools 是否匹配、description 有无恶意语义、最小权限原则、triggers 是否过于宽泛
+  - LLM 调用异常 → 保守拒绝
   - 审查后续动作由冰神和四影负责，详见 [权限与契约](../permissions.md)
 
 ## 与派蒙的边界

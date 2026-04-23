@@ -26,8 +26,8 @@
 - [ ] **火神增强**：(1) 沙箱执行环境（隔离危险操作）(2) 技术重试机制（执行失败自动诊断+重试）(3) 部署工具（Docker/SSH）
 - [ ] **风神增强**：(1) 专属 web_fetch/web_search 工具（替代 exec curl）(2) RSS 订阅源管理 (3) 舆情仪表盘面板 (4) 舆情异常预警 → 三月事件响铃 (5) 定时新闻采集 → 三月定时响铃 → 派蒙推送
 - [ ] **岩神增强**：(1) 专属股票 API 工具（A股/港股/美股行情）(2) 红利股筛选引擎 (3) 资产配置计算器 (4) 理财面板 (5) 股价/分红提醒 → 三月定时响铃
-- [ ] **冰神增强**：(1) 自动扫描 skills/ 目录写入世界树 skill 声明域 (2) 运行时插件加载 → 经死执审查 (3) AI 自举生成 skill 能力 (4) ~~插件面板~~ —— 2026-04-23 已完成（含授权查看/撤销 tab + Skill 生态 tab）
-- [ ] **时执独立模块化**：(1) 从 Model 中搬出 compress_session_context 到 paimon/shades/istaroth.py (2) 会话不活跃超时（可配置，默认 1h）→ 自动归档 (3) 自动分层：热(活跃)→冷(30天)→过期(90天删除) (4) 经验提取 hook：压缩后提取关键信息写入世界树 memory 域，是 L1 记忆自动化的关键
+- [ ] **冰神增强**：(1) ~~自动扫描 skills/ 目录写入世界树 skill 声明域~~ —— 2026-04-23 `SkillRegistry.sync_to_irminsul` 启动时 UPSERT builtin 源 + 孤儿扫描（`registry.py` / `bootstrap.py`）(2) ~~运行时插件加载 → 经死执审查~~ —— 2026-04-23 `paimon/angels/watcher.py` watchdog 监听 `skills/*/SKILL.md` + debounce 300ms + `SkillRegistry.reload_one/remove_one` + `jonova.review_skill_declaration`（热重载过死执，按用户决议偏离 docs "builtin 跳过审查"策略）；默认关，`.env SKILLS_HOT_RELOAD=true` 开启 (3) AI 自举生成 skill 能力 (4) ~~插件面板~~ —— 2026-04-23 已完成（含授权查看/撤销 tab + Skill 生态 tab）
+- [ ] **时执独立模块化**：(1) ~~从 Model 中搬出 compress_session_context 到 paimon/shades/istaroth.py~~ —— 2026-04-23 完成，顺带实装 4 项改进（阈值公式 `window - max_tokens - 8k buffer` / 保留段 tool_use·tool_result 对齐 / Prompt 4 章节 + NO_TOOLS / 连续 3 次失败熔断 auto_compact_disabled 持久化）(2) 会话不活跃超时（可配置，默认 1h）→ 自动归档 (3) 自动分层：热(活跃)→冷(30天)→过期(90天删除) (4) 经验提取 hook：压缩后提取关键信息写入世界树 memory 域，是 L1 记忆自动化的关键
 
 ## 2. 技术选型层面
 

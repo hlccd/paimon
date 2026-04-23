@@ -37,6 +37,7 @@ async def main():
         pass
     finally:
         for name, cleanup in [
+            ("冰神·watcher", lambda: state.skill_hot_loader.stop() if state.skill_hot_loader else None),
             ("三月", lambda: state.march.stop() if state.march else None),
             ("地脉", lambda: state.leyline.stop() if state.leyline else None),
             ("世界树", lambda: state.irminsul.close() if state.irminsul else None),

@@ -52,6 +52,9 @@ class SessionRecord:
     created_at: float = 0.0
     updated_at: float = 0.0
     archived_at: float | None = None
+    # 时执压缩熔断
+    compression_failures: int = 0
+    auto_compact_disabled: bool = False
 
 
 class SessionRepo:
@@ -67,8 +70,9 @@ class SessionRepo:
             "INSERT INTO session_records "
             "(id, name, channel_key, messages_json, session_memory_json, "
             " last_context_tokens, last_context_ratio, last_compressed_at, compressed_rounds, "
-            " response_status, created_at, updated_at, archived_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            " response_status, created_at, updated_at, archived_at, "
+            " compression_failures, auto_compact_disabled) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET "
             "  name = excluded.name, "
             "  channel_key = excluded.channel_key, "
@@ -80,7 +84,9 @@ class SessionRepo:
             "  compressed_rounds = excluded.compressed_rounds, "
             "  response_status = excluded.response_status, "
             "  updated_at = excluded.updated_at, "
-            "  archived_at = excluded.archived_at",
+            "  archived_at = excluded.archived_at, "
+            "  compression_failures = excluded.compression_failures, "
+            "  auto_compact_disabled = excluded.auto_compact_disabled",
             (
                 rec.id, rec.name, rec.channel_key,
                 json.dumps(rec.messages, ensure_ascii=False),
@@ -89,6 +95,8 @@ class SessionRepo:
                 rec.last_compressed_at, rec.compressed_rounds,
                 rec.response_status,
                 created_at, updated_at, rec.archived_at,
+                rec.compression_failures,
+                1 if rec.auto_compact_disabled else 0,
             ),
         )
         await self._db.commit()
@@ -101,7 +109,8 @@ class SessionRepo:
         async with self._db.execute(
             "SELECT id, name, channel_key, messages_json, session_memory_json, "
             "last_context_tokens, last_context_ratio, last_compressed_at, compressed_rounds, "
-            "response_status, created_at, updated_at, archived_at "
+            "response_status, created_at, updated_at, archived_at, "
+            "compression_failures, auto_compact_disabled "
             "FROM session_records WHERE id = ?",
             (session_id,),
         ) as cur:
@@ -116,6 +125,8 @@ class SessionRepo:
             last_compressed_at=row[7], compressed_rounds=row[8],
             response_status=row[9],
             created_at=row[10], updated_at=row[11], archived_at=row[12],
+            compression_failures=row[13] or 0,
+            auto_compact_disabled=bool(row[14]),
         )
 
     async def list(
@@ -158,7 +169,8 @@ class SessionRepo:
         async with self._db.execute(
             "SELECT id, name, channel_key, messages_json, session_memory_json, "
             "last_context_tokens, last_context_ratio, last_compressed_at, compressed_rounds, "
-            "response_status, created_at, updated_at, archived_at "
+            "response_status, created_at, updated_at, archived_at, "
+            "compression_failures, auto_compact_disabled "
             "FROM session_records WHERE archived_at IS NULL"
         ) as cur:
             rows = await cur.fetchall()
@@ -173,6 +185,8 @@ class SessionRepo:
                     last_compressed_at=row[7], compressed_rounds=row[8],
                     response_status=row[9],
                     created_at=row[10], updated_at=row[11], archived_at=row[12],
+                    compression_failures=row[13] or 0,
+                    auto_compact_disabled=bool(row[14]),
                 ))
             except Exception as e:
                 # 审计 REL-008：单条损坏不阻塞其他会话加载

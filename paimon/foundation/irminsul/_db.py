@@ -193,7 +193,9 @@ CREATE TABLE IF NOT EXISTS session_records (
     response_status TEXT NOT NULL DEFAULT 'idle',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    archived_at REAL
+    archived_at REAL,
+    compression_failures INTEGER NOT NULL DEFAULT 0,
+    auto_compact_disabled INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_session_channel ON session_records(channel_key);
 CREATE INDEX IF NOT EXISTS idx_session_updated ON session_records(updated_at);
@@ -204,6 +206,9 @@ CREATE INDEX IF NOT EXISTS idx_session_updated ON session_records(updated_at);
 _MIGRATIONS: list[tuple[str, str, str]] = [
     # 授权体系：skill_declarations 加 sensitive_tools（allowed_tools 命中敏感清单的子集）
     ("skill_declarations", "sensitive_tools", "TEXT NOT NULL DEFAULT '[]'"),
+    # 时执压缩熔断：连续失败计数 + 禁用标志
+    ("session_records", "compression_failures", "INTEGER NOT NULL DEFAULT 0"),
+    ("session_records", "auto_compact_disabled", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

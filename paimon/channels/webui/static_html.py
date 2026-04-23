@@ -279,6 +279,8 @@ CHAT_HTML = (
             loadSessions();
             setupInput();
             openPushStream();
+            // 启动时同步加载 default 绑定的历史消息，避免 UI 空白但后端有旧上下文
+            switchSession('default');
         });
 
         function setupInput() {

@@ -90,9 +90,23 @@ channel.ask_user 向用户询问（附失败原因）：
 | 对比项 | Skill（内置天使） | Plugin（第三方 / AI 自生成） |
 |---|---|---|
 | 来源 | `skills/` 目录下随项目代码提交 | 运行时动态接入 / 冰神 AI 自举 |
-| 加载时机 | 启动时加载 | 运行时动态装载 |
-| 审查 | 代码审查（git）把关，跳过死执 | **必过死执审查** |
+| 加载时机 | 启动时加载；`skills_hot_reload=true` 时支持热重载 | 运行时动态装载 |
+| 审查 | 启动扫跳过死执（git review 把关）；**热重载过一次死执** | **必过死执审查** |
 | 权限声明位置 | 代码 manifest | 装载时写入 |
+
+## 热重载（可选，默认关）
+
+**开关**：`.env` 设置 `SKILLS_HOT_RELOAD=true`
+
+**实现**：[`paimon/angels/watcher.py`](../../paimon/angels/watcher.py)（`SkillHotLoader`）
+- watchdog 监听 `skills/*/SKILL.md`
+- 300ms debounce 合并 IDE 多次保存
+- `create` / `modify` → `SkillRegistry.reload_one` → **送死执 `review_skill_declaration`** → 过审则 UPSERT 世界树 + 更新内存 + 发地脉 `skill.loaded` 事件失效 authz 缓存
+- `delete` → `SkillRegistry.remove_one` → 内存移除 + 世界树标 `orphaned=1` + 发地脉 `skill.revoked`
+- 拒审的 skill 写 audit 域 `skill_rejected` + reason
+
+**为什么热重载要审？**
+`skills_hot_reload` 打开时，用户直接修改 `SKILL.md` 并保存 —— 这是**未 git commit 的 draft**，还没走过 code review；docs 的"git review 把关"前提不成立，故需要过一次死执。
 
 ## 工具层（不升级为天使）
 

@@ -19,6 +19,24 @@ def _require_runtime():
     return cfg, session_mgr, model
 
 
+# 压缩 safety buffer（给压缩请求自己 + 各种重试留空间）
+_COMPRESS_SAFETY_BUFFER_TOKENS = 8000
+
+
+def _effective_compress_threshold_pct(cfg) -> float:
+    """压缩阈值：取用户配置的百分比 和 "扣除 max_output + safety_buffer 后的安全百分比" 的更小值。
+
+    参考 claude-code autoCompact：阈值必须给 summary 输出预留预算，
+    否则压缩请求自己就 prompt_too_long。
+    """
+    percent = float(cfg.context_compress_threshold_pct)
+    if cfg.context_window_tokens <= 0:
+        return percent
+    headroom = cfg.max_tokens + _COMPRESS_SAFETY_BUFFER_TOKENS
+    safe_pct = 100.0 - (headroom / cfg.context_window_tokens * 100.0)
+    return min(percent, max(safe_pct, 0.0))
+
+
 async def on_channel_message(msg: IncomingMessage, channel: Channel):
     # 0) 若有挂起的权限询问，本条消息当作答复消化，不走正常 chat 流
     channel_key = msg.channel_key
@@ -399,22 +417,24 @@ async def handle_chat(
             session,
             context_window_tokens=cfg.context_window_tokens,
         )
-        if ratio >= cfg.context_compress_threshold_pct:
+        if ratio >= _effective_compress_threshold_pct(cfg):
+            from paimon.shades import istaroth
             try:
-                compressed = await model.compress_session_context(
+                compressed = await istaroth.compress(
                     session,
+                    model=model,
                     keep_recent_messages=max(cfg.context_keep_recent_messages, 0),
                 )
             except Exception as e:
                 compressed = False
-                logger.warning("[派蒙·压缩] 会话{}上下文压缩失败: {}", session.id, e)
+                logger.warning("[时执·压缩] 会话{}上下文压缩调用异常: {}", session.id, e)
             if compressed:
                 total_tokens, ratio = model.update_session_context_stats(
                     session,
                     context_window_tokens=cfg.context_window_tokens,
                 )
                 logger.info(
-                    "[派蒙·压缩] 会话{}压缩后 {:.1f}% ({} tokens)",
+                    "[时执·压缩] 会话{}压缩后 {:.1f}% ({} tokens)",
                     session.id, ratio, total_tokens,
                 )
 

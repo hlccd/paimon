@@ -60,6 +60,10 @@ class Config(BaseSettings):
     angel_tool_timeout_seconds: int = 30
     angel_total_timeout_seconds: int = 180
 
+    # 冰神 skill 热重载（默认关闭，生产避免意外启用）
+    # 开启后：watchdog 监听 skills/*/SKILL.md，create/modify 过死执审查，delete 标孤儿
+    skills_hot_reload: bool = False
+
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore"
     )

@@ -576,17 +576,47 @@ class WebUIChannel(Channel):
         if not self.state.session_mgr:
             return web.json_response({"error": "会话管理器未初始化"}, status=500)
 
-        session = self.state.session_mgr.sessions.get(session_id)
-        if not session:
-            return web.json_response({"error": "会话不存在"}, status=404)
+        # 前端占位符 'default' → 解析到当前 channel 绑定的真实 session
+        # （否则 UI 显示空但后端仍沿用旧 session，造成上下文污染错觉）
+        if session_id == "default":
+            channel_key = f"{self.name}:webui-default"
+            bound_id = self.state.session_mgr.bindings.get(channel_key)
+            session = self.state.session_mgr.sessions.get(bound_id) if bound_id else None
+            if not session:
+                # 没绑定 → 返回空，前端按新会话展示
+                return web.json_response({
+                    "session_id": "default",
+                    "name": "",
+                    "messages": [],
+                    "response_status": "idle",
+                })
+        else:
+            session = self.state.session_mgr.sessions.get(session_id)
+            if not session:
+                return web.json_response({"error": "会话不存在"}, status=404)
 
+        # 过滤 session.messages 为 UI 可展示条目：
+        # - 保留 user / assistant 且 content 非空白的
+        # - 对 assistant 只有 tool_calls（中间工具调用产物）显示占位气泡，让用户知道派蒙调了工具
+        # - tool 消息隐藏（是内部机制，不展示给用户）
         messages = []
         for msg in session.messages:
             role = msg.get("role", "")
-            if role in ("user", "assistant"):
-                content = msg.get("content", "")
-                if content:
-                    messages.append({"role": role, "content": content})
+            if role not in ("user", "assistant"):
+                continue
+            content = msg.get("content") or ""   # None / 缺失都归一化为空字符串
+            if content.strip():
+                messages.append({"role": role, "content": content})
+                continue
+            # assistant 只有 tool_calls 时给个占位气泡
+            if role == "assistant" and msg.get("tool_calls"):
+                tool_names = []
+                for tc in msg["tool_calls"]:
+                    fn = tc.get("function") or {}
+                    n = fn.get("name") or "(未知工具)"
+                    tool_names.append(n)
+                placeholder = f"_🔧 调用工具：{', '.join(tool_names)}_"
+                messages.append({"role": role, "content": placeholder})
 
         return web.json_response({
             "session_id": session_id,

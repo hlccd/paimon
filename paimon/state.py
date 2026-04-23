@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from paimon.angels.registry import SkillRegistry
+    from paimon.angels.watcher import SkillHotLoader
     from paimon.channels.base import Channel
     from paimon.channels.webui.push_hub import PushHub
     from paimon.config import Config
@@ -32,6 +33,7 @@ class RuntimeState:
     primogem: Primogem | None = None
     tool_registry: ToolRegistry | None = None
     skill_registry: SkillRegistry | None = None
+    skill_hot_loader: "SkillHotLoader | None" = None
     channels: dict[str, "Channel"] = field(default_factory=dict)
     session_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     session_task_locks: dict[str, asyncio.Lock] = field(default_factory=dict)

@@ -31,6 +31,9 @@ class Session:
     response_status: str = "idle"
     # 内部字段：当前绑定的 channel_key；随 switch 更新
     _channel_key: str = ""
+    # 时执压缩熔断相关（docs/shades/istaroth.md §压缩失败熔断）
+    compression_failures: int = 0
+    auto_compact_disabled: bool = False
 
 
 class SessionManager:
@@ -61,6 +64,8 @@ class SessionManager:
                 created_at=rec.created_at,
                 updated_at=rec.updated_at,
                 _channel_key=rec.channel_key,
+                compression_failures=rec.compression_failures,
+                auto_compact_disabled=rec.auto_compact_disabled,
             )
             # 审计 REL-012 P2：异常中断的 generating 改回 interrupted
             if s.response_status == "generating":
@@ -93,6 +98,8 @@ class SessionManager:
             response_status=s.response_status,
             created_at=s.created_at,
             updated_at=s.updated_at,
+            compression_failures=s.compression_failures,
+            auto_compact_disabled=s.auto_compact_disabled,
         )
         await self._irminsul.session_upsert(rec, actor="派蒙")
 

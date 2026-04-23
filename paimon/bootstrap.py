@@ -84,6 +84,20 @@ async def create_app(cfg: Config) -> list[Channel]:
     state.tool_registry = ToolRegistry.load(project_root / "tools")
     state.skill_registry = SkillRegistry(project_root / "skills")
     state.skill_registry.scan_and_load()
+    # 冰神职责：把内存 registry 持久化到世界树 skill_declarations 表
+    await state.skill_registry.sync_to_irminsul(state.irminsul)
+
+    # 冰神 B-2：skill 目录热加载（docs/angels/angels.md §热加载）
+    state.skill_hot_loader = None
+    if cfg.skills_hot_reload:
+        from paimon.angels.watcher import SkillHotLoader
+        state.skill_hot_loader = SkillHotLoader(
+            state.skill_registry, state.irminsul, state.model,
+        )
+        if state.skill_hot_loader.start():
+            logger.info("[冰神·启动] 热加载已开启（skills_hot_reload=True）")
+        else:
+            state.skill_hot_loader = None
 
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision
@@ -176,7 +190,7 @@ async def create_app(cfg: Config) -> list[Channel]:
 
     state.leyline.subscribe("march.ring", _on_march_ring)
 
-    # 权限缓存：新 skill 上线（冰神审过 → 四影通知）时失效对应缓存
+    # 权限缓存：新 skill 上线（冰神审过 → 四影通知）/ skill 被撤销时失效对应缓存
     async def _on_skill_loaded(event: Event) -> None:
         payload = event.payload
         name = payload.get("name")
@@ -184,6 +198,8 @@ async def create_app(cfg: Config) -> list[Channel]:
             state.authz_cache.invalidate("skill", name)
 
     state.leyline.subscribe("skill.loaded", _on_skill_loaded)
+    # 热卸载 / orphan 场景：撤销后也失效 authz 缓存（避免 dangling 授权被消费）
+    state.leyline.subscribe("skill.revoked", _on_skill_loaded)
 
     logger.info(
         "[派蒙·启动] 系统就绪 (模型={}, 频道={})",

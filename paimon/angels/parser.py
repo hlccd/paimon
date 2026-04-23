@@ -38,9 +38,14 @@ def parse_skill_metadata(skill_md: Path, dir_name: str) -> "SkillInfo":
     allowed_tools_list = None
     if allowed_tools:
         if isinstance(allowed_tools, str):
-            allowed_tools_list = allowed_tools.split()
+            # 同时支持空格分隔 ("Bash Read Write") 和逗号分隔 ("Bash, Read, Write")
+            # 以及混合使用；空 token 过滤掉
+            allowed_tools_list = [
+                t.strip() for t in re.split(r"[,\s]+", allowed_tools)
+                if t.strip()
+            ]
         elif isinstance(allowed_tools, list):
-            allowed_tools_list = allowed_tools
+            allowed_tools_list = [str(t).strip() for t in allowed_tools if str(t).strip()]
 
     triggers = data.get("triggers", "")
     if isinstance(triggers, list):
