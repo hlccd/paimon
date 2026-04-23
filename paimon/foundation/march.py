@@ -29,6 +29,11 @@ MAX_FAILURES = 3
 # interval 下限：小于 60s 的设置会被提升到 60s，避免虚假的高精度预期
 MIN_INTERVAL = 60
 
+# 事件响铃限流（内存滑动窗口）：每个 (source, channel, chat_id) 60s 最多 10 条
+# docs/foundation/march.md §推送响铃
+RING_EVENT_WINDOW_SECONDS = 60
+RING_EVENT_MAX_PER_WINDOW = 10
+
 
 class MarchService:
     def __init__(self, irminsul: Irminsul, leyline: Leyline):
@@ -36,6 +41,8 @@ class MarchService:
         self._leyline = leyline
         self._running = False
         self._running_tasks: set[str] = set()
+        # 事件响铃限流状态（内存滑动窗口；重启清零可接受）
+        self._event_rate_limit: dict[tuple[str, str, str], list[float]] = {}
 
     async def start(self) -> None:
         self._running = True
@@ -214,6 +221,115 @@ class MarchService:
 
     async def list_tasks(self) -> list[ScheduledTask]:
         return await self._irminsul.schedule_list()
+
+    # ---- 事件响铃 ----
+
+    async def ring_event(
+        self,
+        *,
+        channel_name: str,
+        chat_id: str,
+        source: str,
+        message: str = "",
+        prompt: str = "",
+        task_id: str = "",
+    ) -> bool:
+        """事件响铃入口（docs/foundation/march.md §推送响铃 · 事件触发）。
+
+        数据收集者（风神 / 岩神 / 草神 等）感知到重要数据时，主动请求三月响铃
+        推送给用户。三月转发地脉 `march.ring` 事件，派蒙订阅后投递（复用定时响
+        铃的投递链路）。
+
+        参数：
+          channel_name: 目标频道（webui / telegram / qq）
+          chat_id:      目标会话
+          source:       调用方（"风神" / "岩神" / ...），用于审计 + 限流
+          message:      已整理好的文案（不走 LLM，直发）
+          prompt:       需派蒙 LLM 人格化后投递的提示
+          task_id:      可选，关联的定时任务 id
+
+        返回：
+          True  — 已入队地脉（不保证送达：频道不支持 / SSE 断连等可能静默失败）
+          False — 被限流拒绝（同 source+channel+chat 60s 内 ≥ 10 次）
+
+        抛出：
+          ValueError — message 和 prompt 同时为空 / 其他参数缺失
+        """
+        if not (message or prompt):
+            raise ValueError("ring_event: message 或 prompt 至少一个非空")
+        # strip 校验：避免 "   " 或含控制字符（换行/制表）绕过非空检查
+        source = (source or "").strip()
+        channel_name = (channel_name or "").strip()
+        chat_id = (chat_id or "").strip()
+        if not source or not channel_name or not chat_id:
+            raise ValueError("ring_event: source / channel_name / chat_id 均必填（不能为空白）")
+        if any(c in source for c in "\n\r\t"):
+            raise ValueError("ring_event: source 不能含换行/制表符")
+
+        key = (source, channel_name, chat_id)
+        if not self._rate_limit_check(key):
+            logger.warning(
+                "[三月·事件响铃] 限流拒绝 source={} channel={}/{} "
+                "({}s 内已 ≥{} 次)",
+                source, channel_name, chat_id[:20],
+                RING_EVENT_WINDOW_SECONDS, RING_EVENT_MAX_PER_WINDOW,
+            )
+            return False
+
+        payload: dict[str, Any] = {
+            "channel_name": channel_name,
+            "chat_id": chat_id,
+            "source": source,
+        }
+        if task_id:
+            payload["task_id"] = task_id
+        if prompt:
+            payload["prompt"] = prompt
+        if message:
+            payload["message"] = message
+
+        # 复用 march.ring 订阅路径（派蒙 _on_march_ring 已兼容 message/prompt）
+        await self._leyline.publish(
+            "march.ring", payload, source=f"三月·事件响铃@{source}",
+        )
+
+        logger.info(
+            "[三月·事件响铃] source={} → {}/{} len_msg={} len_prompt={}",
+            source, channel_name, chat_id[:20], len(message), len(prompt),
+        )
+
+        # audit 落盘（失败不影响推送链路）
+        try:
+            await self._irminsul.audit_append(
+                event_type="march_ring_event",
+                payload={
+                    "source": source,
+                    "channel_name": channel_name,
+                    "chat_id": chat_id,
+                    "has_message": bool(message),
+                    "has_prompt": bool(prompt),
+                    "message_prefix": message[:200] if message else "",
+                    "prompt_prefix": prompt[:200] if prompt else "",
+                    "task_id": task_id,
+                },
+                actor=f"三月·{source}",
+            )
+        except Exception as e:
+            logger.debug("[三月·事件响铃] audit 写入失败（不影响推送）: {}", e)
+
+        return True
+
+    def _rate_limit_check(self, key: tuple) -> bool:
+        """事件响铃滑动窗口限流。返回 True=允许通过；False=超限拒绝。"""
+        now = time.time()
+        window = self._event_rate_limit.setdefault(key, [])
+        cutoff = now - RING_EVENT_WINDOW_SECONDS
+        while window and window[0] < cutoff:
+            window.pop(0)
+        if len(window) >= RING_EVENT_MAX_PER_WINDOW:
+            return False
+        window.append(now)
+        return True
 
     @staticmethod
     def _calc_initial_next_run(trigger_type: str, trigger_value: dict, now: float) -> float:

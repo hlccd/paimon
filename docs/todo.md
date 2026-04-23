@@ -10,7 +10,7 @@
 - [ ] 冰神 **AI 自举生成 skill** 的可行性验证
 - [ ] **推送具体策略**：推送时机 / 频率 / UX 形态 / 打断策略 / 积压处理 / 事件响铃优先级仲裁
 - [x] ~~**WebUI 推送通知**~~ —— 2026-04-23 实装 `send_text` / `send_file` + 固定「📨 推送」收件箱会话 + `/api/push` SSE 长连接 + PushHub 扇出。频道能力声明 `supports_push`（QQ 关闭）。
-- [ ] **三月·事件响铃**：数据收集者请求三月响铃推送，依赖风神/岩神等模块
+- [x] ~~**三月·事件响铃**~~ —— 2026-04-23 实装 `MarchService.ring_event(channel_name, chat_id, source, message/prompt, task_id)`。复用地脉 `march.ring` 订阅（派蒙侧 zero-change）；限流 60s/10 次；审计 `event_type="march_ring_event"`。收集者（风神/岩神）的实际接入在各神增强独立做。
 - [ ] **三月·自检系统**：`/selfcheck` 运行时健康诊断，秒级零交互
 - [ ] **三月·测试基础设施**：静态契约 / 离线冒烟 / 真实 API 测试
 - [ ] **三月·check skill 非交互模式**：预设参数入口，三月可定时调度项目体检

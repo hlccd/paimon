@@ -16,7 +16,12 @@
   - **世界树**：缓存预热
 - **推送响铃**（两种触发方式）：
   - **定时响铃**：三月按预设时间触发 → 通知对应数据收集者整理内容 → 把整理好的内容交给派蒙
+    - 实装：[`MarchService._fire_task`](../../paimon/foundation/march.py)（`_poll` 扫 `scheduled_tasks` 域）
   - **事件响铃**：接收数据收集者的响铃请求（感知到重要数据） → 把整理好的内容交给派蒙
+    - 实装：[`MarchService.ring_event`](../../paimon/foundation/march.py)（复用地脉 `march.ring` 订阅路径，派蒙侧零改动）
+    - 接入：`await state.march.ring_event(channel_name=..., chat_id=..., source="风神", message="...")`；`message` / `prompt` 至少一个非空
+    - 限流：同 `(source, channel, chat_id)` 三元组 60s 内最多 10 次，超限返 False + warning log
+    - audit：每次成功推送记 `event_type="march_ring_event"`；限流拒绝不记
 - **响铃约束**：
   - 三月是**唯一响铃入口**（数据收集者不直接找派蒙）
   - 三月**不直发**给用户（送达由派蒙承担，详见 [派蒙](../paimon/paimon.md)）
