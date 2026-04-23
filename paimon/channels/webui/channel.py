@@ -79,6 +79,9 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/plugins/skills", self.plugins_skills_api)
         self.app.router.add_get("/api/plugins/authz", self.plugins_authz_api)
         self.app.router.add_post("/api/plugins/authz/revoke", self.plugins_authz_revoke_api)
+        self.app.router.add_get("/preferences", self.preferences_page)
+        self.app.router.add_get("/api/preferences/list", self.preferences_list_api)
+        self.app.router.add_post("/api/preferences/delete", self.preferences_delete_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 推送长连接
         self.app.router.add_get("/api/push", self.push_stream)
@@ -112,6 +115,88 @@ class WebUIChannel(Channel):
             content_type="text/html",
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
+
+    async def preferences_page(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.Response(text=self._get_login_html(), content_type="text/html")
+
+        from paimon.channels.webui.preferences_html import build_preferences_html
+        return web.Response(
+            text=build_preferences_html(),
+            content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    async def preferences_list_api(self, request: web.Request) -> web.Response:
+        """列 L1 记忆（仅 user / feedback），含完整 body 和 preview。"""
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        mem_type = request.query.get("mem_type", "").strip()
+        if mem_type not in ("user", "feedback"):
+            return web.json_response(
+                {"error": "mem_type 必须是 user 或 feedback"}, status=400,
+            )
+
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"items": []})
+
+        try:
+            metas = await irminsul.memory_list(mem_type=mem_type, limit=200)
+        except Exception as e:
+            logger.error("[派蒙·偏好面板] 列记忆异常 type={}: {}", mem_type, e)
+            return web.json_response({"error": str(e)}, status=500)
+
+        items = []
+        for meta in metas:
+            try:
+                mem = await irminsul.memory_get(meta.id)
+            except Exception:
+                continue
+            if mem is None:
+                continue
+            body = mem.body or ""
+            preview = body if len(body) <= 200 else body[:200].rstrip() + "..."
+            items.append({
+                "id": mem.id,
+                "mem_type": mem.mem_type,
+                "subject": mem.subject,
+                "title": mem.title,
+                "body": body,
+                "body_preview": preview,
+                "source": mem.source,
+                "tags": mem.tags,
+                "created_at": mem.created_at,
+                "updated_at": mem.updated_at,
+            })
+        return web.json_response({"items": items})
+
+    async def preferences_delete_api(self, request: web.Request) -> web.Response:
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            mem_id = (data.get("id") or "").strip()
+            if not mem_id:
+                return web.json_response({"ok": False, "error": "缺少 id"}, status=400)
+
+            irminsul = self.state.irminsul
+            if not irminsul:
+                return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+
+            ok = await irminsul.memory_delete(mem_id, actor="草神面板")
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            logger.error("[派蒙·偏好面板] 删除记忆异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     async def plugins_skills_api(self, request: web.Request) -> web.Response:
         if self.require_auth:

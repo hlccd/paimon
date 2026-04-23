@@ -151,7 +151,7 @@
 | 用户授权记录 | **已接入** | 派蒙 `paimon/core/authz/` + 启动灌缓存 + 运行时写入 |
 | Skill 生态声明 | **已接入** | 冰神启动 sync_to_irminsul 写入 skill_declarations（builtin 源） |
 | 知识库 | **API 就绪** | 草神 (待接入) |
-| 记忆 | **已接入** | 时执压缩提取 `extract_experience` + 派蒙入口 `_load_l1_memories` 预取 + `/remember` 命令 + 草神按需查 |
+| 记忆 | **已接入** | 时执压缩提取 `extract_experience` + 派蒙入口 `_load_l1_memories` 预取 + `/remember` 命令 + 草神按需查 + **草神·偏好面板**（user/feedback 查看+删除） |
 | 活跃任务记录 | **已实现** | 四影管线 |
 | Token 记录 | **已实现** | 原石 |
 | 审计 / 归档 | **已实现** | 时执 |
