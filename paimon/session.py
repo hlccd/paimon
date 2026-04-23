@@ -175,3 +175,24 @@ class SessionManager:
             except RuntimeError:
                 asyncio.run(self._irminsul.session_delete(sid, actor="派蒙"))
             logger.info("[派蒙·会话] 已删除会话: {}", sid)
+
+    def invalidate_removed(self, sids: list[str]) -> None:
+        """时执生命周期清扫物理删除了会话后调，同步内存缓存。
+
+        仅清内存 dict / bindings；DB 已由时执删除。不触发二次落盘。
+        """
+        if not sids:
+            return
+        removed_count = 0
+        for sid in sids:
+            if sid in self.sessions:
+                self.sessions.pop(sid, None)
+                removed_count += 1
+            to_del = [k for k, v in self.bindings.items() if v == sid]
+            for k in to_del:
+                del self.bindings[k]
+        if removed_count:
+            logger.info(
+                "[派蒙·会话] 生命周期清扫同步内存：移除 {} 个缓存会话",
+                removed_count,
+            )

@@ -134,13 +134,36 @@ class TaskRepo:
     async def update_lifecycle(
         self, task_id: str, stage: str, *, actor: str,
     ) -> None:
+        """更新任务的生命周期阶段。
+
+        archived_at 语义："当前生命周期阶段的入库时间"：
+          - stage='cold'：首次标 cold 时设 archived_at=now（供时执 promote_lifecycle TTL 判定）
+                         —— 已存在的 archived_at 保留，用 COALESCE
+          - stage='archived'：覆盖 archived_at=now（作为归档 TTL 起点）
+          - stage='hot'：archived_at 保持原值（不强制清零）
+        """
         now = time.time()
-        archived_at = now if stage == "archived" else None
-        await self._db.execute(
-            "UPDATE task_edicts SET lifecycle_stage = ?, updated_at = ?, "
-            "archived_at = COALESCE(?, archived_at) WHERE id = ?",
-            (stage, now, archived_at, task_id),
-        )
+        if stage == "archived":
+            # 进归档阶段：刷新起点
+            await self._db.execute(
+                "UPDATE task_edicts SET lifecycle_stage = ?, updated_at = ?, "
+                "archived_at = ? WHERE id = ?",
+                (stage, now, now, task_id),
+            )
+        elif stage == "cold":
+            # 进冷阶段：若 archived_at 仍为空则设为 now（供 TTL 判定）
+            await self._db.execute(
+                "UPDATE task_edicts SET lifecycle_stage = ?, updated_at = ?, "
+                "archived_at = COALESCE(archived_at, ?) WHERE id = ?",
+                (stage, now, now, task_id),
+            )
+        else:
+            # hot 或其他：只改 stage 和 updated_at，保留 archived_at
+            await self._db.execute(
+                "UPDATE task_edicts SET lifecycle_stage = ?, updated_at = ? "
+                "WHERE id = ?",
+                (stage, now, task_id),
+            )
         await self._db.commit()
         action = "任务归档" if stage == "archived" else f"任务生命周期更新→{stage}"
         logger.info("[世界树] {}·{}  {}", actor, action, task_id)
@@ -292,6 +315,120 @@ class TaskRepo:
             "[世界树] {}·进度记录  task={} {}% ({})",
             actor, task_id, progress_pct, agent,
         )
+
+    # ============ 生命周期清扫 API（供时执 _lifecycle 调用）============
+
+    async def stuck_running_timeout(
+        self, *, now: float, timeout_seconds: float, actor: str,
+    ) -> list[str]:
+        """扫 status='running' 且 updated_at 超过 timeout 的任务 → 标 failed + lifecycle=cold。
+
+        对应 docs/shades/istaroth.md §核心能力 "到期 · 会话生命周期超时管理
+        （复杂任务默认 1 小时）"——运行中任务卡死兜底。
+
+        返回被标 failed 的 task_id 列表；仅标主表状态与 lifecycle，不动子任务。
+        """
+        cutoff = now - timeout_seconds
+        async with self._db.execute(
+            "SELECT id FROM task_edicts "
+            "WHERE status = 'running' AND updated_at < ?",
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return []
+        placeholders = ",".join("?" * len(ids))
+        await self._db.execute(
+            f"UPDATE task_edicts SET status = 'failed', lifecycle_stage = 'cold', "
+            f"updated_at = ?, archived_at = COALESCE(archived_at, ?) "
+            f"WHERE id IN ({placeholders})",
+            (now, now, *ids),
+        )
+        await self._db.commit()
+        logger.warning(
+            "[世界树] {}·任务卡死超时批标  {} 条", actor, len(ids),
+        )
+        return ids
+
+    async def promote_lifecycle(
+        self, *, now: float, cold_ttl_seconds: float, actor: str,
+    ) -> list[str]:
+        """把 cold 超时的任务推进到 archived。依据 archived_at 判定。
+
+        返回被推进的 task_id 列表。
+        """
+        cutoff = now - cold_ttl_seconds
+        async with self._db.execute(
+            "SELECT id FROM task_edicts "
+            "WHERE lifecycle_stage = 'cold' "
+            "  AND archived_at IS NOT NULL "
+            "  AND archived_at < ?",
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return []
+        placeholders = ",".join("?" * len(ids))
+        # 推进时刷新 archived_at 到当前时刻，供下一阶段（archived → 删除）用
+        await self._db.execute(
+            f"UPDATE task_edicts SET lifecycle_stage = 'archived', "
+            f"archived_at = ?, updated_at = ? "
+            f"WHERE id IN ({placeholders})",
+            (now, now, *ids),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树] {}·任务生命周期推进  cold→archived  {} 条",
+            actor, len(ids),
+        )
+        return ids
+
+    async def purge_expired(
+        self, *, now: float, archived_ttl_seconds: float, actor: str,
+    ) -> list[str]:
+        """彻底删除 archived 超时的任务 + 级联删除子任务 / flow / progress。
+
+        返回被删除的 task_id 列表。
+        SQLite 即使开启 foreign_keys=ON 也需先删子表再删主表。
+        """
+        cutoff = now - archived_ttl_seconds
+        async with self._db.execute(
+            "SELECT id FROM task_edicts "
+            "WHERE lifecycle_stage = 'archived' "
+            "  AND archived_at IS NOT NULL "
+            "  AND archived_at < ?",
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return []
+        placeholders = ",".join("?" * len(ids))
+        # 顺序：progress_log → flow_history → subtasks → edicts（满足 FK 约束）
+        await self._db.execute(
+            f"DELETE FROM task_progress_log WHERE task_id IN ({placeholders})",
+            tuple(ids),
+        )
+        await self._db.execute(
+            f"DELETE FROM task_flow_history WHERE task_id IN ({placeholders})",
+            tuple(ids),
+        )
+        await self._db.execute(
+            f"DELETE FROM task_subtasks WHERE task_id IN ({placeholders})",
+            tuple(ids),
+        )
+        await self._db.execute(
+            f"DELETE FROM task_edicts WHERE id IN ({placeholders})",
+            tuple(ids),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树] {}·任务过期清理  级联删除 {} 条（含子任务/流转/进度）",
+            actor, len(ids),
+        )
+        return ids
 
     async def progress_list(self, task_id: str) -> list[ProgressEntry]:
         async with self._db.execute(

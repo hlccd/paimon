@@ -30,7 +30,16 @@
 - [ ] **风神增强**：(1) 专属 web_fetch/web_search 工具（替代 exec curl）(2) RSS 订阅源管理 (3) 舆情仪表盘面板 (4) 舆情异常预警 → 三月事件响铃 (5) 定时新闻采集 → 三月定时响铃 → 派蒙推送
 - [ ] **岩神增强**：(1) 专属股票 API 工具（A股/港股/美股行情）(2) 红利股筛选引擎 (3) 资产配置计算器 (4) 理财面板 (5) 股价/分红提醒 → 三月定时响铃
 - [ ] **冰神增强**：(1) ~~自动扫描 skills/ 目录写入世界树 skill 声明域~~ —— 2026-04-23 `SkillRegistry.sync_to_irminsul` 启动时 UPSERT builtin 源 + 孤儿扫描（`registry.py` / `bootstrap.py`）(2) ~~运行时插件加载 → 经死执审查~~ —— 2026-04-23 `paimon/angels/watcher.py` watchdog 监听 `skills/*/SKILL.md` + debounce 300ms + `SkillRegistry.reload_one/remove_one` + `jonova.review_skill_declaration`（热重载过死执，按用户决议偏离 docs "builtin 跳过审查"策略）；默认关，`.env SKILLS_HOT_RELOAD=true` 开启 (3) AI 自举生成 skill 能力 (4) ~~插件面板~~ —— 2026-04-23 已完成（含授权查看/撤销 tab + Skill 生态 tab）
-- [ ] **时执独立模块化**：(1) ~~从 Model 中搬出 compress_session_context 到 paimon/shades/istaroth.py~~ —— 2026-04-23 完成，顺带实装 4 项改进（阈值公式 `window - max_tokens - 8k buffer` / 保留段 tool_use·tool_result 对齐 / Prompt 4 章节 + NO_TOOLS / 连续 3 次失败熔断 auto_compact_disabled 持久化）(2) 会话不活跃超时（可配置，默认 1h）→ 自动归档 (3) 自动分层：热(活跃)→冷(30天)→过期(90天删除) (4) ~~经验提取 hook：压缩后提取关键信息写入世界树 memory 域~~ —— 2026-04-23 随 L1 记忆系统实装 (`istaroth.extract_experience`)
+- [x] ~~**时执独立模块化**~~：(1) ~~从 Model 中搬出 compress_session_context 到 paimon/shades/istaroth.py~~ —— 2026-04-23 完成，顺带实装 4 项改进（阈值公式 `window - max_tokens - 8k buffer` / 保留段 tool_use·tool_result 对齐 / Prompt 4 章节 + NO_TOOLS / 连续 3 次失败熔断 auto_compact_disabled 持久化）(2) ~~会话不活跃超时 → 自动归档~~ —— 2026-04-24 实装（默认 6h，护栏：`generating`/有 channel 绑定的都跳过；归档同步 `SessionManager` 内存）(3) ~~自动分层：热(活跃)→冷(30天)→过期(90天删除)~~ —— 2026-04-24 实装（task cold→archived 30d / archived→删除 60d，共 90d 对齐 docs；级联删 progress/flow/subtasks/edicts；额外加 `task_running_timeout_hours=1` 卡死超时保护对齐 docs "复杂任务默认 1 小时"）(4) ~~经验提取 hook：压缩后提取关键信息写入世界树 memory 域~~ —— 2026-04-23 随 L1 记忆系统实装 (`istaroth.extract_experience`)
+
+  **生命周期闭环实装细节**：
+  - 新模块 `paimon/shades/_lifecycle.py`：`SweepReport` + `sweep_sessions` + `sweep_tasks` + `run_lifecycle_sweep`；所有批量操作单 SQL 原子完成，失败计 `errors[]` 不抛
+  - 世界树加 5 个新 API：`session_archive_if_idle` / `session_purge_expired` / `task_stuck_running_timeout` / `task_promote_lifecycle` / `task_purge_expired`（护栏内置在 SQL：`response_status<>'generating' AND channel_key='' AND archived_at IS NULL`；删除顺序 progress_log→flow_history→subtasks→edicts 满足 FK）
+  - 三月 `_poll` 末尾 hook `_maybe_trigger_lifecycle_sweep`：默认每 6h 触发一次，单例守护 + 间隔 clamp `[1h, 168h]`；sweep 独立 task 失败不影响主轮询
+  - 修复 `task_update_lifecycle`：进入 `cold` 阶段时同步设 `archived_at=now`（供 promote_lifecycle TTL 判定），避免正常归档任务永远卡在 cold
+  - `SessionManager.invalidate_removed`：sweep 归档/删除后同步内存 dict + bindings，重启前后语义一致（启动 `session_list_all_full` 只取 `archived_at IS NULL` 的活跃会话）
+  - 审计事件：`task_stuck_timeout`（每个卡死任务一条）+ `lifecycle_sweep_report`（每次清扫一条，仅在有变更或出错时写）
+  - config 加 7 项：`lifecycle_sweep_enabled/lifecycle_sweep_interval_hours/session_inactive_hours/session_archived_ttl_days/task_running_timeout_hours/task_cold_ttl_days/task_archived_ttl_days`，全部 `.env` 可覆盖
 
 ## 2. 技术选型层面
 

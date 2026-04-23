@@ -216,6 +216,67 @@ class SessionRepo:
             logger.info("[世界树] {}·会话归档  {}", actor, session_id[:8])
         return updated
 
+    async def archive_if_idle(
+        self, *, now: float, inactive_seconds: float, actor: str,
+    ) -> list[str]:
+        """批量归档"不活跃"会话。返回受影响的 session_id 列表。
+
+        保护护栏（不会被归档）：
+          - archived_at IS NOT NULL（已归档）
+          - response_status = 'generating'（正在处理）
+          - channel_key != ''（仍有 channel 绑定，说明用户还可能回来）
+          - updated_at >= now - inactive_seconds（仍活跃）
+        """
+        cutoff = now - inactive_seconds
+        # 先查出要归档的 id 列表（用于返回 + 给 SessionManager 同步内存）
+        async with self._db.execute(
+            "SELECT id FROM session_records "
+            "WHERE archived_at IS NULL "
+            "  AND response_status <> 'generating' "
+            "  AND channel_key = '' "
+            "  AND updated_at < ?",
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return []
+
+        # 批量 UPDATE
+        placeholders = ",".join("?" * len(ids))
+        await self._db.execute(
+            f"UPDATE session_records SET archived_at = ?, updated_at = ? "
+            f"WHERE id IN ({placeholders})",
+            (now, now, *ids),
+        )
+        await self._db.commit()
+        logger.info("[世界树] {}·会话批量归档  {} 条", actor, len(ids))
+        return ids
+
+    async def purge_expired(
+        self, *, now: float, archived_ttl_seconds: float, actor: str,
+    ) -> list[str]:
+        """彻底删除 archived_at 超过 TTL 的会话。返回被删除的 session_id 列表。"""
+        cutoff = now - archived_ttl_seconds
+        async with self._db.execute(
+            "SELECT id FROM session_records "
+            "WHERE archived_at IS NOT NULL AND archived_at < ?",
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return []
+
+        placeholders = ",".join("?" * len(ids))
+        await self._db.execute(
+            f"DELETE FROM session_records WHERE id IN ({placeholders})",
+            tuple(ids),
+        )
+        await self._db.commit()
+        logger.info("[世界树] {}·会话过期清理  删除 {} 条", actor, len(ids))
+        return ids
+
     async def clear_channel_binding(self, channel_key: str, *, except_session: str = "") -> None:
         """把除 except_session 外所有绑到 channel_key 的会话清空 channel_key 字段。"""
         if except_session:

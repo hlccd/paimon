@@ -43,6 +43,10 @@ class MarchService:
         self._running_tasks: set[str] = set()
         # 事件响铃限流状态（内存滑动窗口；重启清零可接受）
         self._event_rate_limit: dict[tuple[str, str, str], list[float]] = {}
+        # 时执生命周期清扫（docs/shades/istaroth.md §核心能力）
+        # 首次启动延后一个周期再扫，避免刚起服就清旧数据
+        self._last_lifecycle_sweep: float = time.time()
+        self._lifecycle_sweep_running: bool = False
 
     async def start(self) -> None:
         self._running = True
@@ -89,6 +93,48 @@ class MarchService:
             if task.id in self._running_tasks:
                 continue
             asyncio.create_task(self._fire_task(task))
+
+        # 时执生命周期清扫（独立 task 运行，不阻塞轮询）
+        self._maybe_trigger_lifecycle_sweep(now)
+
+    def _maybe_trigger_lifecycle_sweep(self, now: float) -> None:
+        """按 config.lifecycle_sweep_interval_hours 节奏触发生命周期清扫。
+
+        - 单例：同时只有一个 sweep 在跑
+        - 开关：config.lifecycle_sweep_enabled
+        - 间隔：clamp 到 [1h, 168h]
+        """
+        from paimon.config import config
+
+        if not config.lifecycle_sweep_enabled:
+            return
+        if self._lifecycle_sweep_running:
+            return
+        interval_hours = max(1, min(int(config.lifecycle_sweep_interval_hours), 168))
+        if now - self._last_lifecycle_sweep < interval_hours * 3600:
+            return
+
+        self._last_lifecycle_sweep = now
+        asyncio.create_task(self._run_lifecycle_sweep(now))
+
+    async def _run_lifecycle_sweep(self, now: float) -> None:
+        """调时执 run_lifecycle_sweep；整条链路失败只记 log 不抛。"""
+        from paimon.config import config
+        from paimon.shades._lifecycle import run_lifecycle_sweep
+        from paimon.state import state
+
+        self._lifecycle_sweep_running = True
+        try:
+            logger.info("[三月] 触发时执·生命周期清扫")
+            await run_lifecycle_sweep(
+                self._irminsul, config,
+                session_mgr=state.session_mgr,
+                now=now,
+            )
+        except Exception as e:
+            logger.error("[三月·生命周期] 清扫异常（已吞，下轮重试）: {}", e)
+        finally:
+            self._lifecycle_sweep_running = False
 
     async def _fire_task(self, task: ScheduledTask) -> None:
         self._running_tasks.add(task.id)

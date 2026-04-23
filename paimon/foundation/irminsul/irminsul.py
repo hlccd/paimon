@@ -190,6 +190,29 @@ class Irminsul:
     async def task_update_lifecycle(self, task_id: str, stage: str, *, actor: str) -> None:
         await self._task.update_lifecycle(task_id, stage, actor=actor)
 
+    # --- 生命周期清扫（时执·_lifecycle 用）---
+
+    async def task_stuck_running_timeout(
+        self, *, now: float, timeout_seconds: float, actor: str,
+    ) -> list[str]:
+        return await self._task.stuck_running_timeout(
+            now=now, timeout_seconds=timeout_seconds, actor=actor,
+        )
+
+    async def task_promote_lifecycle(
+        self, *, now: float, cold_ttl_seconds: float, actor: str,
+    ) -> list[str]:
+        return await self._task.promote_lifecycle(
+            now=now, cold_ttl_seconds=cold_ttl_seconds, actor=actor,
+        )
+
+    async def task_purge_expired(
+        self, *, now: float, archived_ttl_seconds: float, actor: str,
+    ) -> list[str]:
+        return await self._task.purge_expired(
+            now=now, archived_ttl_seconds=archived_ttl_seconds, actor=actor,
+        )
+
     async def task_list(
         self, *, status: str | None = None, lifecycle_stage: str | None = None,
         session_id: str | None = None, limit: int = 100,
@@ -320,6 +343,20 @@ class Irminsul:
 
     async def session_archive(self, session_id: str, *, actor: str) -> bool:
         return await self._session.archive(session_id, actor=actor)
+
+    async def session_archive_if_idle(
+        self, *, now: float, inactive_seconds: float, actor: str,
+    ) -> list[str]:
+        return await self._session.archive_if_idle(
+            now=now, inactive_seconds=inactive_seconds, actor=actor,
+        )
+
+    async def session_purge_expired(
+        self, *, now: float, archived_ttl_seconds: float, actor: str,
+    ) -> list[str]:
+        return await self._session.purge_expired(
+            now=now, archived_ttl_seconds=archived_ttl_seconds, actor=actor,
+        )
 
     async def session_clear_channel_binding(self, channel_key: str, *, except_session: str = "") -> None:
         await self._session.clear_channel_binding(channel_key, except_session=except_session)

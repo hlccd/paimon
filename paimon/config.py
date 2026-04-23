@@ -72,6 +72,18 @@ class Config(BaseSettings):
     # 默认 3；超过上限视为"尽力而为"返回最后一轮产物
     shades_max_rounds: int = 3
 
+    # 时执·生命周期闭环（docs/shades/istaroth.md §核心能力）
+    # 三月定时调度时执清扫；各阈值都可在 .env 覆盖
+    lifecycle_sweep_enabled: bool = True
+    lifecycle_sweep_interval_hours: int = 6      # 清扫频率（建议 [1, 168]）
+    # 会话（session）
+    session_inactive_hours: int = 6              # 无 updated → 标 archived_at
+    session_archived_ttl_days: int = 90          # archived 超时彻底删除
+    # 任务（task）—— 对齐 docs "热(30d) → 冷(30-90d) → 过期删除"
+    task_running_timeout_hours: int = 1          # status=running 且无更新超时 → 视作卡死标 failed
+    task_cold_ttl_days: int = 30                 # cold → archived
+    task_archived_ttl_days: int = 60             # archived 超时删除（30+60=90 对齐 docs）
+
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore"
     )
