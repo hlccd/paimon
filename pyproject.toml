@@ -36,6 +36,11 @@ dependencies = [
 
     # 冰神 skill 热重载（FS watcher）
     "watchdog>=4.0.0",
+
+    # Builtin skills
+    # web_search skill（skills/web_search/）：HTML 搜索引擎结果解析
+    "beautifulsoup4>=4.12",
+    "lxml>=4.9",
 ]
 
 [project.scripts]
