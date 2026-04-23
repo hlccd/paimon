@@ -26,16 +26,39 @@ DEPS = ["httpx"]
 MAX_AUDIO_MB = 20
 
 
-def _convert_to_wav(audio_path: str) -> str:
-    import subprocess
-    """将音频转换为 16kHz 单声道 WAV（兼容性最佳）"""
+async def _convert_to_wav(audio_path: str) -> str:
+    """将音频转换为 16kHz 单声道 WAV（兼容性最佳），异步不阻塞事件循环。"""
+    import asyncio
+
     wav_path = audio_path.rsplit(".", 1)[0] + "_converted.wav"
     cmd = [
         "ffmpeg", "-y", "-i", audio_path,
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
         wav_path
     ]
-    subprocess.run(cmd, capture_output=True, check=True)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except Exception:
+            pass
+        raise
+    if proc.returncode != 0:
+        import subprocess
+        raise subprocess.CalledProcessError(
+            proc.returncode, cmd,
+            output=stdout, stderr=stderr,
+        )
     return wav_path
 
 
@@ -75,12 +98,18 @@ async def execute(audio_path: str, prompt: str = "", **kwargs) -> str:
         return f"❌ 音频文件过大 ({file_size / 1024 / 1024:.1f} MB)，最大支持 {MAX_AUDIO_MB} MB"
 
     try:
-        processed_path = _convert_to_wav(audio_path)
+        processed_path = await _convert_to_wav(audio_path)
     except subprocess.CalledProcessError as e:
-        return f"❌ 音频转换失败，ffmpeg 错误: {e.stderr.decode(errors='replace')}"
+        err = e.stderr.decode(errors="replace") if isinstance(e.stderr, (bytes, bytearray)) else str(e.stderr)
+        return f"❌ 音频转换失败，ffmpeg 错误: {err}"
 
-    with open(processed_path, "rb") as f:
-        audio_data = base64.b64encode(f.read()).decode("utf-8")
+    # 读文件 + base64 放 executor，百兆文件 CPU 密集会阻塞事件循环
+    import asyncio
+    def _read_and_encode(path: str) -> str:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    loop = asyncio.get_running_loop()
+    audio_data = await loop.run_in_executor(None, _read_and_encode, processed_path)
 
     try:
         if processed_path != audio_path:

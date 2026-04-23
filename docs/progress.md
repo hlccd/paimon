@@ -11,7 +11,7 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 21 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、四影(MVP)、七神全部(MVP)、**权限体系(MVP)**、**WebUI 推送链路**、**插件面板** |
+| 已实现 | 22 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、四影(MVP)、七神全部(MVP)、**权限体系(MVP)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时** |
 | 部分实现 | 2 | 派蒙核心(轻量安全过滤未做)、时执(压缩在Model中未独立) |
 | 未开始 | 1 | 自进化 |
 
@@ -52,7 +52,8 @@
 | Skill 注册表 | **已实现** | `paimon/angels/registry.py` |
 | 天使调度器 (tool calling loop) | **已实现** | `paimon/llm/model.py` + `paimon/core/commands.py` |
 | 工具系统 (exec/schedule/video_process/audio_process) | **已实现** | `paimon/tools/` + `tools/` |
-| 魔女会桥 (失败→四影) | **未开始** | — |
+| 天使超时保护 (单 tool 30s / 总 3min) | **已实现** | `paimon/core/chat.py` + `paimon/config.py` |
+| 魔女会桥 (失败→四影) | **已实现** | `paimon/angels/nicole.py` |
 | 现有 skills 迁移: bili/xhs/check | **已实现** | `skills/` |
 | 现有 skills 迁移: web/dividend | **未开始** | — |
 

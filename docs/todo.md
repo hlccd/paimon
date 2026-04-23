@@ -16,7 +16,7 @@
 - [ ] **三月·check skill 非交互模式**：预设参数入口，三月可定时调度项目体检
 - [x] ~~**权限体系 MVP**~~ —— 2026-04-23 `paimon/core/authz/` 四件套（cache/decision/keywords/sensitive_tools）+ `Channel.ask_user` + 永久关键词识别 + 写世界树 + 地脉 skill.loaded 失效。冰神装载时按 `allowed_tools` **派生 sensitivity**（不再手填 manifest）。面板归属**冰神·插件面板**（偏离 docs 原"草神面板"，见 permissions.md）。
 - [ ] **L1 记忆系统**：请求入口预取记忆注入 context + /remember 命令 + 自动经验提取 hook
-- [ ] **天使 30s 超时 + 魔女会桥**：tool calling loop 超时 + 失败升级到四影
+- [x] ~~**天使 30s 超时 + 魔女会桥**~~ —— 2026-04-23 实装 `paimon/angels/nicole.py` (`AngelFailure` + `escalate_to_shades`，魔女会由对接人尼可代表)。单 tool 30s（第二次超时触发）+ 总 3min 兜底；失败询问用户是否转交，同意后携 `escalation_reason` 调四影。实装中顺带修复：(1) **墙钟兜底判定**——工具内部吞 `CancelledError` / 阻塞事件循环的场景下，`asyncio.wait_for` 失效，外层改用 `wall_clock >= tool_timeout` 兜底累加超时计数；(2) **子进程异步化**——`tools/video_process.py` / `tools/audio_process.py` 从同步 `subprocess.run` 改为 `asyncio.create_subprocess_exec`，不再阻塞事件循环（修复 QQ 心跳断连 + 让 cancel 能传到子进程）；(3) **WebUI 气泡渲染**——权限/魔女会 `question` 事件作为独立气泡显示，用户答复后新起气泡，避免覆盖天使已回的内容。
 - [ ] **草神增强**：(1) 专属工具 knowledge_read/write/list + memory_read/write/search + preference_get/set，世界树 API 已就绪 (2) 知识/偏好面板（查看、编辑）(3) 作为 L1 记忆系统的业务写入接口——时执提取经验后由草神写入世界树 memory 域 (4) Prompt 调优能力——根据反馈自动优化各模块的 system prompt
 - [ ] **死执增强**：(1) DAG 批量敏感操作扫描——生执产出 DAG 后，死执二次扫描所有敏感 op，排除已永久授权的，打包一次性询问用户 (2) 新 skill/插件运行时审查——冰神加载时经死执审查权限声明
 - [ ] **生执增强**：(1) 依赖环检测（静态拓扑排序 + 动态运行时检测）(2) 多轮迭代控制——Nahida→Furina→Raiden 循环设上限，生执决定何时停止 (3) 失败回滚——子任务失败时清理中间数据，saga 补偿或状态快照

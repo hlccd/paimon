@@ -54,6 +54,12 @@ class Config(BaseSettings):
     context_compress_threshold_pct: float = 75.0
     context_keep_recent_messages: int = 12
 
+    # 天使超时 + 魔女会桥（docs/angels/angels.md §运作方式）
+    # 单次 tool call 超时 → 第一次自愈（返错误给模型）、连续 2 次触发魔女会
+    # 整体任务超时（仅 skill 路径）→ 直接触发魔女会
+    angel_tool_timeout_seconds: int = 30
+    angel_total_timeout_seconds: int = 180
+
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore"
     )

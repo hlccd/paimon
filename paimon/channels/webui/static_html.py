@@ -480,7 +480,9 @@ CHAT_HTML = (
 
             isWaitingResponse = true;
             updateStatus('思考中…');
-            const typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
+            let typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
+            // 权限询问后需要另起气泡：true 时下一条 message 会新建 typingMsg + 重置 fullResponse
+            let needNewBubble = false;
 
             try {
                 const response = await fetch('/api/chat', {
@@ -509,17 +511,30 @@ CHAT_HTML = (
                             try {
                                 const data = JSON.parse(line.slice(6));
                                 if (data.type === 'message') {
+                                    // 权限询问之后的首个 message chunk：新建气泡，让派蒙新回复独立显示
+                                    if (needNewBubble) {
+                                        typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
+                                        fullResponse = '';
+                                        needNewBubble = false;
+                                    }
                                     fullResponse += (data.content || '');
                                     typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
                                     scrollToBottom();
                                 } else if (data.type === 'question') {
-                                    // 权限询问气泡：提示用户回复「放行/拒绝/永久放行/永久禁止」
+                                    // 权限/魔女会询问作为独立气泡。
+                                    // 若当前气泡已有正文（例如天使已回了一段再触发魔女会询问），
+                                    // 必须新建气泡，不能覆盖原内容。
                                     const q = '🛡️ **权限询问**\\n\\n' + (data.content || '') +
                                         '\\n\\n*直接在下方输入回复即可。默认 30 秒无答复视为拒绝。*';
-                                    fullResponse += (fullResponse ? '\\n\\n---\\n\\n' : '') + q;
-                                    typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
-                                    // 解除输入锁：允许用户输入答复（走 /api/authz/answer）
+                                    if (fullResponse) {
+                                        // 封存已有内容的气泡，新建一个独立气泡放询问
+                                        typingMsg = appendMessage('assistant', '');
+                                        fullResponse = '';
+                                    }
+                                    typingMsg.querySelector('.message-content').innerHTML = marked.parse(q);
                                     pendingAuthzAsk = true;
+                                    // 用户答复后的下一条 message 仍需新起气泡（同意后的派蒙回复独立）
+                                    needNewBubble = true;
                                     updateStatus('等你答复…');
                                     scrollToBottom();
                                 } else if (data.type === 'done') {

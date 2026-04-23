@@ -31,8 +31,38 @@ MAX_VIDEO_FILE_MB = 100
 YTDLP_FORMAT = "worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst"
 
 
-def _download_video(url: str) -> str:
-    import subprocess, os, glob
+async def _run_cmd_async(cmd: list, timeout: int = 120) -> tuple:
+    """异步执行子进程，不阻塞事件循环；超时/取消时 kill 防止孤儿进程。"""
+    import asyncio
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        # 清理子进程，避免 orphan
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except Exception:
+            pass
+        raise
+    return (
+        proc.returncode,
+        stdout.decode("utf-8", errors="replace") if stdout else "",
+        stderr.decode("utf-8", errors="replace") if stderr else "",
+    )
+
+
+async def _download_video(url: str) -> str:
+    import os, glob
+    import subprocess  # 仅用于异常类型
 
     out_path = os.path.join(os.path.expanduser("~/workspace"), "_video_tmp.mp4")
     cmd = [
@@ -40,7 +70,10 @@ def _download_video(url: str) -> str:
         "--merge-output-format", "mp4",
         "-o", out_path, "--no-playlist", url,
     ]
-    rc, _, stderr = _run_cmd(cmd)
+    try:
+        rc, _, stderr = await _run_cmd_async(cmd, timeout=120)
+    except Exception as e:
+        raise RuntimeError(f"yt-dlp 下载失败: {e}") from e
     if rc != 0:
         raise RuntimeError(f"yt-dlp 下载失败: {stderr[-500:]}")
 
@@ -53,19 +86,19 @@ def _download_video(url: str) -> str:
     return out_path
 
 
-def _run_cmd(cmd: list, timeout: int = 120) -> tuple:
-    import subprocess
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    return result.returncode, result.stdout, result.stderr
-
-
-def _get_duration(path: str) -> float:
-    import subprocess, json as _json
+async def _get_duration(path: str) -> float:
+    import json as _json
     cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path]
-    rc, stdout, _ = _run_cmd(cmd, timeout=10)
+    try:
+        rc, stdout, _ = await _run_cmd_async(cmd, timeout=10)
+    except Exception:
+        return 0
     if rc != 0:
         return 0
-    info = _json.loads(stdout)
+    try:
+        info = _json.loads(stdout)
+    except Exception:
+        return 0
     return float(info.get("format", {}).get("duration", 0))
 
 
@@ -98,7 +131,7 @@ async def execute(video_url: str, prompt: str = "", **kwargs) -> str:
 
     try:
         if is_remote:
-            local_file = _download_video(video_url)
+            local_file = await _download_video(video_url)
         else:
             local_file = video_url
 
@@ -109,17 +142,20 @@ async def execute(video_url: str, prompt: str = "", **kwargs) -> str:
         if file_size > MAX_VIDEO_FILE_MB * 1024 * 1024:
             return f"❌ 视频文件过大 ({file_size / 1024 / 1024:.1f}MB)，超过 {MAX_VIDEO_FILE_MB}MB 上限。请改用 audio_process。"
 
-        duration = _get_duration(local_file)
+        duration = await _get_duration(local_file)
         if duration > MAX_VIDEO_SECONDS:
             return (
                 f"❌ 视频时长 {duration:.0f}s 超过 {MAX_VIDEO_SECONDS}s 上限。"
                 f"请改用 audio_process，或用 ffmpeg 分段后多次调用。"
             )
 
-        with open(local_file, "rb") as f:
-            video_bytes = f.read()
-
-        b64 = base64.b64encode(video_bytes).decode("utf-8")
+        # 大文件读 + base64 放到 executor，避免阻塞事件循环（百兆视频约 1~3s CPU）
+        import asyncio
+        def _read_and_encode(path: str) -> str:
+            with open(path, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+        loop = asyncio.get_running_loop()
+        b64 = await loop.run_in_executor(None, _read_and_encode, local_file)
         data_url = f"data:video/mp4;base64,{b64}"
 
         user_prompt = (

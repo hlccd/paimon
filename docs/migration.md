@@ -337,7 +337,7 @@
 
 #### D5 · 魔女会兜底通道
 
-- [ ] 天使失败 → 四影
+- [x] ~~天使失败 → 四影~~ —— 2026-04-23 实装 `paimon/angels/nicole.py`（`AngelFailure` + `escalate_to_shades`，魔女会由对接人尼可代表）。单 tool 30s（第二次超时触发）+ 总 3min 兜底 + 墙钟兜底判定（针对吞 cancel 的同步工具）；询问用户是否转交，同意后 `run_shades_pipeline(..., escalation_reason=reason)`。顺带把 `tools/video_process.py` / `tools/audio_process.py` 从同步 subprocess 改为 async，避免阻塞事件循环。详见 [todo.md](todo.md)。
 
 #### D6 · 冰神→四影→派蒙缓存同步
 

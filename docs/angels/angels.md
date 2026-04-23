@@ -10,7 +10,10 @@
 1. 派蒙判断任务简单 → 直调对应天使
 2. 天使执行结束 → 结果经派蒙返回用户
 3. 提示词：「当前为简单任务，正在由【对应 skill】的天使执行，很快就好～」
-4. 内置 30s 超时
+4. 超时保护：
+   - 单次 tool 调用 30s 超时（第一次超时返错给模型自愈，第二次直接触发魔女会）
+   - 整体任务 3min 兜底（超时即触发魔女会）
+   - 可在 `.env` 以 `ANGEL_TOOL_TIMEOUT_SECONDS` / `ANGEL_TOTAL_TIMEOUT_SECONDS` 覆盖
 
 ## 协作流转
 - **单天使失败**：反馈派蒙，由派蒙换天使
@@ -25,14 +28,56 @@
 
 ## 魔女会通道
 
-- **定义**：进入四影审查的**非主路径**通道（派蒙直送是主路径），由魔女会成员 **尼可** 对接
-- **兜底场景**（天使体系使用本通道时）：
-  - 单天使无法处理且派蒙换天使仍无果
-  - 天使发现任务实际为复杂任务，主动上报
-  - 派蒙判定为高风险 / 敏感操作超出天使能力范围
-- **兜底流程**：派蒙再次轻量校验 → 魔女会（尼可对接）→ 进入四影
+**定义**：进入四影审查的**非主路径**通道（派蒙直送是主路径），由魔女会成员 **尼可** 对接。它是"天使路径失败"与"四影深度处理"之间的**桥**，自身不做业务，只负责升级与交接。
 
-> 冰神新 skill 上线也复用此通道，详见 [冰神](../archons/tsar.md) 与 [权限与契约](../permissions.md)。
+**实现**：[`paimon/angels/nicole.py`](../../paimon/angels/nicole.py)（按命名惯例：魔女会由对接人**尼可**代表）
+- 异常信号 `AngelFailure(reason, stage)` —— 从天使执行链路向上抛出
+- 桥入口 `escalate_to_shades(msg, channel, session, *, reason)` —— 询问用户 + 调四影
+
+### 核心概念：AngelFailure.stage
+
+| stage | 触发场景 | 含义 |
+|---|---|---|
+| `tool_timeout` | 单 tool 连续 2 次 30s 超时 | 天使自愈一次后仍不行，通常是 skill 设计 / 依赖问题 |
+| `total_timeout` | 天使整体超过 3min 未结束 | 任务实际复杂度 > 天使能力 |
+| `exec_error` | 其他执行异常（预留） | 天使主动上报 / 运行时错 |
+
+死执可据 `stage` 做差异化审查（`tool_timeout` 偏技术问题，`total_timeout` 偏任务复杂度）—— 当前 MVP 尚未区分。
+
+### 兜底流程
+
+```text
+天使异常 → AngelFailure 从 _execute_tool / handle_chat 抛出
+   ↓
+run_session_chat 捕获 → 调 escalate_to_shades
+   ↓
+channel.ask_user 向用户询问（附失败原因）：
+  「天使处理未完成（原因：xxx）。要转交四影深度处理吗？
+   回复「同意 / 放行」即转交，回复「拒绝 / 算了」即终止。」
+   ↓ classify_reply 判定
+   ├── allow / perm_allow
+   │     → 派蒙轻量校验（MVP 占位：仅日志 [派蒙·魔女会] 轻量校验通过）
+   │     → run_shades_pipeline(..., escalation_reason=reason)
+   │         reason 注入 task.description，creator="派蒙·魔女会"
+   ├── deny / perm_deny / unknown → 发一条"已取消转交"，任务终止
+   └── NotImplementedError / TimeoutError → 降级提醒（QQ 等无 ask_user 频道）
+```
+
+### 兜底场景
+
+- 单 tool 连续 2 次超时 / 整体超时（已实装，见 §运作方式 4）
+- 天使发现任务实际复杂，主动上报（尚未实装）
+- 派蒙判定高风险 / 敏感操作超出天使能力范围（尚未实装）
+
+### 与派蒙 / 死执的边界
+
+- **派蒙**：入口轻量校验（关键词 / 格式级）—— 进魔女会前再跑一次（MVP 占位）
+- **魔女会**：只做"询问 + 转交"，不做内容审查，不持久化状态
+- **死执**：四影第一站，负责 LLM 级深度安全审查（包含对魔女会转入任务的增强审查）
+
+魔女会失败原因仅通过 `escalation_reason` 一次性注入四影 `task.description`，由四影后续流程自行处置。
+
+> 冰神新 skill 上线也复用此通道（插件路径，非天使失败路径），详见 [冰神](../archons/tsar.md) 与 [权限与契约](../permissions.md)。
 
 ---
 

@@ -18,8 +18,18 @@ class ShadesPipeline:
         self._model = model
         self._irminsul = irminsul
 
-    async def run(self, user_input: str, session_id: str = "") -> str:
-        task = await self._create_task(user_input, session_id)
+    async def run(
+        self,
+        user_input: str,
+        session_id: str = "",
+        escalation_reason: str | None = None,
+    ) -> str:
+        task = await self._create_task(user_input, session_id, escalation_reason)
+        if escalation_reason:
+            logger.info(
+                "[四影] 魔女会转入 task={} reason={}",
+                task.id, escalation_reason,
+            )
         logger.info("[四影] 管线启动 task={} title={}", task.id, task.title[:60])
 
         try:
@@ -43,17 +53,32 @@ class ShadesPipeline:
             await self._irminsul.task_update_status(task.id, status="failed", actor="四影")
             return f"任务执行失败: {e}"
 
-    async def _create_task(self, user_input: str, session_id: str) -> TaskEdict:
+    async def _create_task(
+        self,
+        user_input: str,
+        session_id: str,
+        escalation_reason: str | None = None,
+    ) -> TaskEdict:
         title = user_input[:100].strip()
+        if escalation_reason:
+            description = (
+                f"{user_input}\n"
+                f"---\n"
+                f"[魔女会转交] 天使路径失败原因：{escalation_reason}"
+            )
+            creator = "派蒙·魔女会"
+        else:
+            description = user_input
+            creator = "派蒙"
         task = TaskEdict(
             id=uuid4().hex[:12],
             title=title,
-            description=user_input,
-            creator="派蒙",
+            description=description,
+            creator=creator,
             status="pending",
             session_id=session_id,
             created_at=time.time(),
             updated_at=time.time(),
         )
-        await self._irminsul.task_create(task, actor="派蒙")
+        await self._irminsul.task_create(task, actor=creator)
         return task
