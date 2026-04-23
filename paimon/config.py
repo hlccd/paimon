@@ -64,6 +64,10 @@ class Config(BaseSettings):
     # 开启后：watchdog 监听 skills/*/SKILL.md，create/modify 过死执审查，delete 标孤儿
     skills_hot_reload: bool = False
 
+    # 派蒙入口轻量过滤（docs/paimon/paimon.md §轻量安全校验）
+    # 默认开启；设 false 可在调试/误伤排查时临时绕过
+    input_filter_enabled: bool = True
+
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore"
     )

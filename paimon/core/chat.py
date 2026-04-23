@@ -47,6 +47,62 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
                     channel_key, msg.text[:40])
         return
 
+    # 1) 入口轻量安全过滤（docs/paimon/paimon.md §轻量安全校验）
+    #    两档：shell_danger=block / prompt_injection=warn 放行
+    #    `/` 开头的命令消息跳过——命令由 dispatch_command 处理；其中 /task
+    #    明确是"绕过轻量审查进入四影深度审查"的通道，不该被入口拦
+    cfg = state.cfg
+    is_command = msg.text.lstrip().startswith("/") if msg.text else False
+    if cfg and cfg.input_filter_enabled and not is_command:
+        from paimon.core.pre_filter import pre_filter
+        hit = pre_filter(msg.text)
+        if hit.verdict == "block":
+            logger.warning(
+                "[派蒙·入口过滤] 拒绝 {}: {} text={!r}",
+                hit.category, hit.reason, msg.text[:80],
+            )
+            if state.irminsul:
+                try:
+                    await state.irminsul.audit_append(
+                        event_type="input_filtered",
+                        payload={
+                            "verdict": "block",
+                            "category": hit.category,
+                            "reason": hit.reason,
+                            "channel_key": channel_key,
+                            "text_prefix": msg.text[:200],
+                        },
+                        actor="派蒙",
+                    )
+                except Exception as e:
+                    logger.debug("[派蒙·入口过滤] audit 写入失败: {}", e)
+            await msg.reply(
+                f"⚠️ 消息被入口过滤拦截：{hit.reason}。\n"
+                "如果是正常需求请换一种表达；确需执行高风险操作请用 `/task` 走四影审查。"
+            )
+            return
+        elif hit.verdict == "warn":
+            logger.info(
+                "[派蒙·入口过滤] 警告通过 {}: {} text={!r}",
+                hit.category, hit.reason, msg.text[:80],
+            )
+            if state.irminsul:
+                try:
+                    await state.irminsul.audit_append(
+                        event_type="input_filtered",
+                        payload={
+                            "verdict": "warn",
+                            "category": hit.category,
+                            "reason": hit.reason,
+                            "channel_key": channel_key,
+                            "text_prefix": msg.text[:200],
+                        },
+                        actor="派蒙",
+                    )
+                except Exception as e:
+                    logger.debug("[派蒙·入口过滤] audit 写入失败: {}", e)
+            # 不 return，继续后续流程
+
     from paimon.core.commands import dispatch_command
 
     reply_text = await dispatch_command(msg, channel)

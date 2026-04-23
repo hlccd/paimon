@@ -24,8 +24,14 @@
 - **不做**：多用户 / 角色权限 / 复杂鉴权体系（个人自用）
 
 ### 轻量安全校验
+- **实装**：[`paimon/core/pre_filter.py`](../../paimon/core/pre_filter.py)，`on_channel_message` 开头拦截
 - **拦截项**：关键词过滤 / 恶意参数
 - **边界**：深度安全审查交给死执
+- **两档处置**：
+  - `block`（shell 破坏性命令，如 `rm -rf /` / fork bomb / `mkfs /dev/*` / `dd of=/dev/*` / `chmod -R / `）→ 直接拒绝 + 友好提示 + 写 audit `input_filtered, verdict=block`
+  - `warn`（prompt injection 模式，如 `ignore previous instructions` / `you are now DAN` / 中文对应）→ 放行 + 仅写 audit `verdict=warn`，LLM 层的 system prompt 自己有二次防御
+- **开关**：`.env INPUT_FILTER_ENABLED=false` 可临时绕过（误伤排查）
+- **未来扩展**：支持从世界树 memory 域读取 `mem_type=feedback` + `tag=filter_pattern` 的用户自定义规则（本轮未实装）
 
 ### 意图粗分类与路由
 - **强制指令**：「/task」开头 → 四影-七神（强制深度处理）
