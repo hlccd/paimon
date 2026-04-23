@@ -74,16 +74,6 @@ class Model:
         return total + 2
 
     @staticmethod
-    def _strip_code_fence(text: str) -> str:
-        s = text.strip()
-        if not s.startswith("```"):
-            return s
-        lines = s.splitlines()
-        if len(lines) >= 2 and lines[-1].strip() == "```":
-            return "\n".join(lines[1:-1]).strip()
-        return s
-
-    @staticmethod
     def _empty_usage() -> dict[str, int]:
         return {
             "input_tokens": 0,
