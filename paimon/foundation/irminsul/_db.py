@@ -209,6 +209,13 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     # 时执压缩熔断：连续失败计数 + 禁用标志
     ("session_records", "compression_failures", "INTEGER NOT NULL DEFAULT 0"),
     ("session_records", "auto_compact_disabled", "INTEGER NOT NULL DEFAULT 0"),
+    # 四影闭环：子任务 DAG + 多轮迭代 + 敏感操作预声明 + 水神裁决标记
+    ("task_subtasks", "deps", "TEXT NOT NULL DEFAULT '[]'"),
+    ("task_subtasks", "round", "INTEGER NOT NULL DEFAULT 1"),
+    ("task_subtasks", "sensitive_ops", "TEXT NOT NULL DEFAULT '[]'"),
+    ("task_subtasks", "verdict_status", "TEXT NOT NULL DEFAULT ''"),
+    # 四影闭环 v2：saga 补偿动作（失败回滚）
+    ("task_subtasks", "compensate", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

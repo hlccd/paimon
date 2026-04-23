@@ -7,7 +7,7 @@
 """
 from .cache import AuthzCache
 from .decision import AuthzDecision, Verdict
-from .keywords import classify_reply
+from .keywords import BatchReplyResult, classify_batch_reply, classify_reply
 from .sensitive_tools import SENSITIVE_TOOLS, TOOL_RISK_DESC, derive_sensitivity
 
 __all__ = [
@@ -15,6 +15,8 @@ __all__ = [
     "AuthzDecision",
     "Verdict",
     "classify_reply",
+    "classify_batch_reply",
+    "BatchReplyResult",
     "SENSITIVE_TOOLS",
     "TOOL_RISK_DESC",
     "derive_sensitivity",

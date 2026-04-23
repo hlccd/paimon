@@ -32,19 +32,36 @@ if TYPE_CHECKING:
 MAX_CONSECUTIVE_COMPACT_FAILURES = 3
 
 
-async def archive(task: TaskEdict, irminsul: Irminsul) -> None:
-    """四影管线末尾：归档任务 + 写审计。"""
-    await irminsul.task_update_status(task.id, status="completed", actor="时执")
+async def archive(
+    task: TaskEdict,
+    irminsul: Irminsul,
+    *,
+    failure_reason: str | None = None,
+    rounds: int | None = None,
+) -> None:
+    """四影管线末尾：归档任务 + 写审计。
+
+    failure_reason 非空时走失败路径：任务状态标 failed，审计 event 用 task_failed。
+    成功路径下额外接受 rounds（总轮次）用于审计记录。
+    """
+    final_status = "failed" if failure_reason else "completed"
+    await irminsul.task_update_status(task.id, status=final_status, actor="时执")
 
     subtasks = await irminsul.subtask_list(task.id)
     summary = {
         "total_subtasks": len(subtasks),
         "completed": sum(1 for s in subtasks if s.status == "completed"),
         "failed": sum(1 for s in subtasks if s.status == "failed"),
+        "skipped": sum(1 for s in subtasks if s.status == "skipped"),
+        "rounds": rounds if rounds is not None else max(
+            (s.round for s in subtasks), default=1,
+        ),
     }
+    if failure_reason:
+        summary["failure_reason"] = failure_reason[:500]
 
     await irminsul.audit_append(
-        event_type="task_completed",
+        event_type="task_failed" if failure_reason else "task_completed",
         payload=summary,
         task_id=task.id,
         session_id=task.session_id,
@@ -53,10 +70,17 @@ async def archive(task: TaskEdict, irminsul: Irminsul) -> None:
 
     await irminsul.task_update_lifecycle(task.id, stage="cold", actor="时执")
 
-    logger.info(
-        "[时执] 归档完成 task={} (子任务: {}完成/{}失败)",
-        task.id, summary["completed"], summary["failed"],
-    )
+    if failure_reason:
+        logger.warning(
+            "[时执] 失败归档 task={} rounds={} reason={}",
+            task.id, summary["rounds"], failure_reason[:120],
+        )
+    else:
+        logger.info(
+            "[时执] 归档完成 task={} rounds={} (子任务: {}完成/{}失败/{}跳过)",
+            task.id, summary["rounds"],
+            summary["completed"], summary["failed"], summary["skipped"],
+        )
 
 
 # ==================== 活跃会话上下文压缩 ====================

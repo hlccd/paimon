@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 对照 docs/ 架构设计文档，梳理当前代码实现状态。
-> 更新时间：2026-04-23
+> 更新时间：2026-04-24
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 27 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、四影(MVP)、七神全部(MVP)、**权限体系(MVP)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃** |
+| 已实现 | 28 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃** |
 | 部分实现 | 0 | — |
 | 未开始 | 1 | 自进化 |
 
@@ -68,33 +68,33 @@
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
 | LLM 安全审查 (pass/reject) | **已实现** | `paimon/shades/jonova.py` |
-| DAG 批量敏感操作扫描 | **未开始** | — |
-| 新 skill/插件审查 | **未开始** | — |
+| DAG 批量敏感操作扫描 | **已实现** | `jonova.scan_plan` + `ScanItem/ScanResult` + `format_scan_prompt`；pipeline `_batch_authorize` 串联派蒙批量询问 |
+| 新 skill/插件审查 | **已实现** | `jonova.review_skill_declaration` + 冰神热加载 watchdog 挂接 |
 
 ### 4.2 生执 · Naberius (任务编排)
 
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
-| DAG 任务分解 | **已实现** | `paimon/shades/naberius.py` |
-| 依赖环检测 | **未开始** | — |
-| 多轮迭代控制 | **未开始** | — |
-| 失败回滚 | **未开始** | — |
+| DAG 任务分解（deps/多轮） | **已实现** | `paimon/shades/naberius.py` + `_plan.Plan`；`plan(round=N)` 支持 round≥2 修订 + preserved 节点跳过 re-INSERT |
+| 依赖环检测 | **已实现** | `_plan.detect_cycle` DFS 三色；第一轮降级线性+审计，第二轮再出环硬失败 |
+| 多轮迭代控制 | **已实现** | `SHADES_MAX_ROUNDS=3`；pipeline 按 verdict 回炉 + 水神结构化三级裁决；失败节点改派引导 |
+| 失败回滚 | **已实现** | `_saga.run_compensations` 反序执行 `Subtask.compensate`；交火神 archon 落地 |
 
 ### 4.3 空执 · Asmoday (动态路由)
 
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
 | 子任务 → 七神路由 | **已实现** | `paimon/shades/asmoday.py` |
-| 服务发现 | **未开始** | — |
-| 故障切换 | **未开始** | — |
-| 多任务并发 | **未开始** | — |
+| 多任务并发 | **已实现** | Kahn 拓扑分层 + `asyncio.gather`；preserved completed 节点预灌 results 不重跑 |
+| 故障切换 (MVP) | **已实现** | `_run_one` 重试 1 次 + 两次败后 `mark_downstream_skipped` 传播；改派由生执修订路径完成 |
+| 服务发现 | **未开始** | 当前 `_ARCHON_REGISTRY` 静态注册，新 archon 需重启 |
 
 ### 4.4 时执 · Istaroth (生命周期)
 
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
 | 上下文压缩 | **已实现** | `paimon/shades/istaroth.py` (时执接管 + 4 项改进：阈值公式 / tool pair 补齐 / Prompt 升级 / 熔断) |
-| 任务归档 + 审计 | **已实现** | `paimon/shades/istaroth.py` |
+| 任务归档 + 审计 | **已实现** | `istaroth.archive` 含 `failure_reason` + `rounds`；成功 / 失败 / 拒绝路径都归档 |
 | 会话超时管理 | **未开始** | — |
 | 归档分层 (热/冷/过期) | **部分实现** | lifecycle_stage 更新，未做自动分层 |
 
@@ -177,7 +177,7 @@
 
 | 机制 | 文档 | 状态 |
 |------|------|------|
-| 权限体系 | `docs/permissions.md` | **已实现 MVP** — 天使路径单项询问已贯通；四影路径 DAG 批量询问未做；冰神·插件面板可查/撤 |
+| 权限体系 | `docs/permissions.md` | **已实现** — 天使路径单项询问 + 四影路径 DAG 批量扫描/询问均已贯通（`classify_batch_reply` 21 种答复模式 + `scan_plan` subject 粒度 `shades_node`）；冰神·插件面板可查/撤 |
 | 自进化 | `docs/evolution.md` | **未开始** |
 
 ---
@@ -210,11 +210,14 @@ paimon/
     parser.py                        SKILL.md 解析器
     registry.py                      Skill 注册表
   shades/
-    pipeline.py                      四影管线协调器
-    jonova.py                        死执：安全审查
-    naberius.py                      生执：DAG 分解
-    asmoday.py                       空执：路由到七神
-    istaroth.py                      时执：归档 + 审计
+    pipeline.py                      四影管线协调器（三环闭环：入口审 / 主循环 / 归档+saga）
+    jonova.py                        死执：安全审查 + DAG 敏感扫描（scan_plan） + skill 声明审查
+    naberius.py                      生执：DAG 多轮编排 + 依赖环检测 + 失败改派引导
+    asmoday.py                       空执：拓扑分层 gather + 单节点重试 + 下游 skip 传播
+    istaroth.py                      时执：归档 + 审计（含 failure_reason/rounds）
+    _plan.py                         Plan 数据类 + Kahn/DFS 图算法（环检测/分层/线性化）
+    _verdict.py                      水神三级裁决 JSON 解析（pass/revise/redo 容错降级）
+    _saga.py                         Saga 轻量补偿（反序 compensate，火神执行）
   archons/
     base.py                          Archon 基类
     nahida.py                        草神：推理 + 知识

@@ -68,6 +68,10 @@ class Config(BaseSettings):
     # 默认开启；设 false 可在调试/误伤排查时临时绕过
     input_filter_enabled: bool = True
 
+    # 四影闭环：草→水→雷多轮迭代上限（水神不通过时生执回炉最多 N 轮）
+    # 默认 3；超过上限视为"尽力而为"返回最后一轮产物
+    shades_max_rounds: int = 3
+
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore"
     )

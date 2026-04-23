@@ -251,29 +251,113 @@ async def run_shades_pipeline(
 
     reply = await channel.make_reply(msg)
 
+    # 进入 generating；无论成功/失败最终必须把状态复位，避免 UI 卡 "generating"
+    session.response_status = "generating"
     try:
-        from paimon.shades.pipeline import ShadesPipeline
-        pipeline = ShadesPipeline(model, state.irminsul)
+        session_mgr.save_session(session)
+    except Exception:
+        pass
 
-        result = await pipeline.run(
-            msg.text, session_id=session.id,
-            escalation_reason=escalation_reason,
-        )
+    result: str = ""
+    pipeline_ok = True
+    cancelled = False
+    try:
+        try:
+            from paimon.shades.pipeline import ShadesPipeline
+            pipeline = ShadesPipeline(
+                model, state.irminsul,
+                channel=channel,
+                chat_id=msg.chat_id,
+                authz_cache=state.authz_cache,
+            )
 
-        if result:
-            await reply.send(result)
+            result = await pipeline.run(
+                msg.text, session_id=session.id,
+                escalation_reason=escalation_reason,
+            )
+        except asyncio.CancelledError:
+            # 外部 cancel（如用户 /stop）：不把异常吞掉，但先把收尾做完
+            cancelled = True
+            pipeline_ok = False
+            logger.info("[派蒙·四影] 管线被取消 session={}", session.id[:8])
+            raise
+        except Exception as e:
+            pipeline_ok = False
+            logger.error("[派蒙·四影] 管线异常: {}", e)
+            result = f"[错误] 四影管线执行失败: {e}"
 
-        cost = model.last_chat_cost_usd
-        cost_str = f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}"
-        await reply.send(f"\n\n---\n~{cost_str}")
-    except Exception as e:
-        logger.error("[派蒙·四影] 管线异常: {}", e)
-        await reply.send(f"\n\n> [错误] 四影管线执行失败: {e}")
+        # reply.send 的 I/O 错误不影响 pipeline_ok（管线可能已成功只是连接断了）
+        if not cancelled:
+            try:
+                if result:
+                    prefix = "\n\n> " if not pipeline_ok else ""
+                    await reply.send(prefix + result)
+                cost = model.last_chat_cost_usd
+                cost_str = f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}"
+                await reply.send(f"\n\n---\n~{cost_str}")
+            except Exception as e:
+                logger.debug("[派蒙·四影] reply.send 失败（连接可能已断）: {}", e)
     finally:
+        # 无论成功/异常/cancel，都要收尾 session 状态，避免 UI 卡 "generating"
         try:
             await reply.flush()
         except Exception:
             pass
+
+        # 会话状态补录：
+        #   complex 直送路径下主会话完全没过 model.chat，需要手动补 user+assistant
+        #   魔女会路径下 model.chat 已经 append 过 user message（甚至 assistant buf）
+        # cancelled 时不强求补产物（可能不完整），但 response_status 仍要复位
+        if not cancelled:
+            try:
+                _persist_shades_turn(session, msg.text, result, pipeline_ok)
+            except Exception as e:
+                logger.debug("[派蒙·四影] 会话状态补录失败: {}", e)
+
+        if cancelled:
+            session.response_status = "interrupted"
+        else:
+            session.response_status = "completed" if pipeline_ok else "interrupted"
+        try:
+            session_mgr.save_session(session)
+        except Exception as e:
+            logger.debug("[派蒙·四影] save_session 失败: {}", e)
+
+
+def _persist_shades_turn(
+    session: Session,
+    user_text: str,
+    assistant_text: str,
+    ok: bool,
+) -> None:
+    """把四影一轮的 user/assistant 消息补进 session.messages。
+
+    幂等：若最后一条已是当前 user_text（说明魔女会路径的 model.chat 已 append 过），
+    就不重复 append user；assistant 则按需追加。
+    """
+    if not session.messages:
+        # 极端情况：新会话还没被 handle_chat 处理过（纯 complex 直送）
+        session.messages.append({"role": "user", "content": user_text})
+    else:
+        last = session.messages[-1]
+        last_role = last.get("role")
+        last_content = last.get("content") or ""
+        # 情况 A：最后一条就是当前用户消息 → 不重复 append user
+        if last_role == "user" and last_content == user_text:
+            pass
+        # 情况 B：最后一条是 assistant，说明 handle_chat 已闭环了一轮；
+        # user 消息肯定在更早之前已 append（由 model.chat 做）。不再补 user。
+        elif last_role == "assistant":
+            pass
+        # 情况 C：最后一条不是当前 user 也不是 assistant（或完全别的 session 结构）
+        else:
+            session.messages.append({"role": "user", "content": user_text})
+
+    # 追加四影产物作为 assistant message
+    if assistant_text:
+        # 失败也记录，避免历史空洞；带 [四影失败] 前缀便于后续识别
+        content = assistant_text if ok else f"[四影未完成] {assistant_text}"
+        session.messages.append({"role": "assistant", "content": content})
 
 
 async def handle_chat(

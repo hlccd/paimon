@@ -1,18 +1,28 @@
 """死执 · Jonova — 安全审查
 
-管线第一步。审查用户请求的安全性，拒绝危险操作。
-同时对接魔女会 & 冰神的新 skill / plugin 声明审查（见 review_skill_declaration）。
+管线职责：
+  - review(task): 入口请求审（管线第一步）
+  - scan_plan(plan): DAG 敏感操作扫描（每轮编排后、dispatch 前）
+  - review_skill_declaration(decl): 冰神热加载的新 skill 审查（外部调用）
+
+docs/aimon.md §2.4 四影路径权限流：
+  生执编排 DAG → 死执扫敏感操作 → 排除已永久放行 → 派蒙批量询问 → 其余剔除
 """
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from paimon.core.authz.cache import AuthzCache
+from paimon.core.authz.sensitive_tools import describe_tool_risk
 from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.irminsul.task import TaskEdict
 from paimon.llm.model import Model
+
+from ._plan import Plan
 
 if TYPE_CHECKING:
     from paimon.foundation.irminsul.skills import SkillDecl
@@ -146,3 +156,121 @@ async def review_skill_declaration(
         logger.warning("[死执·skill 审查] 拒绝 {}: {}", decl.name, reason[:80])
 
     return passed, reason
+
+
+# ==================== DAG 敏感操作扫描（四影路径批量授权）====================
+
+@dataclass
+class ScanItem:
+    """扫描出的单个敏感操作条目（待派蒙询问用户）。"""
+    subtask_id: str
+    assignee: str
+    description: str              # 子任务描述（展示给用户看）
+    sensitive_ops: list[str]      # 本节点声明的敏感工具
+    # 运行期标签
+    blocked: bool = False         # 已被 permanent_deny 命中 → pipeline 应剔除节点
+    pre_approved: bool = False    # 已被 permanent_allow 命中（内部用；不会返回给 pipeline）
+
+
+@dataclass
+class ScanResult:
+    """死执扫描整个 plan 的结果。"""
+    items_to_ask: list[ScanItem] = field(default_factory=list)  # 需要询问用户的
+    blocked_ids: list[str] = field(default_factory=list)        # 永久禁止的节点
+    pre_approved_ids: list[str] = field(default_factory=list)   # 永久放行的节点（免询问）
+
+    @property
+    def has_questions(self) -> bool:
+        return len(self.items_to_ask) > 0
+
+
+def scan_plan(
+    plan: Plan,
+    authz_cache: AuthzCache,
+    *,
+    user_id: str = "default",
+    session_id: str = "",
+) -> ScanResult:
+    """扫 plan 中的敏感操作。
+
+    规则：
+      - subtask.sensitive_ops 为空 → 跳过
+      - 查缓存：
+          * permanent_deny → 加入 blocked_ids
+          * permanent_allow → 加入 pre_approved_ids
+          * session 已 allow → 视为 pre_approved
+          * session 已 deny → 视为 blocked
+          * 无记录 → 加入 items_to_ask
+      - 若同节点有多个 sensitive_ops，整体作为一个条目问（粒度更友好）
+    """
+    result = ScanResult()
+
+    for sub in plan.subtasks:
+        ops = list(sub.sensitive_ops or [])
+        if not ops:
+            continue
+
+        # skill 粒度：用 subject=skill/<assignee> 的键查（因为目前敏感度派生在 skill 维度；
+        # 后续 todo.md 2.x 会支持工具粒度）
+        # 这里先按"节点"整体决策，subject_id 用 assignee 作为粗粒度 key
+        subject_type = "shades_node"
+        subject_id = sub.assignee  # 用中文神名做键（与派蒙天使路径的 skill 名区分）
+
+        cached = authz_cache.get(subject_type, subject_id)
+        if cached == "permanent_deny":
+            result.blocked_ids.append(sub.id)
+            continue
+        if cached == "permanent_allow":
+            result.pre_approved_ids.append(sub.id)
+            continue
+
+        # 会话级
+        if session_id:
+            scope = authz_cache.get_session_scope(session_id, subject_type, subject_id)
+            if scope == "deny":
+                result.blocked_ids.append(sub.id)
+                continue
+            if scope == "allow":
+                result.pre_approved_ids.append(sub.id)
+                continue
+
+        # 需要询问
+        result.items_to_ask.append(ScanItem(
+            subtask_id=sub.id,
+            assignee=sub.assignee,
+            description=sub.description,
+            sensitive_ops=ops,
+        ))
+
+    logger.info(
+        "[死执·scan_plan] 共 {} 节点，{} 待询问 / {} 已放行 / {} 已禁止",
+        len(plan.subtasks), len(result.items_to_ask),
+        len(result.pre_approved_ids), len(result.blocked_ids),
+    )
+    return result
+
+
+def format_scan_prompt(items: list[ScanItem]) -> str:
+    """把扫描条目拼成给用户的询问文本。"""
+    if not items:
+        return ""
+    lines = [
+        f"本次任务涉及 **{len(items)}** 项敏感操作，请确认："
+    ]
+    for i, item in enumerate(items, 1):
+        tool_hits = []
+        for op in item.sensitive_ops:
+            risk = describe_tool_risk(op)
+            tool_hits.append(f"{op}" + (f"（{risk}）" if risk else ""))
+        tools_str = " / ".join(tool_hits) if tool_hits else "敏感工具"
+        desc = item.description.strip().replace("\n", " ")[:80]
+        lines.append(f"[{i}] {item.assignee} · {desc}\n      需要: {tools_str}")
+    lines.append("")
+    lines.append(
+        "答复方式：\n"
+        "  • 全部放行 / 全部拒绝\n"
+        "  • \"1,3\" 仅放行 1 和 3（其余默认拒绝）\n"
+        "  • 永久放行 / 永久拒绝（加上永久二字会写入世界树长期生效）\n"
+        "  • 30 秒无答复保守拒绝"
+    )
+    return "\n".join(lines)

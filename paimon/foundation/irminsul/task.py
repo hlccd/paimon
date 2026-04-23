@@ -41,10 +41,16 @@ class Subtask:
     parent_id: str | None
     assignee: str                             # '草神' / '雷神' / ...
     description: str
-    status: str = "pending"
+    status: str = "pending"                   # pending / running / completed / failed / skipped / superseded
     result: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
+    # 四影闭环扩展（2026-04-23）
+    deps: list[str] | None = None             # 前置子任务 id 列表；None/空表示无依赖
+    round: int = 1                            # 所属轮次（每轮生成/修订 +1）
+    sensitive_ops: list[str] | None = None    # 预计调用的敏感工具（供死执 scan_plan 使用）
+    verdict_status: str = ""                  # 水神裁决后打标：passed / needs_revise / needs_redo
+    compensate: str = ""                      # saga 补偿动作（自然语言；失败回滚时交火神执行）
 
 
 @dataclass
@@ -173,18 +179,23 @@ class TaskRepo:
         await self._db.execute(
             "INSERT INTO task_subtasks "
             "(id, task_id, parent_id, assignee, description, status, result, "
-            " created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " created_at, updated_at, deps, round, sensitive_ops, verdict_status, compensate) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 sub.id, sub.task_id, sub.parent_id, sub.assignee,
                 sub.description, sub.status, sub.result,
                 created_at, now,
+                json.dumps(sub.deps or [], ensure_ascii=False),
+                sub.round,
+                json.dumps(sub.sensitive_ops or [], ensure_ascii=False),
+                sub.verdict_status,
+                sub.compensate or "",
             ),
         )
         await self._db.commit()
         logger.info(
-            "[世界树] {}·子任务创建  task={} subtask={} ({})",
-            actor, sub.task_id, sub.id, sub.assignee,
+            "[世界树] {}·子任务创建  task={} subtask={} ({}) round={} deps={}",
+            actor, sub.task_id, sub.id, sub.assignee, sub.round, sub.deps or [],
         )
 
     async def subtask_update_status(
@@ -202,10 +213,25 @@ class TaskRepo:
             actor, subtask_id, status,
         )
 
+    async def subtask_update_verdict(
+        self, subtask_id: str, verdict_status: str, *, actor: str,
+    ) -> None:
+        """水神裁决后为单个子任务打标。"""
+        now = time.time()
+        await self._db.execute(
+            "UPDATE task_subtasks SET verdict_status = ?, updated_at = ? WHERE id = ?",
+            (verdict_status, now, subtask_id),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树] {}·子任务裁决  {} → {}",
+            actor, subtask_id, verdict_status,
+        )
+
     async def subtask_list(self, task_id: str) -> list[Subtask]:
         async with self._db.execute(
             "SELECT id, task_id, parent_id, assignee, description, status, result, "
-            "created_at, updated_at "
+            "created_at, updated_at, deps, round, sensitive_ops, verdict_status, compensate "
             "FROM task_subtasks WHERE task_id = ? ORDER BY created_at",
             (task_id,),
         ) as cur:
@@ -292,8 +318,25 @@ def _row_to_edict(row) -> TaskEdict:
 
 
 def _row_to_subtask(row) -> Subtask:
+    # 兼容旧行（新列迁移过渡；缺列时用默认值）
+    deps_raw = row[9] if len(row) > 9 else None
+    round_n = row[10] if len(row) > 10 else 1
+    sops_raw = row[11] if len(row) > 11 else None
+    verdict = row[12] if len(row) > 12 else ""
+    compensate = row[13] if len(row) > 13 else ""
+    try:
+        deps = json.loads(deps_raw) if deps_raw else []
+    except Exception:
+        deps = []
+    try:
+        sensitive_ops = json.loads(sops_raw) if sops_raw else []
+    except Exception:
+        sensitive_ops = []
     return Subtask(
         id=row[0], task_id=row[1], parent_id=row[2], assignee=row[3],
         description=row[4], status=row[5], result=row[6],
         created_at=row[7], updated_at=row[8],
+        deps=deps, round=round_n or 1,
+        sensitive_ops=sensitive_ops, verdict_status=verdict or "",
+        compensate=compensate or "",
     )
