@@ -82,6 +82,15 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/preferences", self.preferences_page)
         self.app.router.add_get("/api/preferences/list", self.preferences_list_api)
         self.app.router.add_post("/api/preferences/delete", self.preferences_delete_api)
+        # 风神·信息流面板
+        self.app.router.add_get("/feed", self.feed_page)
+        self.app.router.add_get("/api/feed/stats", self.feed_stats_api)
+        self.app.router.add_get("/api/feed/subs", self.feed_subs_list_api)
+        self.app.router.add_post("/api/feed/subs", self.feed_subs_create_api)
+        self.app.router.add_patch("/api/feed/subs/{sub_id}", self.feed_subs_patch_api)
+        self.app.router.add_delete("/api/feed/subs/{sub_id}", self.feed_subs_delete_api)
+        self.app.router.add_post("/api/feed/subs/{sub_id}/run", self.feed_subs_run_api)
+        self.app.router.add_get("/api/feed/items", self.feed_items_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 推送长连接
         self.app.router.add_get("/api/push", self.push_stream)
@@ -197,6 +206,200 @@ class WebUIChannel(Channel):
         except Exception as e:
             logger.error("[派蒙·偏好面板] 删除记忆异常: {}", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    # ---------- 风神 · 信息流面板 ----------
+
+    def _check_auth(self, request: web.Request) -> bool:
+        """统一 auth 闸：True=已登录 / False=未登录。仅内部使用。"""
+        if not self.require_auth:
+            return True
+        token = request.cookies.get("paimon_token")
+        return bool(token and token in self.valid_tokens)
+
+    async def feed_page(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.Response(text=self._get_login_html(), content_type="text/html")
+
+        from paimon.channels.webui.feed_html import build_feed_html
+        return web.Response(
+            text=build_feed_html(),
+            content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    async def feed_stats_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"sub_count": 0, "items_today": 0, "items_week": 0})
+        now = time.time()
+        subs = await irminsul.subscription_list()
+        today = await irminsul.feed_items_count(since=now - 86400)
+        week = await irminsul.feed_items_count(since=now - 7 * 86400)
+        return web.json_response({
+            "sub_count": len(subs),
+            "items_today": today,
+            "items_week": week,
+        })
+
+    async def feed_subs_list_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"subs": []})
+        subs = await irminsul.subscription_list()
+        out = []
+        for s in subs:
+            count = await irminsul.feed_items_count(sub_id=s.id)
+            out.append({
+                "id": s.id,
+                "query": s.query,
+                "channel_name": s.channel_name,
+                "chat_id": s.chat_id,
+                "schedule_cron": s.schedule_cron,
+                "engine": s.engine,
+                "enabled": s.enabled,
+                "last_run_at": s.last_run_at,
+                "last_error": s.last_error,
+                "created_at": s.created_at,
+                "item_count": count,
+            })
+        return web.json_response({"subs": out})
+
+    async def feed_subs_create_api(self, request: web.Request) -> web.Response:
+        """WebUI 新增订阅入口，直接调 core.commands.create_subscription helper。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            data = await request.json()
+            query = (data.get("query") or "").strip()
+            cron = (data.get("cron") or "").strip()
+            engine = (data.get("engine") or "").strip()
+        except Exception:
+            return web.json_response({"ok": False, "error": "请求体 JSON 无效"}, status=400)
+
+        from paimon.core.commands import create_subscription
+
+        try:
+            ok, message = await create_subscription(
+                query=query, cron=cron, engine=engine,
+                channel_name=self.name,
+                chat_id=PUSH_CHAT_ID,
+                supports_push=getattr(self, "supports_push", True),
+            )
+        except Exception as e:
+            logger.error("[派蒙·WebUI·订阅] 创建异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+        if ok:
+            return web.json_response({"ok": True, "message": message})
+        return web.json_response({"ok": False, "error": message})
+
+    async def feed_subs_patch_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        sub_id = request.match_info["sub_id"]
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+
+        irminsul = self.state.irminsul
+        march = self.state.march
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+
+        sub = await irminsul.subscription_get(sub_id)
+        if not sub:
+            return web.json_response({"ok": False, "error": "订阅不存在"}, status=404)
+
+        if "enabled" in data:
+            enable = bool(data["enabled"])
+            await irminsul.subscription_update(sub_id, actor="WebUI", enabled=enable)
+            if sub.linked_task_id and march:
+                try:
+                    if enable:
+                        await march.resume_task(sub.linked_task_id)
+                    else:
+                        await march.pause_task(sub.linked_task_id)
+                except Exception as e:
+                    logger.warning("[WebUI·订阅] 同步定时任务启停失败: {}", e)
+        return web.json_response({"ok": True})
+
+    async def feed_subs_delete_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        sub_id = request.match_info["sub_id"]
+        irminsul = self.state.irminsul
+        march = self.state.march
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+
+        sub = await irminsul.subscription_get(sub_id)
+        if not sub:
+            return web.json_response({"ok": False, "error": "订阅不存在"}, status=404)
+        if sub.linked_task_id and march:
+            try:
+                await march.delete_task(sub.linked_task_id)
+            except Exception as e:
+                logger.warning("[WebUI·订阅] 删定时任务失败: {}", e)
+        await irminsul.subscription_delete(sub_id, actor="WebUI")
+        return web.json_response({"ok": True})
+
+    async def feed_subs_run_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        sub_id = request.match_info["sub_id"]
+        if not self.state.venti or not self.state.irminsul:
+            return web.json_response({"ok": False, "error": "风神未就绪"}, status=500)
+        sub = await self.state.irminsul.subscription_get(sub_id)
+        if not sub:
+            return web.json_response({"ok": False, "error": "订阅不存在"}, status=404)
+        asyncio.create_task(self.state.venti.collect_subscription(
+            sub_id,
+            irminsul=self.state.irminsul,
+            model=self.state.model,
+            march=self.state.march,
+        ))
+        return web.json_response({"ok": True})
+
+    async def feed_items_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"items": []})
+
+        sub_id = request.query.get("sub_id", "").strip() or None
+        since_sec = 0
+        try:
+            since_sec = int(request.query.get("since", "0"))
+        except (TypeError, ValueError):
+            since_sec = 0
+        since_ts = time.time() - since_sec if since_sec > 0 else None
+
+        limit = min(int(request.query.get("limit", "200")), 500)
+        items = await irminsul.feed_items_list(
+            sub_id=sub_id, since=since_ts, limit=limit,
+        )
+        return web.json_response({
+            "items": [
+                {
+                    "id": it.id,
+                    "subscription_id": it.subscription_id,
+                    "url": it.url,
+                    "title": it.title,
+                    "description": it.description,
+                    "engine": it.engine,
+                    "captured_at": it.captured_at,
+                    "pushed_at": it.pushed_at,
+                    "digest_id": it.digest_id,
+                }
+                for it in items
+            ]
+        })
 
     async def plugins_skills_api(self, request: web.Request) -> web.Response:
         if self.require_auth:
@@ -319,6 +522,9 @@ class WebUIChannel(Channel):
             return web.json_response({"tasks": []})
 
         tasks = await march.list_tasks()
+        # 过滤订阅专用的内部 FEED_COLLECT 任务（归信息流面板 /feed 管理，
+        # 避免两个面板产生冲突的启停操作）
+        tasks = [t for t in tasks if not t.task_prompt.startswith("[FEED_COLLECT] ")]
         return web.json_response({
             "tasks": [
                 {
@@ -681,19 +887,19 @@ class WebUIChannel(Channel):
                 return web.json_response({"error": "会话不存在"}, status=404)
 
         # 过滤 session.messages 为 UI 可展示条目：
-        # - 保留 user / assistant 且 content 非空白的
-        # - 对 assistant 只有 tool_calls（中间工具调用产物）显示占位气泡，让用户知道派蒙调了工具
-        # - tool 消息隐藏（是内部机制，不展示给用户）
+        # - user 消息：content 非空就展示
+        # - assistant 消息：
+        #     * 有 tool_calls（不论有无 content）→ 统一显示"调用工具"占位气泡，
+        #       忽略 pre-tool narration；避免刷新页面时看到 "pre-tool 文字 + post-tool 文字"
+        #       两条 assistant 气泡（LLM 在 tool-loop 里边做边说导致的视觉重复）
+        #     * 只有 content → 正常文字气泡
+        # - tool 消息隐藏（内部机制）
         messages = []
         for msg in session.messages:
             role = msg.get("role", "")
             if role not in ("user", "assistant"):
                 continue
             content = msg.get("content") or ""   # None / 缺失都归一化为空字符串
-            if content.strip():
-                messages.append({"role": role, "content": content})
-                continue
-            # assistant 只有 tool_calls 时给个占位气泡
             if role == "assistant" and msg.get("tool_calls"):
                 tool_names = []
                 for tc in msg["tool_calls"]:
@@ -702,6 +908,9 @@ class WebUIChannel(Channel):
                     tool_names.append(n)
                 placeholder = f"_🔧 调用工具：{', '.join(tool_names)}_"
                 messages.append({"role": role, "content": placeholder})
+                continue
+            if content.strip():
+                messages.append({"role": role, "content": content})
 
         return web.json_response({
             "session_id": session_id,

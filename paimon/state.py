@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from paimon.angels.registry import SkillRegistry
     from paimon.angels.watcher import SkillHotLoader
+    from paimon.archons.venti import VentiArchon
     from paimon.channels.base import Channel
     from paimon.channels.webui.push_hub import PushHub
     from paimon.config import Config
@@ -44,6 +45,8 @@ class RuntimeState:
     pending_asks: dict[str, asyncio.Future] = field(default_factory=dict)
     # WebUI 推送扇出器（长连接 SSE 的消息队列管理）
     push_hub: PushHub | None = None
+    # 风神单例（订阅采集入口；bootstrap 初始化）
+    venti: "VentiArchon | None" = None
 
 
 state = RuntimeState()

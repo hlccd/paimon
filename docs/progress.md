@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 对照 docs/ 架构设计文档，梳理当前代码实现状态。
-> 更新时间：2026-04-24（第二轮：时执生命周期闭环）
+> 更新时间：2026-04-24（第三轮：风神话题订阅 + 信息流面板）
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 29 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃** |
+| 已实现 | 30 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板（自然语言触发 + cron 采集 + LLM 日报 + 去重推送）** |
 | 部分实现 | 0 | — |
 | 未开始 | 1 | 自进化 |
 
@@ -109,7 +109,7 @@
 | 雷神 · Raiden | 代码生成、自检 | **已实现** (MVP) | `paimon/archons/raiden.py` |
 | 水神 · Furina | 评审、游戏信息 | **已实现** (MVP) | `paimon/archons/furina.py` |
 | 火神 · Mavuika | Shell/代码执行、部署 | **已实现** (MVP) | `paimon/archons/mavuika.py` |
-| 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP) | `paimon/archons/venti.py` |
+| 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP + 话题订阅闭环) | `paimon/archons/venti.py` `collect_subscription` + `paimon/tools/builtin/subscribe.py` |
 | 岩神 · Zhongli | 理财、红利股 | **已实现** (MVP) | `paimon/archons/zhongli.py` |
 | 冰神 · Tsaritsa | Skill 生态管理 | **已实现** (MVP) | `paimon/archons/tsaritsa.py` |
 
@@ -145,7 +145,7 @@
 
 ### 6.4 世界树 · Irminsul (存储层)
 
-全系统唯一存储层，10 个数据域。
+全系统唯一存储层，11 个数据域。
 
 | 数据域 | 状态 | 业务服务方 |
 |--------|------|-----------|
@@ -159,6 +159,7 @@
 | 理财数据 | **API 就绪** | 岩神 (待接入) |
 | 聊天会话 | **已实现** | 派蒙 |
 | 定时任务 | **已实现** | 三月 |
+| 订阅（subscriptions + feed_items）| **已实现** | 风神写采集条目 / 派蒙写订阅声明 / WebUI 面板读写；UNIQUE(sub_id,url) 原生去重 |
 
 ### 6.5 三月 · March (守护与调度)
 
@@ -168,7 +169,9 @@
 | 定时调度 (cron/interval/once) | **已实现** | `paimon/foundation/march.py` (按分钟 :00 对齐轮询) |
 | 推送响铃 (定时触发) | **已实现** | 走地脉 march.ring → 派蒙投递 |
 | 推送响铃 (事件触发) | **已实现** | `MarchService.ring_event`（含 60s/10 条限流 + audit `march_ring_event`；派蒙侧 zero-change 复用 march.ring 订阅） |
-| 任务观测面板 | **已实现** | `paimon/channels/webui/tasks_html.py` |
+| 任务观测面板 | **已实现** | `paimon/channels/webui/tasks_html.py`（过滤订阅 `[FEED_COLLECT]` 任务归信息流面板）|
+| 订阅触发分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[FEED_COLLECT] <sub_id>` 前缀 → 直接调风神 `collect_subscription`，不走 LLM |
+| 信息流面板 | **已实现** | `paimon/channels/webui/feed_html.py`（订阅增删改 + feed_items 列表 + 按订阅/时间筛选 + 手动 run） |
 | WebUI 推送通知 | **已实现** | `send_text` / `send_file` 落推送会话 + PushHub 扇出 SSE；QQ 因 API 限制关闭 |
 | 自检系统 | **未开始** | — |
 
@@ -223,6 +226,7 @@ paimon/
   archons/
     base.py                          Archon 基类
     nahida.py                        草神：推理 + 知识
+    venti.py                         风神：通用采集（execute）+ 话题订阅（collect_subscription）
   tools/
     base.py                          BaseTool + ToolContext
     registry.py                      工具注册表
@@ -230,23 +234,25 @@ paimon/
       exec.py                        Shell 执行
       skill.py                       use_skill
       schedule.py                    定时任务管理
+      subscribe.py                   话题订阅管理（派蒙闲聊可调，create/list/delete/run/pause/resume）
   foundation/
     gnosis.py                        神之心 (LLM 资源池)
     leyline.py                       地脉 (事件总线)
     march.py                         三月 (定时调度)
     primogem.py                      原石 (Token 服务层)
-    irminsul/                        世界树 (10 域存储层)
-      irminsul.py                    门面 (~50 个 API)
+    irminsul/                        世界树 (11 域存储层)
+      irminsul.py                    门面 (~60 个 API)
       _db.py                         Schema + 迁移
       _paths.py                      路径安全
       authz.py / skills.py / knowledge.py / memory.py
       task.py / token.py / audit.py / dividend.py
-      session.py / schedule.py
+      session.py / schedule.py / subscription.py
   channels/
     base.py                          Channel ABC（含 supports_push 能力声明 + ask_user 交互式询问）
-    webui/                           WebUI (aiohttp + SSE + 仪表盘 + 任务面板 + 插件面板)
+    webui/                           WebUI (aiohttp + SSE + 仪表盘 + 任务面板 + 插件面板 + 信息流面板)
       push_hub.py                    推送扇出器（支持多标签 fan-out）
       plugins_html.py                冰神·插件面板（skill 生态 + 永久授权 tab）
+      feed_html.py                   风神·信息流面板（订阅管理 + 采集条目列表 + 统计）
     telegram/                        Telegram (aiogram)
     qq/                              QQ (qq-botpy, supports_push=False)
 tools/
@@ -256,6 +262,7 @@ skills/
   bili/SKILL.md                      B站视频分析
   xhs/SKILL.md                      小红书内容分析
   check/SKILL.md                     多轮迭代审查
+  web-search/SKILL.md                Bing+百度双引擎全网搜索（风神订阅采集的底座）
 templates/
   paimon.t                           派蒙人格 prompt
 ```

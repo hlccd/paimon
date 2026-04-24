@@ -17,6 +17,7 @@ from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
 from .skills import SkillDecl, SkillRepo
+from .subscription import FeedItem, Subscription, SubscriptionRepo
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict, TaskRepo
 from .schedule import ScheduleRepo, ScheduledTask
 from .token import TokenRepo, TokenRow
@@ -47,6 +48,7 @@ class Irminsul:
         self._dividend: DividendRepo | None = None
         self._session: SessionRepo | None = None
         self._schedule: ScheduleRepo | None = None
+        self._subscription: SubscriptionRepo | None = None
 
     async def initialize(self) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
@@ -66,6 +68,7 @@ class Irminsul:
         self._dividend = DividendRepo(self._db)
         self._session = SessionRepo(self._db)
         self._schedule = ScheduleRepo(self._db)
+        self._subscription = SubscriptionRepo(self._db)
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
 
@@ -379,3 +382,56 @@ class Irminsul:
 
     async def schedule_delete(self, task_id: str, *, actor: str) -> bool:
         return await self._schedule.delete(task_id, actor=actor)
+
+    # ============ 域 11: 订阅（风神）============
+    async def subscription_create(self, sub: Subscription, *, actor: str) -> str:
+        return await self._subscription.create(sub, actor=actor)
+
+    async def subscription_get(self, sub_id: str) -> Subscription | None:
+        return await self._subscription.get(sub_id)
+
+    async def subscription_list(
+        self, *, user_id: str | None = None, enabled_only: bool = False,
+    ) -> list[Subscription]:
+        return await self._subscription.list(
+            user_id=user_id, enabled_only=enabled_only,
+        )
+
+    async def subscription_update(
+        self, sub_id: str, *, actor: str, **fields,
+    ) -> bool:
+        return await self._subscription.update(sub_id, actor=actor, **fields)
+
+    async def subscription_delete(self, sub_id: str, *, actor: str) -> bool:
+        return await self._subscription.delete(sub_id, actor=actor)
+
+    async def feed_items_insert(
+        self, sub_id: str, items: list[dict], *, actor: str,
+    ) -> list[int]:
+        return await self._subscription.insert_feed_items(sub_id, items, actor=actor)
+
+    async def feed_items_list(
+        self, *,
+        sub_id: str | None = None, since: float | None = None,
+        only_unpushed: bool = False, limit: int = 200,
+    ) -> list[FeedItem]:
+        return await self._subscription.list_feed_items(
+            sub_id=sub_id, since=since, only_unpushed=only_unpushed, limit=limit,
+        )
+
+    async def feed_items_mark_pushed(
+        self, ids: list[int], digest_id: str, *, actor: str,
+    ) -> int:
+        return await self._subscription.mark_feed_items_pushed(
+            ids, digest_id, actor=actor,
+        )
+
+    async def feed_items_existing_urls(
+        self, sub_id: str, *, since_ts: float = 0,
+    ) -> set[str]:
+        return await self._subscription.existing_urls(sub_id, since_ts=since_ts)
+
+    async def feed_items_count(
+        self, *, sub_id: str | None = None, since: float | None = None,
+    ) -> int:
+        return await self._subscription.count_feed_items(sub_id=sub_id, since=since)

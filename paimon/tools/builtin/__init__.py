@@ -5,12 +5,14 @@ from paimon.tools.builtin.memory_tool import MemoryTool
 from paimon.tools.builtin.schedule import ScheduleTool
 from paimon.tools.builtin.skill import UseSkillTool
 from paimon.tools.builtin.skill_manage import SkillManageTool
+from paimon.tools.builtin.subscribe import SubscribeTool
 from paimon.tools.builtin.web_fetch import WebFetchTool
 
 BUILTIN_TOOLS = [
     ExecTool(),
     UseSkillTool(),
     ScheduleTool(),
+    SubscribeTool(),
     KnowledgeTool(),
     MemoryTool(),
     FileOpsTool(),

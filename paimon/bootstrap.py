@@ -99,6 +99,10 @@ async def create_app(cfg: Config) -> list[Channel]:
         else:
             state.skill_hot_loader = None
 
+    # 风神单例（供三月 cron 触发订阅采集；四影管线另走 archon registry 路径）
+    from paimon.archons.venti import VentiArchon
+    state.venti = VentiArchon()
+
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision
     state.authz_cache = AuthzCache()
@@ -144,6 +148,33 @@ async def create_app(cfg: Config) -> list[Channel]:
         channel_name = payload.get("channel_name", "")
         chat_id = payload.get("chat_id", "")
         prompt = payload.get("prompt", "")
+
+        # ---- 风神订阅采集（前缀分派，不走频道投递）----
+        # scheduled_tasks.task_prompt 形如 "[FEED_COLLECT] <sub_id>"
+        # 由 /subscribe 指令创建；cron 到点触发后由风神采集 + 内部再 ring_event 推送。
+        # 无论 state.venti 是否就绪都必须拦截前缀 prompt，避免误发给 LLM。
+        if prompt.startswith("[FEED_COLLECT] "):
+            sub_id = prompt.split(" ", 1)[1].strip()
+            if not state.venti:
+                logger.error("[风神·订阅] 风神未就绪，跳过采集 sub={}", sub_id)
+                return
+            try:
+                await state.venti.collect_subscription(
+                    sub_id,
+                    irminsul=state.irminsul,
+                    model=state.model,
+                    march=state.march,
+                )
+            except Exception as e:
+                logger.exception("[风神·订阅] 采集异常 sub={}: {}", sub_id, e)
+                if state.irminsul:
+                    try:
+                        await state.irminsul.subscription_update(
+                            sub_id, actor="风神", last_error=str(e)[:500],
+                        )
+                    except Exception:
+                        pass
+            return
 
         channel = state.channels.get(channel_name)
         if not channel:

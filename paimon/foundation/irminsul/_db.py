@@ -179,6 +179,43 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 CREATE INDEX IF NOT EXISTS idx_sched_enabled ON scheduled_tasks(enabled);
 CREATE INDEX IF NOT EXISTS idx_sched_next ON scheduled_tasks(next_run_at);
 
+-- ============ 域 11: 订阅（风神）============
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL DEFAULT 'default',
+    query          TEXT NOT NULL,
+    channel_name   TEXT NOT NULL,
+    chat_id        TEXT NOT NULL,
+    schedule_cron  TEXT NOT NULL,
+    max_items      INTEGER NOT NULL DEFAULT 10,
+    engine         TEXT NOT NULL DEFAULT '',
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    linked_task_id TEXT NOT NULL DEFAULT '',
+    last_run_at    REAL NOT NULL DEFAULT 0,
+    last_error     TEXT NOT NULL DEFAULT '',
+    created_at     REAL NOT NULL,
+    updated_at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sub_enabled ON subscriptions(enabled);
+CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
+
+CREATE TABLE IF NOT EXISTS feed_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    title           TEXT NOT NULL DEFAULT '',
+    description     TEXT NOT NULL DEFAULT '',
+    engine          TEXT NOT NULL DEFAULT '',
+    captured_at     REAL NOT NULL,
+    pushed_at       REAL,
+    digest_id       TEXT NOT NULL DEFAULT '',
+    UNIQUE(subscription_id, url),
+    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_feed_sub ON feed_items(subscription_id);
+CREATE INDEX IF NOT EXISTS idx_feed_captured ON feed_items(captured_at);
+CREATE INDEX IF NOT EXISTS idx_feed_pushed ON feed_items(pushed_at);
+
 -- ============ 域 9: 聊天会话 ============
 CREATE TABLE IF NOT EXISTS session_records (
     id TEXT PRIMARY KEY,

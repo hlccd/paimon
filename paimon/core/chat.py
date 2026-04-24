@@ -459,6 +459,7 @@ async def handle_chat(
             #   - audio/video_process —— 重型，归七神
             _CHAT_TOOLS = {
                 "schedule",       # 定时任务（写世界树 scheduled_tasks 域，无副作用）
+                "subscribe",      # 话题订阅（写订阅+定时任务，同一级别）
                 "web_fetch",      # 抓取 URL（只读外部）
                 "knowledge",      # 知识库读写（写的是用户自己的域）
                 "memory",         # 记忆读写
