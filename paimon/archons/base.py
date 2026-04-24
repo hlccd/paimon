@@ -18,11 +18,18 @@ _SKILL_BODY_CACHE: dict[str, str] = {}
 
 
 def _read_skill_body(skill_name: str) -> str:
-    """读 skills/{name}/SKILL.md 的正文（去掉 YAML frontmatter）。缓存到进程。"""
+    """读 skills/{name}/SKILL.md 的正文（去掉 YAML frontmatter）。缓存到进程。
+
+    兼容层：Claude Code 运行时会注入 `${CLAUDE_SKILL_DIR}` 环境变量指向 skill 目录，
+    原生 skill（如 check）的 SKILL.md 里会用这个变量引用 references/ scripts/ assets/。
+    paimon 没有这个环境变量 → 字面替换成 skill 的绝对路径，LLM 才能 Read 到 references。
+    这是 paimon 适配 Claude Code 原生 skill 的基础能力（对所有 archon 透明）。
+    """
     if skill_name in _SKILL_BODY_CACHE:
         return _SKILL_BODY_CACHE[skill_name]
     project_root = Path(__file__).resolve().parent.parent.parent
-    skill_path = project_root / "skills" / skill_name / "SKILL.md"
+    skill_dir = project_root / "skills" / skill_name
+    skill_path = skill_dir / "SKILL.md"
     if not skill_path.exists():
         raise FileNotFoundError(f"skill 不存在: {skill_path}")
     text = skill_path.read_text(encoding="utf-8")
@@ -31,6 +38,8 @@ def _read_skill_body(skill_name: str) -> str:
         end = text.find("\n---", 3)
         if end > 0:
             text = text[end + 4:].lstrip()
+    # Claude Code 兼容：${CLAUDE_SKILL_DIR} → skill 绝对路径
+    text = text.replace("${CLAUDE_SKILL_DIR}", str(skill_dir))
     _SKILL_BODY_CACHE[skill_name] = text
     return text
 

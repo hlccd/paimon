@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 对照 docs/ 架构设计文档，梳理当前代码实现状态。
-> 更新时间：2026-04-24（第五轮：雷↔水 三阶段闭环 + task_workspace + 3 skills + merge 指令）
+> 更新时间：2026-04-24（第六轮：三月·自检系统 Quick + Deep + 面板 + 世界树域 12）
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 32 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板**、**岩神红利股追踪三层重构+理财面板**、**雷↔水 三阶段闭环（草神 spec → 雷神 design/code + 自检 → 水神 check 审查 × 3；隔离 task workspace + merge 指令）** |
+| 已实现 | 33 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板**、**岩神红利股追踪三层重构+理财面板**、**雷↔水 三阶段闭环（草神 spec → 雷神 design/code + 自检 → 水神 check 审查 × 3；隔离 task workspace + merge 指令）**、**三月·自检系统（Quick 秒级 9 组件探针 + Deep 接入 check skill + 归档面板 + 保留策略 + cron 定时）** |
 | 部分实现 | 0 | — |
 | 未开始 | 1 | 自进化 |
 
@@ -146,7 +146,7 @@
 
 ### 6.4 世界树 · Irminsul (存储层)
 
-全系统唯一存储层，11 个数据域。
+全系统唯一存储层，12 个数据域。
 
 | 数据域 | 状态 | 业务服务方 |
 |--------|------|-----------|
@@ -161,6 +161,7 @@
 | 聊天会话 | **已实现** | 派蒙 |
 | 定时任务 | **已实现** | 三月 |
 | 订阅（subscriptions + feed_items）| **已实现** | 风神写采集条目 / 派蒙写订阅声明 / WebUI 面板读写；UNIQUE(sub_id,url) 原生去重 |
+| 自检归档（selfcheck_runs + blob 目录）| **已实现** | 三月 `SelfCheckService` 写 / WebUI `/selfcheck` 读；每次 run 独立目录 `.paimon/irminsul/selfcheck/{run_id}/` 保存 report.md / candidates.jsonl / state.json 不被覆盖 |
 
 ### 6.5 三月 · March (守护与调度)
 
@@ -176,7 +177,9 @@
 | 红利股采集分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[DIVIDEND_SCAN] <mode>` 前缀 → 岩神 `collect_dividend(mode)` |
 | 理财面板 | **已实现** | `paimon/channels/webui/wealth_html.py`（推荐/排行/变化 3 tab + Chart.js 折线 + 触发扫描按钮） |
 | WebUI 推送通知 | **已实现** | `send_text` / `send_file` 落推送会话 + PushHub 扇出 SSE；QQ 因 API 限制关闭 |
-| 自检系统 | **未开始** | — |
+| 自检系统（Quick + Deep）| **已实现** | `paimon/foundation/selfcheck.py` `SelfCheckService`：Quick 9 组件探针秒级 + Deep 复用 Furina 模式调 check skill；全局单例锁防并发；产物快照到世界树域 12；配套 `/selfcheck` 命令 + `/selfcheck` 面板（[selfcheck_html.py](../paimon/channels/webui/selfcheck_html.py)） |
+| 自检：cron 分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[SELFCHECK_DEEP] <args>` → 调 `SelfCheckService.run_deep(triggered_by="cron")`，不走 LLM |
+| 自检：静态契约 / 离线冒烟档 | **未开始** | 留下一轮；对齐 docs 设计的三档中剩余两档 |
 
 ---
 

@@ -25,11 +25,32 @@
 - **响铃约束**：
   - 三月是**唯一响铃入口**（数据收集者不直接找派蒙）
   - 三月**不直发**给用户（送达由派蒙承担，详见 [派蒙](../paimon/paimon.md)）
-- **自检体系**（原 `test/` 目录）：
-  - **静态契约**（`contract/`）：导入、Schema、模型、模板；离线、秒级
-  - **离线冒烟**（`smoke/`）：核心子系统最小路径；离线、分钟级
-  - **运行时诊断**：派蒙 `/selfcheck` 斜杠命令触发，由三月执行
-  - **真实 API**（`live/`）：真实 LLM / 搜索各打一次，按需启用
+- **自检体系**（Quick ✅ 已上线 / Deep ⏸ 暂缓 · 2026-04-25）：
+  - **运行时诊断（Quick）** — ✅ 可用：`/selfcheck` 斜杠命令触发；秒级纯代码
+    探针 9 组件（irminsul / leyline / gnosis / march / session_mgr / skill_registry /
+    authz_cache / channels / paimon_home），整体状态派生（ok / degraded / critical）。
+    实装：[`paimon/foundation/selfcheck.py`](../../paimon/foundation/selfcheck.py) `SelfCheckService.run_quick`
+  - **核心代码体检（Deep）** — ⏸ 暂缓：底层实装完整但默认隐藏入口。
+    当前 mimo-v2-omni 对 check skill 的 N+M+K 多轮迭代执行不充分（~30s 就
+    返回简短 finding 停止），跑不出可靠体检结果。
+    **开关**：`config.selfcheck_deep_hidden=True`（默认）→ WebUI 按钮隐藏、
+    `/selfcheck --deep` 返"暂缓"提示、API 返 503。
+    **周期性触发已撤销**：`[SELFCHECK_DEEP]` cron 分派从 `bootstrap._on_march_ring`
+    删除；Deep 只保留手动入口（但手动入口当前也隐藏）。
+    **保留的代码**：`_run_deep_inner` / `_invoke_check_skill` /
+    `_progress_watcher` / 世界树域 12 的 progress_json 等字段全部保留。
+    **恢复步骤**（详见 [docs/todo.md §三月·自检·Deep 暂缓](../todo.md)）：
+    给 deep pool 配 Claude Opus 级模型 → `.env` 设 `SELFCHECK_DEEP_HIDDEN=false`
+    → 重启 paimon。预期解：Anthropic 原生对 agentic 长链执行力显著强于 mimo。
+  - **paimon 适配 Claude Code 原生 skill**（跨 skill 的基础能力）：
+    `paimon/archons/base.py` 的 `_read_skill_body` 把 SKILL.md 里的
+    `${CLAUDE_SKILL_DIR}` 字面替换成 skill 绝对路径；Glob 工具
+    ([`paimon/tools/builtin/glob_tool.py`](../../paimon/tools/builtin/glob_tool.py))
+    提供跨平台文件通配查找。skill 本身 0 修改。
+  - **归档 + 面板**：WebUI `/selfcheck` 提供 Quick 历史 + Modal 详情（删除/下载）。
+    Deep 相关 UI 在 `selfcheck_deep_hidden=True` 时自动隐藏。世界树域 12
+    `selfcheck_runs` 保留策略 `config.selfcheck_*_retention`；GC 同步删 blob。
+  - **静态契约 / 离线冒烟 / Deep 周期性调度**（未实装，留后）。
 
 ## 明确不做
 

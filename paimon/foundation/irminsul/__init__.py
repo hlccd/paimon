@@ -11,6 +11,7 @@ from .dividend import ChangeEvent, ScoreSnapshot, WatchlistEntry
 from .irminsul import Irminsul
 from .memory import Memory, MemoryMeta
 from .schedule import ScheduledTask
+from .selfcheck import SelfcheckRun
 from .session import SessionMeta, SessionRecord
 from .skills import SkillDecl
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict
@@ -27,4 +28,5 @@ __all__ = [
     "WatchlistEntry", "ScoreSnapshot", "ChangeEvent",
     "SessionRecord", "SessionMeta",
     "ScheduledTask",
+    "SelfcheckRun",
 ]

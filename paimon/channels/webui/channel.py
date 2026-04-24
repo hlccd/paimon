@@ -100,6 +100,17 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/wealth/stock/{code}", self.wealth_stock_api)
         self.app.router.add_post("/api/wealth/trigger", self.wealth_trigger_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
+        # 三月·自检面板
+        self.app.router.add_get("/selfcheck", self.selfcheck_page)
+        self.app.router.add_get("/api/selfcheck/quick/latest", self.selfcheck_quick_latest_api)
+        self.app.router.add_post("/api/selfcheck/quick/run", self.selfcheck_quick_run_api)
+        self.app.router.add_get("/api/selfcheck/runs", self.selfcheck_runs_list_api)
+        self.app.router.add_get("/api/selfcheck/runs/{run_id}", self.selfcheck_run_detail_api)
+        self.app.router.add_get("/api/selfcheck/runs/{run_id}/report", self.selfcheck_run_report_api)
+        self.app.router.add_get("/api/selfcheck/runs/{run_id}/findings", self.selfcheck_run_findings_api)
+        self.app.router.add_get("/api/selfcheck/runs/{run_id}/quick", self.selfcheck_run_quick_api)
+        self.app.router.add_delete("/api/selfcheck/runs/{run_id}", self.selfcheck_run_delete_api)
+        self.app.router.add_post("/api/selfcheck/deep/run", self.selfcheck_deep_run_api)
         # 推送长连接
         self.app.router.add_get("/api/push", self.push_stream)
         # 推送文件静态目录
@@ -570,6 +581,187 @@ class WebUIChannel(Channel):
             channel_name=self.name,
         ))
         return web.json_response({"ok": True, "mode": mode})
+
+    # ==================== 三月·自检面板 ====================
+
+    async def selfcheck_page(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.Response(
+                text=self._get_login_html(), content_type="text/html",
+            )
+        from paimon.channels.webui.selfcheck_html import build_selfcheck_html
+        cfg = self.state.cfg
+        deep_hidden = bool(getattr(cfg, "selfcheck_deep_hidden", True)) if cfg else True
+        return web.Response(
+            text=build_selfcheck_html(deep_hidden=deep_hidden),
+            content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    def _run_to_json(self, run) -> dict:
+        """SelfcheckRun → JSON dict（给前端 + API 用）"""
+        return {
+            "id": run.id,
+            "kind": run.kind,
+            "triggered_at": run.triggered_at,
+            "triggered_by": run.triggered_by,
+            "status": run.status,
+            "duration_seconds": run.duration_seconds,
+            "check_args": run.check_args,
+            "error": run.error,
+            "p0_count": run.p0_count,
+            "p1_count": run.p1_count,
+            "p2_count": run.p2_count,
+            "p3_count": run.p3_count,
+            "findings_total": run.findings_total,
+            "quick_summary": run.quick_summary,
+            "progress": run.progress,  # deep running 期间 watcher 填充
+        }
+
+    async def selfcheck_quick_latest_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"run": None})
+        latest = await svc.latest_run("quick")
+        return web.json_response({"run": self._run_to_json(latest) if latest else None})
+
+    async def selfcheck_quick_run_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"error": "selfcheck 未启用"}, status=503)
+        run = await svc.run_quick(triggered_by="webui")
+        return web.json_response({"run": self._run_to_json(run)})
+
+    async def selfcheck_runs_list_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"runs": []})
+        kind = request.query.get("kind", "").strip() or None
+        if kind and kind not in ("quick", "deep"):
+            return web.json_response({"error": "kind 必须是 quick 或 deep"}, status=400)
+        try:
+            limit = max(1, min(int(request.query.get("limit", "50")), 500))
+            offset = max(0, int(request.query.get("offset", "0")))
+        except (TypeError, ValueError):
+            limit, offset = 50, 0
+        runs = await svc.list_runs(kind=kind, limit=limit, offset=offset)
+        total = await svc.count_runs(kind=kind)
+        return web.json_response({
+            "runs": [self._run_to_json(r) for r in runs],
+            "total": total,
+        })
+
+    async def selfcheck_run_detail_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"error": "selfcheck 未启用"}, status=503)
+        run_id = request.match_info["run_id"]
+        run = await svc.get_run(run_id)
+        if not run:
+            return web.json_response({"error": "not found"}, status=404)
+        return web.json_response({"run": self._run_to_json(run)})
+
+    async def selfcheck_run_report_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"error": "selfcheck 未启用"}, status=503)
+        run_id = request.match_info["run_id"]
+        text = await svc.get_report(run_id)
+        if text is None:
+            return web.Response(text="report.md 不存在（Quick 记录或 Deep 未完成）", status=404)
+        return web.Response(
+            text=text,
+            content_type="text/markdown",
+            charset="utf-8",
+            headers={
+                "Content-Disposition": f'inline; filename="report-{run_id[:8]}.md"',
+            },
+        )
+
+    async def selfcheck_run_findings_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"findings": []})
+        run_id = request.match_info["run_id"]
+        findings = await svc.get_findings(run_id)
+        return web.json_response({"findings": findings, "count": len(findings)})
+
+    async def selfcheck_run_quick_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"snapshot": None})
+        run_id = request.match_info["run_id"]
+        snap = await svc.get_quick_snapshot(run_id)
+        return web.json_response({"snapshot": snap})
+
+    async def selfcheck_run_delete_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"error": "selfcheck 未启用"}, status=503)
+        run_id = request.match_info["run_id"]
+        ok = await svc.delete_run(run_id)
+        return web.json_response({"ok": ok})
+
+    async def selfcheck_deep_run_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        # Deep 暂缓开关（docs/todo.md §三月·自检·Deep 暂缓）
+        cfg = self.state.cfg
+        if cfg and getattr(cfg, "selfcheck_deep_hidden", True):
+            return web.json_response(
+                {
+                    "error": "Deep 自检当前暂缓（LLM 执行不充分）",
+                    "hint": "换 Claude Opus 级模型后设 SELFCHECK_DEEP_HIDDEN=false",
+                },
+                status=503,
+            )
+        svc = self.state.selfcheck
+        if not svc:
+            return web.json_response({"error": "selfcheck 未启用"}, status=503)
+        try:
+            data = await request.json() if request.body_exists else {}
+        except Exception:
+            data = {}
+        args = (data.get("args") or "").strip() or None
+        result = await svc.run_deep(args=args, triggered_by="webui")
+        status = 200 if result.get("started") else 409
+        return web.json_response(result, status=status)
+
+    # ==================== /三月·自检面板 ====================
 
     async def plugins_skills_api(self, request: web.Request) -> web.Response:
         if self.require_auth:

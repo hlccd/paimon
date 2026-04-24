@@ -101,6 +101,7 @@ def navigation_html(active: str = "chat") -> str:
         ("wealth", "/wealth", "理财"),
         ("preferences", "/preferences", "偏好"),
         ("plugins", "/plugins", "插件"),
+        ("selfcheck", "/selfcheck", "🩺 自检"),
     ]
     links = "".join(
         f'<a href="{href}" class="nav-link{" active" if key == active else ""}">{label}</a>'

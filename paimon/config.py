@@ -84,6 +84,29 @@ class Config(BaseSettings):
     task_cold_ttl_days: int = 30                 # cold → archived
     task_archived_ttl_days: int = 60             # archived 超时删除（30+60=90 对齐 docs）
 
+    # 三月·自检系统（docs/foundation/march.md §自检体系）
+    # Quick：秒级组件探针；Deep：调 check skill 跑代码体检
+    selfcheck_enabled: bool = True
+    # Deep 暂缓开关（docs/todo.md §三月·自检·Deep 暂缓）
+    # 现 mimo-v2-omni 模型对 check skill 的 N+M+K 多轮迭代执行不充分（~30s
+    # 返回简短 finding 即停），Deep 当前无法产出可靠体检结果。
+    # 默认 True = 隐藏 UI 按钮 + 命令拒绝；cron 分派已撤销。
+    # 换 Claude Opus 级模型后可设 False 重启即可恢复手动入口
+    selfcheck_deep_hidden: bool = True
+    selfcheck_deep_retention: int = 50           # 保留最近 N 次 Deep 记录，余者 GC
+    selfcheck_quick_retention: int = 200         # 保留最近 N 次 Quick 记录，余者 GC
+    # Deep 默认 args：核心代码体检
+    # 避开 project-health 元类型（需要 LLM 自扫项目 + 编排 sub-check，单会话顶不住）
+    # 用固定的 `code` type + standard 档（8 module）+ quick（1 轮迭代）
+    # --exclude 排除 skills/check 自身（避免自扫互咬）+ paimon 运行时产物
+    selfcheck_deep_check_args: str = (
+        "code --level standard --depth quick --fix report-only "
+        "--exclude \"skills/check/**\" "
+        "--exclude \".paimon/**\" "
+        "--exclude \".check/**\""
+    )
+    selfcheck_deep_timeout_seconds: int = 1800   # 单次 Deep 最长 30 分钟
+
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore"
     )

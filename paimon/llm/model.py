@@ -210,20 +210,47 @@ class Model:
                     yield f"\n\n> [错误] {e}"
                     return
 
+            # 推理 token 流聚合：LLM 思考过程是运行时重要信号（INFO 级），
+            # 但按 token 逐片打日志会刷屏 → 累积到"切产出 / 流结束"时一次性 flush。
+            # 超长（>800 字）只留首尾，中间省略（多为重复推理步骤）。
+            reasoning_buf = ""
+
+            def _flush_reasoning():
+                nonlocal reasoning_buf
+                if not reasoning_buf:
+                    return
+                n = len(reasoning_buf)
+                if n > 800:
+                    shown = (
+                        reasoning_buf[:400].rstrip()
+                        + f"\n... [省略中间 {n - 600} 字] ...\n"
+                        + reasoning_buf[-200:].lstrip()
+                    )
+                else:
+                    shown = reasoning_buf
+                logger.info("[神之心·模型] 推理 ({} 字):\n{}", n, shown)
+                reasoning_buf = ""
+
             try:
                 async for chunk in stream_iter:
                     if chunk.usage:
                         self._merge_usage(usage, chunk.usage)
                         continue
                     if chunk.reasoning_content:
-                        logger.trace("[神之心·模型] 推理: {}", chunk.reasoning_content[:100])
+                        reasoning_buf += chunk.reasoning_content
+                    # 切到产出阶段（tool_call 或 content）→ flush 先前推理
+                    if chunk.tool_calls or chunk.content:
+                        _flush_reasoning()
                     if chunk.tool_calls:
                         for frag in chunk.tool_calls:
                             tc_acc.update(frag)
                     if chunk.content:
                         text_buf += chunk.content
                         yield chunk.content
+                # 流正常结束后可能还有未 flush 的推理（没 content / tool_call 的情况）
+                _flush_reasoning()
             except Exception as e:
+                _flush_reasoning()  # 异常也不要丢推理日志
                 logger.error("[神之心·模型] 流式传输异常: {}", e)
                 if text_buf:
                     session.messages.append({"role": "assistant", "content": text_buf})

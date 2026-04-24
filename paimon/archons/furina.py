@@ -214,7 +214,7 @@ class FurinaArchon(Archon):
             session_name=f"{workspace.name}-{stage_name}",
             component="水神",
             purpose=f"check·{stage_name}",
-            allowed_tools={"file_ops", "exec"},
+            allowed_tools={"file_ops", "glob", "exec"},
             framing=(
                 f"【四影管线·{stage_name} 阶段】workspace={workspace}/\n"
                 "这是 paimon 内部调用，不是用户交互；check skill 已有参数模式支持。"
@@ -237,42 +237,18 @@ class FurinaArchon(Archon):
         """扫描 workspace 下所有 .check/candidates.jsonl，汇总 findings。
 
         level 规则：P0>0 → redo；P1>0 → revise；其它 → pass。
+        解析细节委托到 `paimon.shades._check_parser`（三月自检也复用同一解析器）。
         """
         # 延迟导入避免 shades → archons.furina 循环
+        from paimon.shades._check_parser import (
+            count_severity, findings_to_issues, parse_candidates_tree,
+        )
         from paimon.shades._verdict import (
             LEVEL_PASS, LEVEL_REDO, LEVEL_REVISE, ReviewVerdict,
         )
-        findings: list[dict] = []
-        for cand_path in workspace.rglob(".check/candidates.jsonl"):
-            try:
-                # 按 id 去重：check 多轮会重复记录同一 finding（不同迭代/轮次）
-                # 取每个 id 的最新状态记录
-                by_id: dict[str, dict] = {}
-                for line in cand_path.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    fid = rec.get("id") or f"_{len(by_id)}"
-                    by_id[fid] = rec  # 后面的覆盖前面的（保留最新）
-                # 过滤：只要 CANDIDATE/CONFIRMED（REJECTED/DEFERRED 不算）
-                for rec in by_id.values():
-                    status = (rec.get("status") or "").upper()
-                    if status in ("REJECTED", "DEFERRED"):
-                        continue
-                    findings.append(rec)
-            except OSError:
-                continue
 
-        # 按 severity 统计
-        sev_count = {"P0": 0, "P1": 0, "P2": 0, "P3": 0}
-        for f in findings:
-            sev = (f.get("severity") or "P2").upper()
-            if sev in sev_count:
-                sev_count[sev] += 1
+        findings = parse_candidates_tree(workspace)
+        sev_count = count_severity(findings)
 
         if sev_count["P0"] > 0:
             level = LEVEL_REDO
@@ -281,36 +257,7 @@ class FurinaArchon(Archon):
         else:
             level = LEVEL_PASS
 
-        # 组 issues（按严重度倒序，前 20 条）
-        findings_sorted = sorted(
-            findings,
-            key=lambda r: (
-                {"P0": 0, "P1": 1, "P2": 2, "P3": 3}.get(
-                    (r.get("severity") or "P2").upper(), 2
-                )
-            ),
-        )
-        issues = []
-        for f in findings_sorted[:20]:
-            # check 输出字段：description（问题描述）+ evidence（证据/上下文）
-            # file/line 提供定位信息；module 是分类
-            desc = str(f.get("description") or "")[:300]
-            ev = str(f.get("evidence") or "")[:200]
-            loc = ""
-            if f.get("file"):
-                loc = f"[{f['file']}"
-                if f.get("line"):
-                    loc += f":{f['line']}"
-                loc += "] "
-            reason = loc + desc
-            suggestion = ev  # check 不直接给修复建议；用 evidence 让下游理解为什么
-            issues.append({
-                "subtask_id": subtask_id,
-                "severity": (f.get("severity") or "P2").upper(),
-                "reason": reason[:400],
-                "suggestion": suggestion[:400],
-                "module": f.get("module", ""),
-            })
+        issues = findings_to_issues(findings, subtask_id=subtask_id, limit=20)
 
         summary = (
             f"{stage_name}: {sev_count['P0']} P0 / {sev_count['P1']} P1 / "

@@ -115,6 +115,24 @@ async def create_app(cfg: Config) -> list[Channel]:
         state.authz_cache, state.irminsul, state.skill_registry,
     )
 
+    # 三月·自检服务（docs/foundation/march.md §自检体系）
+    if cfg.selfcheck_enabled:
+        from paimon.foundation.selfcheck import SelfCheckService
+        state.selfcheck = SelfCheckService(
+            cfg, state.irminsul, state.model, state.march,
+        )
+        # 启动时清 zombie running：上次进程被 kill / crash 时留下的"永远 running"记录
+        # 新进程的内存态 _deep_busy=False，DB 对齐后一切干净
+        try:
+            zombies = await state.irminsul.selfcheck_sweep_zombie(actor="三月·自检")
+            if zombies:
+                logger.warning(
+                    "[三月·自检] 启动清理 {} 条 zombie running → failed", zombies,
+                )
+        except Exception as e:
+            logger.warning("[三月·自检] zombie 清扫失败（跳过）: {}", e)
+        logger.info("[三月·自检] 服务已就绪（Quick + Deep）")
+
     channels: list[Channel] = []
 
     if cfg.webui_enabled:
@@ -172,6 +190,11 @@ async def create_app(cfg: Config) -> list[Channel]:
             except Exception as e:
                 logger.exception("[岩神·采集] 异常 mode={}: {}", mode, e)
             return
+
+        # 三月·Deep 自检的 [SELFCHECK_DEEP] cron 分派已撤销（docs/todo.md §
+        # 三月·自检·Deep 暂缓）。当前 LLM 模型对 check skill 跑不充分，
+        # 周期性自动触发没意义；底层 SelfCheckService.run_deep 代码保留，
+        # 只留手动入口（/selfcheck --deep，受 selfcheck_deep_hidden 开关）。
 
         # ---- 风神订阅采集（前缀分派，不走频道投递）----
         # scheduled_tasks.task_prompt 形如 "[FEED_COLLECT] <sub_id>"

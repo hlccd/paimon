@@ -274,6 +274,29 @@ CREATE TABLE IF NOT EXISTS session_records (
 );
 CREATE INDEX IF NOT EXISTS idx_session_channel ON session_records(channel_key);
 CREATE INDEX IF NOT EXISTS idx_session_updated ON session_records(updated_at);
+
+-- ============ 域 12: 自检归档（三月）============
+-- 每次 Quick / Deep 自检的元数据 + 聚合计数；完整产物（report.md / candidates.jsonl / state.json）
+-- 落文件系统 `.paimon/irminsul/selfcheck/{run_id}/`。
+-- docs/foundation/march.md §自检体系
+CREATE TABLE IF NOT EXISTS selfcheck_runs (
+    id                 TEXT PRIMARY KEY,                 -- 12 位 hex
+    kind               TEXT NOT NULL,                    -- 'quick' | 'deep'
+    triggered_at       REAL NOT NULL,
+    triggered_by       TEXT NOT NULL DEFAULT 'user',     -- 'user' / 'cron' / '三月' 等
+    status             TEXT NOT NULL DEFAULT 'running',  -- 'running' | 'completed' | 'failed'
+    duration_seconds   REAL NOT NULL DEFAULT 0,
+    check_args         TEXT NOT NULL DEFAULT '',         -- deep 专用：check 命令的参数
+    error              TEXT NOT NULL DEFAULT '',
+    p0_count           INTEGER NOT NULL DEFAULT 0,
+    p1_count           INTEGER NOT NULL DEFAULT 0,
+    p2_count           INTEGER NOT NULL DEFAULT 0,
+    p3_count           INTEGER NOT NULL DEFAULT 0,
+    findings_total     INTEGER NOT NULL DEFAULT 0,
+    quick_summary_json TEXT NOT NULL DEFAULT '{}'        -- quick 专用：overall + component 快照
+);
+CREATE INDEX IF NOT EXISTS idx_selfcheck_kind ON selfcheck_runs(kind);
+CREATE INDEX IF NOT EXISTS idx_selfcheck_time ON selfcheck_runs(triggered_at DESC);
 """
 
 
@@ -291,6 +314,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("task_subtasks", "verdict_status", "TEXT NOT NULL DEFAULT ''"),
     # 四影闭环 v2：saga 补偿动作（失败回滚）
     ("task_subtasks", "compensate", "TEXT NOT NULL DEFAULT ''"),
+    # 三月·自检：Deep 进度快照（watcher 轮询 .check/state.json 后存此列）
+    ("selfcheck_runs", "progress_json", "TEXT NOT NULL DEFAULT '{}'"),
 ]
 
 

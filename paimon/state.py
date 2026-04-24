@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from paimon.foundation.leyline import Leyline
     from paimon.foundation.march import MarchService
     from paimon.foundation.primogem import Primogem
+    from paimon.foundation.selfcheck import SelfCheckService
     from paimon.llm import Model
     from paimon.session import SessionManager
     from paimon.tools.registry import ToolRegistry
@@ -50,6 +51,8 @@ class RuntimeState:
     venti: "VentiArchon | None" = None
     # 岩神单例（红利股采集入口；bootstrap 初始化）
     zhongli: "ZhongliArchon | None" = None
+    # 三月·自检服务（Quick 探针 + Deep 调度）
+    selfcheck: "SelfCheckService | None" = None
 
 
 state = RuntimeState()

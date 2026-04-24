@@ -17,6 +17,7 @@ from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
 from .skills import SkillDecl, SkillRepo
+from .selfcheck import SelfcheckRepo, SelfcheckRun
 from .subscription import FeedItem, Subscription, SubscriptionRepo
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict, TaskRepo
 from .schedule import ScheduleRepo, ScheduledTask
@@ -36,6 +37,7 @@ class Irminsul:
         self._fs_root = home / "irminsul"
         self._knowledge_root = self._fs_root / "knowledge"
         self._memory_root = self._fs_root / "memory"
+        self._selfcheck_root = self._fs_root / "selfcheck"
         self._db: aiosqlite.Connection | None = None
         # Repo 延迟到 initialize
         self._authz: AuthzRepo | None = None
@@ -49,12 +51,14 @@ class Irminsul:
         self._session: SessionRepo | None = None
         self._schedule: ScheduleRepo | None = None
         self._subscription: SubscriptionRepo | None = None
+        self._selfcheck: SelfcheckRepo | None = None
 
     async def initialize(self) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
         self._fs_root.mkdir(parents=True, exist_ok=True)
         self._knowledge_root.mkdir(parents=True, exist_ok=True)
         self._memory_root.mkdir(parents=True, exist_ok=True)
+        self._selfcheck_root.mkdir(parents=True, exist_ok=True)
 
         self._db = await init_db(self._db_path)
 
@@ -69,6 +73,7 @@ class Irminsul:
         self._session = SessionRepo(self._db)
         self._schedule = ScheduleRepo(self._db)
         self._subscription = SubscriptionRepo(self._db)
+        self._selfcheck = SelfcheckRepo(self._db, self._selfcheck_root)
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
 
@@ -473,3 +478,42 @@ class Irminsul:
         self, *, sub_id: str | None = None, since: float | None = None,
     ) -> int:
         return await self._subscription.count_feed_items(sub_id=sub_id, since=since)
+
+    # ============ 域 12: 自检归档（三月）============
+    async def selfcheck_create(self, run: SelfcheckRun, *, actor: str) -> str:
+        return await self._selfcheck.create(run, actor=actor)
+
+    async def selfcheck_update(self, run_id: str, *, actor: str, **fields) -> bool:
+        return await self._selfcheck.update(run_id, actor=actor, **fields)
+
+    async def selfcheck_get(self, run_id: str) -> SelfcheckRun | None:
+        return await self._selfcheck.get(run_id)
+
+    async def selfcheck_list(
+        self, *, kind: str | None = None, limit: int = 50, offset: int = 0,
+    ) -> list[SelfcheckRun]:
+        return await self._selfcheck.list(kind=kind, limit=limit, offset=offset)
+
+    async def selfcheck_count(self, *, kind: str | None = None) -> int:
+        return await self._selfcheck.count(kind=kind)
+
+    async def selfcheck_latest(self, kind: str) -> SelfcheckRun | None:
+        return await self._selfcheck.latest(kind)
+
+    async def selfcheck_delete(self, run_id: str, *, actor: str) -> bool:
+        return await self._selfcheck.delete(run_id, actor=actor)
+
+    async def selfcheck_gc(self, *, kind: str, keep_n: int, actor: str) -> int:
+        return await self._selfcheck.gc(kind=kind, keep_n=keep_n, actor=actor)
+
+    async def selfcheck_sweep_zombie(self, *, actor: str) -> int:
+        """启动时清理 status='running' 的 zombie 记录（进程重启后对齐状态）。"""
+        return await self._selfcheck.sweep_zombie_running(actor=actor)
+
+    def selfcheck_blob_dir(self, run_id: str) -> Path:
+        """返回 run_id 对应的 blob 目录路径；不保证存在。"""
+        return self._selfcheck.blob_dir(run_id)
+
+    def selfcheck_ensure_blob_dir(self, run_id: str) -> Path:
+        """确保 blob 目录存在并返回路径。"""
+        return self._selfcheck.ensure_blob_dir(run_id)
