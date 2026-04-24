@@ -37,6 +37,44 @@ def _effective_compress_threshold_pct(cfg) -> float:
     return min(percent, max(safe_pct, 0.0))
 
 
+async def _persist_turn(
+    channel_key: str, user_text: str, reply_text: str,
+) -> None:
+    """把一回合 (user + assistant) append 到当前绑定会话并落盘。
+
+    - 推送会话只读，跳过
+    - 最后两条已匹配 → 去重跳过（避免 enter_shades_pipeline_background / run_session_chat 等
+      内部已 append 后此处再重复）
+    - user_text 空白 → 不记
+    """
+    if not state.session_mgr or not user_text or not user_text.strip():
+        return
+    try:
+        from paimon.channels.webui.channel import PUSH_SESSION_ID as _PUSH_ID
+    except Exception:
+        _PUSH_ID = None
+    sess = state.session_mgr.get_current(channel_key)
+    if not sess or sess.id == _PUSH_ID:
+        return
+    msgs = sess.messages
+    already = (
+        len(msgs) >= 2
+        and msgs[-2].get("role") == "user"
+        and (msgs[-2].get("content") or "") == user_text
+        and msgs[-1].get("role") == "assistant"
+        and (msgs[-1].get("content") or "") == reply_text
+    )
+    if already:
+        return
+    sess.messages.append({"role": "user", "content": user_text})
+    if reply_text:
+        sess.messages.append({"role": "assistant", "content": reply_text})
+    try:
+        await state.session_mgr.save_session_async(sess)
+    except Exception as e:
+        logger.debug("[派蒙·落盘] save 失败: {}", e)
+
+
 async def on_channel_message(msg: IncomingMessage, channel: Channel):
     # 0) 若有挂起的权限询问，本条消息当作答复消化，不走正常 chat 流
     channel_key = msg.channel_key
@@ -45,6 +83,9 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
         pending.set_result(msg.text)
         logger.info("[派蒙·授权] 收到答复 channel_key={} text='{}'",
                     channel_key, msg.text[:40])
+        # 落盘用户答复；问题由 ask_user() 发 SSE，没存到 session.messages，
+        # 这里补个提示性 assistant 回执避免答案孤立
+        await _persist_turn(channel_key, msg.text, "（已作为权限询问的答复）")
         return
 
     # 1) 入口轻量安全过滤（docs/paimon/paimon.md §轻量安全校验）
@@ -76,10 +117,12 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
                     )
                 except Exception as e:
                     logger.debug("[派蒙·入口过滤] audit 写入失败: {}", e)
-            await msg.reply(
+            filter_hint = (
                 f"⚠️ 消息被入口过滤拦截：{hit.reason}。\n"
                 "如果是正常需求请换一种表达；确需执行高风险操作请用 `/task` 走四影审查。"
             )
+            await msg.reply(filter_hint)
+            await _persist_turn(channel_key, msg.text, filter_hint)
             return
         elif hit.verdict == "warn":
             logger.info(
@@ -108,6 +151,8 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
     reply_text = await dispatch_command(msg, channel)
     if reply_text is not None:
         await msg.reply(reply_text)
+        # 去重交给 _persist_turn（/task 经 enter_shades_pipeline_background 已落一份）
+        await _persist_turn(channel_key, msg.text, reply_text)
         return
 
     cfg, session_mgr, model = _require_runtime()
@@ -160,6 +205,7 @@ async def enter_shades_pipeline_background(
     )
     if not prep.ok:
         # 准备阶段就失败（死执拒/授权全拒/异常）→ 直接回字，不进后台
+        await _persist_turn(msg.channel_key, text, prep.msg)
         return prep.msg
 
     task_id = prep.task.id
@@ -188,12 +234,14 @@ async def enter_shades_pipeline_background(
             logger.warning("[派蒙·四影 bg] 推 summary 失败: {}", e)
 
     asyncio.create_task(_bg())
-    return (
+    hint = (
         f"✅ task={task_id[:8]} 已授权，进入四影管线后台执行（简单 3-10 分钟，复杂更长）\n"
         f"- DAG: {len(plan.subtasks)} 节点\n"
         "- 进度/结果推到「📨 推送」会话\n"
         "- 跟踪: /tasks 看状态，/task-summary 看产物"
     )
+    await _persist_turn(msg.channel_key, text, hint)
+    return hint
 
 
 async def run_session_chat(
@@ -209,6 +257,7 @@ async def run_session_chat(
         if verdict == Verdict.DENY:
             if hint:
                 await msg.reply(hint)
+            await _persist_turn(msg.channel_key, msg.text, hint or "（skill 权限被拒绝）")
             return
         if hint:
             # 放行时附带的友好提示（如"按之前的永久授权放行"）
