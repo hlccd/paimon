@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 对照 docs/ 架构设计文档，梳理当前代码实现状态。
-> 更新时间：2026-04-24（第四轮：岩神红利股追踪三层重构 + 理财面板）
+> 更新时间：2026-04-24（第五轮：雷↔水 三阶段闭环 + task_workspace + 3 skills + merge 指令）
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 31 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板**、**岩神红利股追踪三层重构+理财面板（skill 纯 I/O / 岩神管业务 / 世界树管存储；含 Chart.js 折线图）** |
+| 已实现 | 32 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板**、**岩神红利股追踪三层重构+理财面板**、**雷↔水 三阶段闭环（草神 spec → 雷神 design/code + 自检 → 水神 check 审查 × 3；隔离 task workspace + merge 指令）** |
 | 部分实现 | 0 | — |
 | 未开始 | 1 | 自进化 |
 
@@ -75,7 +75,8 @@
 
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
-| DAG 任务分解（deps/多轮） | **已实现** | `paimon/shades/naberius.py` + `_plan.Plan`；`plan(round=N)` 支持 round≥2 修订 + preserved 节点跳过 re-INSERT |
+| DAG 任务分解（deps/多轮） | **已实现** | `paimon/shades/naberius.py` + `_plan.Plan`；`plan(round=N)` 支持 round≥2 修订 + preserved 节点跳过 re-INSERT；**写代码任务自动三阶段 6 节点 DAG**（`_is_code_task` / `_build_code_pipeline_dag` / `_revise_code_pipeline` 专用 revise） |
+| 管线时序（前台授权+后台执行） | **已实现** | `ShadesPipeline.prepare()`（入口审 + round-1 plan + 批量授权，SSE 活跃时同步跑）+ `execute(task, plan)`（后台 dispatch/revise/归档）；`enter_shades_pipeline_background` 按此拼装，授权弹窗在原气泡弹出，进度/最终产物推📨 推送（非写代码任务也推 `final`） |
 | 依赖环检测 | **已实现** | `_plan.detect_cycle` DFS 三色；第一轮降级线性+审计，第二轮再出环硬失败 |
 | 多轮迭代控制 | **已实现** | `SHADES_MAX_ROUNDS=3`；pipeline 按 verdict 回炉 + 水神结构化三级裁决；失败节点改派引导 |
 | 失败回滚 | **已实现** | `_saga.run_compensations` 反序执行 `Subtask.compensate`；交火神 archon 落地 |
@@ -105,9 +106,9 @@
 
 | 七神 | 核心能力 | 状态 | 实现位置 |
 |------|----------|------|----------|
-| 草神 · Nahida | 推理、知识整合、文书起草 | **已实现** (MVP) | `paimon/archons/nahida.py` |
-| 雷神 · Raiden | 代码生成、自检 | **已实现** (MVP) | `paimon/archons/raiden.py` |
-| 水神 · Furina | 评审、游戏信息 | **已实现** (MVP) | `paimon/archons/furina.py` |
+| 草神 · Nahida | 推理、知识整合、文书起草、产品方案 | **已实现**（含 spec 阶段调 requirement-spec skill）| `paimon/archons/nahida.py`（+ `write_spec` / `[STAGE:spec]` 分派）|
+| 雷神 · Raiden | 代码生成、自检 | **已实现**（含 design+code 分阶段 + 自检三件套 py_compile/ruff/pytest）| `paimon/archons/raiden.py`（+ `write_design` / `write_code` / `self_check` / `[STAGE:]` 分派）|
+| 水神 · Furina | 评审、游戏信息 | **已实现**（含三阶段 review 调 check skill 非交互参数模式）| `paimon/archons/furina.py`（+ `review_spec` / `review_design` / `review_code` / `[STAGE:]` 分派）|
 | 火神 · Mavuika | Shell/代码执行、部署 | **已实现** (MVP) | `paimon/archons/mavuika.py` |
 | 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP + 话题订阅闭环) | `paimon/archons/venti.py` `collect_subscription` + `paimon/tools/builtin/subscribe.py` |
 | 岩神 · Zhongli | 理财、红利股 | **已实现** (含红利股追踪闭环) | `paimon/archons/zhongli/` (scorer 纯函数 + zhongli.py 业务编排) + `paimon/tools/builtin/dividend.py` |
@@ -246,6 +247,7 @@ paimon/
     leyline.py                       地脉 (事件总线)
     march.py                         三月 (定时调度)
     primogem.py                      原石 (Token 服务层)
+    task_workspace.py                写代码任务隔离工作区（.paimon/tasks/{id}/）+ diff / merge helpers
     irminsul/                        世界树 (11 域存储层)
       irminsul.py                    门面 (~70 个 API)
       _db.py                         Schema + 迁移（含旧 dividend_stocks 表 drop 清理）
@@ -269,11 +271,14 @@ tools/
 skills/
   bili/SKILL.md                      B站视频分析
   xhs/SKILL.md                      小红书内容分析
-  check/SKILL.md                     多轮迭代审查
+  check/SKILL.md                     多轮迭代审查（支持参数模式，水神非交互调用）
   web-search/SKILL.md                Bing+百度双引擎全网搜索（风神订阅采集的底座）
   dividend-tracker/                  BaoStock 数据抓取 CLI（岩神红利股追踪的数据底座）
     main.py                          纯 I/O CLI（fetch-board/fetch-dividend/fetch-financial/cleanup-cache）
     tracker/provider_baostock.py     BaoStock 登录 + 抓取
+  requirement-spec/SKILL.md          产品方案 skill（通用；草神在 spec 阶段调；其他项目可复用）
+  architecture-design/SKILL.md       技术方案 skill（通用；雷神在 design 阶段调；支持多语言）
+  code-implementation/SKILL.md       代码实现 skill（雷神 code 阶段调；Python 自检三件套，其他语言需 fork 调整）
 templates/
   paimon.t                           派蒙人格 prompt
 ```

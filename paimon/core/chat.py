@@ -121,11 +121,79 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
     intent = await classify_intent(model, session, msg.text, state.skill_registry)
 
     if intent.kind == "complex":
-        await run_shades_pipeline(msg, channel, session)
+        reply = await channel.make_reply(msg)
+        hint = await enter_shades_pipeline_background(msg, channel, session)
+        try:
+            await reply.send(hint)
+        except Exception:
+            pass
     elif intent.kind == "skill":
         await run_session_chat(msg, channel, session, skill_name=intent.skill_name)
     else:
         await run_session_chat(msg, channel, session)
+
+
+async def enter_shades_pipeline_background(
+    msg: IncomingMessage, channel: Channel, session: Session,
+    *, escalation_reason: str | None = None,
+) -> str:
+    """前台同步跑 prepare（入口审 + round-1 plan + 批量授权），成功后后台跑 execute。
+
+    - prepare 必须在 SSE 活跃时跑（ask_user 要问用户）
+    - execute 耗时长，放 asyncio.create_task 后台，SSE 关了也不影响
+    - execute 期间进度/summary 走 `march.ring_event → 📨 推送`
+    """
+    channel_name = msg.channel_name
+    chat_id = msg.chat_id
+    text = msg.text
+
+    from paimon.shades.pipeline import ShadesPipeline
+    pipeline = ShadesPipeline(
+        state.model, state.irminsul,
+        channel=channel, chat_id=chat_id,
+        authz_cache=state.authz_cache,
+    )
+
+    # 前台：入口审 + plan + 批量授权（SSE 必须活跃）
+    prep = await pipeline.prepare(
+        text, session_id=session.id, escalation_reason=escalation_reason,
+    )
+    if not prep.ok:
+        # 准备阶段就失败（死执拒/授权全拒/异常）→ 直接回字，不进后台
+        return prep.msg
+
+    task_id = prep.task.id
+    plan = prep.plan
+    assert plan is not None  # ok=True 保证
+
+    async def _bg():
+        try:
+            await pipeline.execute(prep.task, plan, session_id=session.id)
+        except Exception as e:
+            logger.exception("[派蒙·四影 bg] execute 失败: {}", e)
+
+        # 推 summary（无论成败，有 workspace 就推）
+        try:
+            from paimon.foundation.task_workspace import (
+                get_workspace_path, workspace_exists,
+            )
+            if state.march and workspace_exists(task_id):
+                summary = get_workspace_path(task_id) / "summary.md"
+                if summary.exists():
+                    await state.march.ring_event(
+                        channel_name=channel_name, chat_id=chat_id,
+                        source="四影", message=summary.read_text(encoding="utf-8")[:4000],
+                    )
+        except Exception as e:
+            logger.warning("[派蒙·四影 bg] 推 summary 失败: {}", e)
+
+    asyncio.create_task(_bg())
+    return (
+        f"✅ task={task_id[:8]} 已授权，进入四影管线后台执行（简单 3-10 分钟，复杂更长）\n"
+        f"- DAG: {len(plan.subtasks)} 节点\n"
+        "- 进度/结果推到「📨 推送」会话\n"
+        "- 跟踪: /tasks 看状态，/task-summary 看产物"
+    )
 
 
 async def run_session_chat(

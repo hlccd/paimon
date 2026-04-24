@@ -226,7 +226,7 @@ SUMMARY | 复查 {N} | 通过 {p} | 失败 {f}
 {fix_records}
 
 ## 对照源码目录
-{--src 路径}
+{src_path}
 
 ## 输出格式
 REGRESSION | {severity} | {check-id} | {file}:{line} | {description}

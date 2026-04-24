@@ -296,7 +296,7 @@ def main():
         md_files = []
         for md_file in docs_dir.rglob('*.md'):
             try:
-                rel_parts = md_file.relative_to(docs_dir).parts[:-1]
+                rel_parts = md_file.relative_to(docs_dir).parts
             except ValueError:
                 continue
             if any(part in EXCLUDE_DIRS or part.startswith('.') for part in rel_parts):

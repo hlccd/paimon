@@ -54,6 +54,9 @@ _INITIAL_PROMPT = f"""\
 10. **saga 补偿**（可选）：只在节点有**副作用**（写文件、修改数据库、注册定时任务、部署等）时填 compensate
     字段，用自然语言描述如何**反向还原**（如"删除 /tmp/output.json"、"撤销 schedule id=xxx"）。
     纯查询 / 纯推理任务 compensate 留空字符串。
+11. **不要**把"归档到知识库 / 整理入库 / 存档 / 总结归档"作为子任务 — 归档是系统职责（由时执·
+    istaroth 自动做），不占节点。最终**回答用户的内容**必须由**业务节点**直接产出，别让管线停
+    在"已整理完毕"这种空洞收尾上。
 
 只输出 JSON 对象，格式严格如下（不要 markdown fence，不要解释）：
 {{
@@ -111,6 +114,15 @@ async def plan(
     if round == 1 or previous_plan is None or verdict is None:
         subtasks = await _plan_initial(task, model, irminsul)
         plan_obj = Plan(task_id=task.id, round=1, subtasks=subtasks, reason="")
+    elif _is_code_pipeline_plan(previous_plan):
+        # 三阶段写代码 DAG 专用 revise：保留已 pass 阶段，重派失败阶段生产节点 + 下游
+        subtasks, preserved_ids = _revise_code_pipeline(
+            task, previous_plan, verdict, round,
+        )
+        plan_obj = Plan(
+            task_id=task.id, round=round, subtasks=subtasks,
+            reason=f"[三阶段 revise] {verdict.summary[:180]}",
+        )
     else:
         subtasks, preserved_ids = await _plan_revise(
             task, model, irminsul, previous_plan, verdict, round,
@@ -175,12 +187,237 @@ async def plan(
 async def _plan_initial(
     task: TaskEdict, model: Model, irminsul: Irminsul,
 ) -> list[Subtask]:
+    # 检测是否是"写代码"任务 → 生成固定三阶段 6 节点 DAG（spec/design/code × 生产+水神）
+    if _is_code_task(task):
+        logger.info("[生执] 检测为写代码任务 → 三阶段 DAG")
+        return _build_code_pipeline_dag(task.id)
+
     messages = [
         {"role": "system", "content": _INITIAL_PROMPT},
         {"role": "user", "content": f"请分解以下任务:\n\n{task.title}\n{task.description}"},
     ]
     items = await _call_llm_for_plan(messages, model, task, purpose="任务编排")
     return _items_to_subtasks(items, task.id, round=1)
+
+
+# 写代码任务识别关键词（命中即走三阶段 DAG）
+_CODE_TASK_KEYWORDS = (
+    "写代码", "写个", "写一个", "写一段",
+    "实现", "开发", "编写", "新增", "加一个", "加上", "加个",
+    "修改", "修复", "fix", "改 bug", "改个",
+    "重构", "refactor",
+    "新建", "创建文件", "建个模块", "建一个",
+    "补全", "补丁",
+    ".py", ".ts", ".js", ".go", "函数", "类", "模块",
+    "tests/", "测试", "单元测试",
+)
+
+
+def _is_code_task(task: TaskEdict) -> bool:
+    """简单关键词规则识别写代码任务。未来可加 LLM 兜底。"""
+    text = (task.title + "\n" + task.description).lower()
+    return any(k in text or k.lower() in text for k in _CODE_TASK_KEYWORDS)
+
+
+def _is_code_pipeline_plan(plan: "Plan | None") -> bool:
+    """判断给定 plan 是否是三阶段写代码 DAG（靠节点 description 前缀识别）。"""
+    if plan is None or not plan.subtasks:
+        return False
+    return any(
+        s.description.startswith("[STAGE:") for s in plan.subtasks
+    )
+
+
+def _revise_code_pipeline(
+    task: TaskEdict, previous_plan: "Plan", verdict: "ReviewVerdict", round: int,
+) -> tuple[list[Subtask], set[str]]:
+    """三阶段 DAG 专用 revise 逻辑（固定模板，不调 LLM）。
+
+    策略：
+    - verdict.issues 指向"被审生产节点"（spec/design/code 其中之一）
+    - redo → 回退一级：被审阶段及之后重派
+    - revise → 重派被审阶段的生产节点 + 该阶段 review + 之后所有节点
+
+    保留 issues 未涉及的**前面**阶段的节点（status=completed）。
+    """
+    import time
+    import uuid
+
+    # 收集所有节点按 stage 分组（保持原顺序）
+    ordered = list(previous_plan.subtasks)
+    # 按 description 提取 stage
+    def _stage_of(s: Subtask) -> str:
+        d = s.description
+        if d.startswith("[STAGE:spec]"): return "spec"
+        if d.startswith("[STAGE:review_spec]"): return "review_spec"
+        if d.startswith("[STAGE:design]"): return "design"
+        if d.startswith("[STAGE:review_design]"): return "review_design"
+        if d.startswith("[STAGE:code]"): return "code"
+        if d.startswith("[STAGE:review_code]"): return "review_code"
+        return "unknown"
+
+    # 被审节点 id 集合（来自 verdict.issues）
+    failed_ids = {
+        it.get("subtask_id") for it in (verdict.issues or [])
+        if it.get("subtask_id")
+    }
+
+    # 识别被挑的阶段（spec / design / code）
+    failed_stage: str | None = None
+    for s in ordered:
+        if s.id in failed_ids:
+            st = _stage_of(s)
+            if st in ("spec", "design", "code"):
+                failed_stage = st
+                break
+    # fallback：末尾 review 节点的 deps[0] stage 即生产节点
+    if failed_stage is None:
+        # 若 level=redo，按 review 节点识别被审阶段：review_code redo 回 design 阶段
+        last_review = next(
+            (s for s in reversed(ordered) if _stage_of(s).startswith("review_")),
+            None,
+        )
+        if last_review:
+            rs = _stage_of(last_review)
+            failed_stage = {
+                "review_spec": "spec",
+                "review_design": "design",
+                "review_code": "code",
+            }.get(rs, "code")
+        else:
+            failed_stage = "code"
+
+    # redo 降级一层：code→design, design→spec, spec→spec（没得降）
+    if verdict.level == "redo":
+        failed_stage = {"code": "design", "design": "spec", "spec": "spec"}[failed_stage]
+
+    # 阶段排序 → 确定要重派的节点 = 从 failed_stage 起所有后续阶段
+    stage_order = ["spec", "review_spec", "design", "review_design", "code", "review_code"]
+    redo_from = stage_order.index(failed_stage)
+    redo_stages = set(stage_order[redo_from:])
+
+    # 保留前面阶段（同 stage 但非 review 的生产节点；且 status=completed）
+    preserved: list[Subtask] = []
+    preserved_ids: set[str] = set()
+    for s in ordered:
+        if _stage_of(s) not in redo_stages and s.status == "completed":
+            # deps 保留（指向前轮节点的 deps 保持；LLM 不再生）
+            preserved.append(s)
+            preserved_ids.add(s.id)
+
+    # 生成新节点（需要 redo 的阶段）；维持同一流水线 deps 链
+    now = time.time()
+    new_nodes: list[Subtask] = []
+    # 找"最后一个 preserved 节点"的 id，作为第一个新节点的 dep
+    last_preserved_id = preserved[-1].id if preserved else None
+
+    def _mk(assignee: str, stage: str, desc: str, deps: list[str]) -> Subtask:
+        return Subtask(
+            id=uuid.uuid4().hex[:12],
+            task_id=task.id,
+            parent_id=None,
+            assignee=assignee,
+            description=f"[STAGE:{stage}] {desc}",
+            status="pending",
+            result="",
+            created_at=now,
+            updated_at=now,
+            deps=deps,
+            round=round,
+            sensitive_ops=[],
+            verdict_status="",
+            compensate="",
+        )
+
+    stage_meta = [
+        ("spec", "草神", "产出产品方案 spec.md（revise 轮）"),
+        ("review_spec", "水神", "审查 spec.md"),
+        ("design", "雷神", "产出技术方案 design.md（revise 轮）"),
+        ("review_design", "水神", "审查 design.md"),
+        ("code", "雷神", "产出代码（revise 轮，增量修改）"),
+        ("review_code", "水神", "审查 code"),
+    ]
+
+    # verdict.issues 嵌到**第一个被 redo 的生产节点** description 里——
+    # revise 轮时，上一轮水神 review 节点在新 plan 里被替换，deps 机制拿不到
+    # 其 result；用 description 内嵌作为确定性反馈通道，archon 分派时优先读。
+    import json as _json
+    issues_blob = ""
+    if verdict.issues:
+        try:
+            issues_blob = (
+                "\n\n[REVISE_FEEDBACK_JSON]"
+                + _json.dumps(
+                    {"level": verdict.level, "issues": verdict.issues[:20],
+                     "summary": verdict.summary},
+                    ensure_ascii=False,
+                )
+                + "[/REVISE_FEEDBACK_JSON]"
+            )
+        except (TypeError, ValueError):
+            issues_blob = ""
+
+    prev_id = last_preserved_id
+    first_production_node_injected = False
+    for stage, assignee, desc in stage_meta[redo_from:]:
+        full_desc = desc
+        # 只在第一个被 redo 的生产节点嵌 issues（下游 code/review 通过自己逻辑链路拿）
+        if (
+            not first_production_node_injected
+            and stage in ("spec", "design", "code")
+            and issues_blob
+        ):
+            full_desc = desc + issues_blob
+            first_production_node_injected = True
+        new = _mk(assignee, stage, full_desc, deps=[prev_id] if prev_id else [])
+        new_nodes.append(new)
+        prev_id = new.id
+
+    logger.info(
+        "[生执·三阶段 revise] round={} level={} failed_stage={} preserved={} new={}",
+        round, verdict.level, failed_stage, len(preserved), len(new_nodes),
+    )
+
+    return preserved + new_nodes, preserved_ids
+
+
+def _build_code_pipeline_dag(task_id: str) -> list[Subtask]:
+    """生成写代码三阶段 6 节点 DAG。
+
+    description 前缀 `[STAGE:xxx]` 用于各 archon execute() 分派到对应方法。
+    deps 形成流水线：每个水神节点依赖对应生产节点。
+    """
+    import time
+    import uuid
+
+    now = time.time()
+
+    def _mk(assignee: str, stage: str, desc: str, deps: list[str]) -> Subtask:
+        return Subtask(
+            id=uuid.uuid4().hex[:12],
+            task_id=task_id,
+            parent_id=None,
+            assignee=assignee,
+            description=f"[STAGE:{stage}] {desc}",
+            status="pending",
+            result="",
+            created_at=now,
+            updated_at=now,
+            deps=deps,
+            round=1,
+            sensitive_ops=[],
+            verdict_status="",
+            compensate="",
+        )
+
+    n1 = _mk("草神", "spec", "产出产品方案 spec.md（调 requirement-spec skill）", [])
+    n2 = _mk("水神", "review_spec", "审查 spec.md（调 check skill spec 模式）", [n1.id])
+    n3 = _mk("雷神", "design", "产出技术方案 design.md（调 architecture-design skill）", [n2.id])
+    n4 = _mk("水神", "review_design", "审查 design.md（调 check skill 对齐 spec）", [n3.id])
+    n5 = _mk("雷神", "code", "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [n4.id])
+    n6 = _mk("水神", "review_code", "审查 code（调 check skill 对齐 design）", [n5.id])
+
+    return [n1, n2, n3, n4, n5, n6]
 
 
 async def _plan_revise(

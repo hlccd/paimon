@@ -1,7 +1,7 @@
 ---
 name: check
 description: "多轮迭代审查工具。22 个质量维度模块自由组合，支持代码/文档/方案/交叉等输入模式。基于 N+M+K 多轮方法论，主 orchestrator 多轮视角切换自审，对抗单轮 LLM 审查的假阳性/假阴性。"
-argument-hint: "启动后交互式选择配置"
+argument-hint: "<type> [target] [options...]  (无参数则交互式配置)"
 user-invocable: true
 allowed-tools: "Read Write Edit Glob Grep AskUserQuestion Bash(python3:*) Bash(mkdir:*) Bash(wc:*) Bash(git:*) Bash(date:*)"
 metadata:
@@ -61,9 +61,173 @@ metadata:
 
 ---
 
-## 第一步：交互式配置
+## 第一步：配置
 
-所有路径统一 3 次调用。不解析 `$ARGUMENTS`。
+### 模式分支
+
+```
+if $ARGUMENTS 非空:
+  → 参数模式（本节）：解析参数，构建 config，跳过交互，直接进入第二步
+else:
+  → 交互模式（下一节）：3 次 AskUserQuestion 调用
+```
+
+### 参数模式（$ARGUMENTS 非空时）
+
+#### 语法
+
+```
+<type> [target] [options...]
+```
+
+| 位置参数 | 说明 | 必需 |
+|---------|------|------|
+| `type` | 审查类型，见下方类型表 | 是 |
+| `target` | 主目标路径（不以 `--` 开头的第二个 token）；省略时默认当前工作目录 | 否 |
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `--level <L>` | 质量维度层级：`comprehensive` / `deep` / `standard` / `core` | `comprehensive` |
+| `--modules <M>` | 自定义模块列表，覆盖 `--level`（见下方说明） | 由 `--level` 展开 |
+| `--extensibility` | 追加 extensibility 模块（机会发现引擎） | 不包含 |
+| `--depth <D>` | 审查深度：`quick` / `standard` / `deep` / `thorough` | `standard` |
+| `--fix <S>` | 修复策略：`report-only` / `p0` / `p0+p1` / `all` | `report-only` |
+| `--docs <path>` | 文档路径（code-vs-docs 的文档侧） | — |
+| `--spec <path>` | 方案路径（*-vs-spec 的方案侧） | — |
+| `--src-b <path>` | code-vs-code 的 B 侧代码路径 | — |
+| `--docs-b <path>` | docs-vs-docs 的 B 侧文档路径 | — |
+| `--change <source>` | 变更来源：git range 或文件列表 | — |
+| `--base <branch>` | PR 基准分支 | `main` |
+| `--exclude <glob>` | 排除模式（可多次指定） | `[]` |
+| `--note <text>` | 备注文本 → `config.user_context` | — |
+
+**`--modules` 语法**：
+
+- 逗号分隔模块名：`--modules "accuracy,security,clarity"`
+- 层级微调：`--modules "standard +performance -hygiene"` → 以 standard 为基础，加 performance、去 hygiene
+- 指定 `--modules` 时 `--level` 被忽略；未指定时由 `--level` 自动展开
+- 模块名必须是 22 个模块的英文标识符（extensibility 除外，用 `--extensibility` 单独控制）
+- 与当前 input_mode 不兼容的模块会被警告并忽略
+
+#### 类型表
+
+| type 参数 | input_mode | 必需选项 | target 写入 |
+|-----------|-----------|---------|------------|
+| `code` | `code` | — | `src_path` |
+| `docs` | `docs` | — | `docs_path` |
+| `spec` | `spec` | — | `spec_path` |
+| `pr` | `pr` | — | `src_path`（当前分支 vs `--base`，默认 main） |
+| `code-vs-docs` | `code-vs-docs` | `--docs` | `src_path`；`--docs` → `docs_path` |
+| `code-vs-spec` | `code-vs-spec` | `--spec` | `src_path`；`--spec` → `spec_path` |
+| `change-vs-spec` | `change-vs-spec` | `--spec`，建议 `--change` | `src_path`；`--spec` → `spec_path` |
+| `code-vs-code` | `code-vs-code` | `--src-b`（B 侧代码路径） | `src_path`；`--src-b` → `docs_path`（复用字段承载 B 侧） |
+| `docs-vs-docs` | `docs-vs-docs` | `--docs-b`（B 侧文档路径） | `docs_path`；`--docs-b` → `spec_path`（复用字段承载 B 侧） |
+| `project-health` | `project-health` | — | 项目根目录 |
+
+#### 默认值填充规则
+
+1. `target` 省略 → 当前工作目录
+2. `--level` 省略 → `comprehensive`
+3. `--depth` 省略 → `standard`
+4. `--fix` 省略 → `report-only`
+5. `--change` 省略（`change-vs-spec` 类型）→ 当前未提交变更
+6. `modules` 由 `--level` + `input_mode` 自动展开（参照下方模块层级详情表）
+
+#### Config 构建映射
+
+| config 字段 | 来源 |
+|------------|------|
+| `input_mode` | type 参数直接映射 |
+| `modules` | 由 `--level` + `input_mode` 查模块层级详情表展开 |
+| `src_path` | 代码/PR/对齐代码侧 → target；其他 → null |
+| `docs_path` | 文档 → target；code-vs-docs → `--docs`；code-vs-code → `--src-b`（复用字段承载 B 侧）；其他 → null |
+| `spec_path` | 方案 → target；*-vs-spec → `--spec`；docs-vs-docs → `--docs-b`（复用字段承载 B 侧）；其他 → null |
+| `change_source` | `--change` 值；change-vs-spec 且未指定 → `"uncommitted"` |
+| `level` | `--level` 值 |
+| `fix_strategy` | `--fix` 值；不支持 fix 的类型强制覆盖为 `report-only` |
+| `exclude_patterns` | 所有 `--exclude` 值收集为数组 |
+| `user_context` | `--note` 值 |
+
+> `--depth` 不写入 config 字段，而是在第二步初始化时直接查深度对照表设置 `iteration_config`。
+
+#### 校验规则
+
+解析后、进入第二步前执行校验。校验失败时输出错误信息并列出正确用法，不进入重试循环：
+
+1. **type 无效** → 报错，列出合法 type 值
+2. **对齐类型缺少必需路径** → 报错，说明需要 `--docs` 或 `--spec`
+3. **路径不存在** → 报错，列出无法访问的路径
+4. **--fix 用于不支持修复的类型** → 静默降级为 `report-only`，打印警告
+5. **--level / --depth 值不合法** → 报错，列出合法值
+
+校验通过后，**必须打印完整审查计划**（格式与交互模式完全一致，所有字段已填充），然后不等待确认，直接进入第二步：
+
+```
+审查计划
+─────────
+意图:     {intent}
+审查类型: {check_type}
+目标:     {paths} ({N} 个文件)
+修复策略: {fix_strategy}
+执行引擎: {engines}
+质量维度: {modules}（{level}）
+审查深度: {depth}
+备注:     {user_context}         ← 仅当非空时显示
+
+（项目体检额外显示）
+推荐组合:
+① {sub_check_1}
+② {sub_check_2}
+...
+```
+
+#### 示例
+
+**基础用法**：
+```
+/check code                                → 代码审查，当前目录，comprehensive，标准深度
+/check docs ./docs                         → 文档审查，指定目录
+/check spec ./design.md                    → 技术方案审查
+/check pr                                  → PR 审查，当前分支 vs main
+/check project-health                      → 项目体检，当前目录
+```
+
+**调整维度和深度**：
+```
+/check code --level standard               → 仅核心 8 模块
+/check code --depth quick                  → 快速扫一轮
+/check code --depth deep --level core      → 4 核心模块深入审查
+/check code --modules "accuracy,security,reliability"  → 只查这 3 个模块
+/check code --modules "standard +performance -hygiene" → 标准层级微调
+/check code --extensibility                → 追加可扩展性分析（机会发现引擎）
+```
+
+**对齐检查**：
+```
+/check code-vs-docs --docs ./docs          → 代码↔文档对齐，代码取 cwd
+/check code-vs-spec . --spec design.md     → 代码↔方案对齐
+/check change-vs-spec --spec plan.md --change "HEAD~3..HEAD"  → 最近 3 次提交 vs 方案
+/check code-vs-code ./src-a --src-b ./src-b   → 两份代码对比
+/check docs-vs-docs ./docs-a --docs-b ./docs-b → 两份文档对比
+```
+
+**PR 审查**：
+```
+/check pr                                  → 当前分支 vs main
+/check pr --base develop                   → 当前分支 vs develop
+/check pr --depth deep --level standard    → 深入审查，标准维度
+```
+
+**带备注和排除**：
+```
+/check code --note "重点关注数据库相关的代码"
+/check code src/ --exclude "vendor/*" --exclude "*.test.js"
+/check docs ./docs --fix p0               → 文档审查，自动修复 P0 问题
+```
+
+### 交互模式（$ARGUMENTS 为空时）
+
+所有路径统一 3 次调用。
 
 ### 配置流程
 
@@ -233,7 +397,8 @@ metadata:
 
 ## 第二步：初始化与计划
 
-调用 2 收集路径后、调用 3 之前执行。
+- **交互模式**：调用 2 收集路径后、调用 3 之前执行
+- **参数模式**：校验通过后立即执行
 
 1. **加载参考文件**：
    - `${CLAUDE_SKILL_DIR}/references/severity-guidelines.md`
@@ -251,17 +416,21 @@ metadata:
 
 3. **创建状态目录**：`<target>/.check/`，从 `${CLAUDE_SKILL_DIR}/assets/state-template.json` 初始化 `state.json`
 
-4. **打印审查计划**（调用 3 前展示，此时维度和深度尚未选择，显示为待定）：
+4. **打印审查计划**：
+   - **交互模式**：调用 3 前展示；维度和深度显示为"[调用 3 选择]"
+   - **参数模式**：所有字段已确定，完整展示后直接进入第三步
+
    ```
    审查计划
    ─────────
    意图:     {intent}               ← 质量审查 / 对齐检查 / 项目体检
    审查类型: {check_type}           ← 如"代码质量审查"、"代码↔方案对齐"
    目标:     {paths} ({N} 个文件)
-   修复策略: {fix_strategy}         ← 用户选择（不支持修复的类型固定为仅报告）
+   修复策略: {fix_strategy}
    执行引擎: {engines}
-   质量维度: [调用 3 选择]
-   审查深度: [调用 3 选择]
+   质量维度: {modules_or_pending}   ← 参数模式已填充 / 交互模式"[调用 3 选择]"
+   审查深度: {depth_or_pending}     ← 参数模式已填充 / 交互模式"[调用 3 选择]"
+   备注:     {user_context}         ← 仅当非空时显示
 
    （项目体检额外显示）
    推荐组合:
@@ -270,7 +439,9 @@ metadata:
    ...
    ```
 
-5. **调用 3 收集维度+深度+确认后**，补全计划并执行。
+5. **进入执行**：
+   - **交互模式**：调用 3 收集维度+深度+确认后，补全计划并执行
+   - **参数模式**：打印计划后直接执行（第三步）
 
 ---
 
@@ -376,7 +547,7 @@ metadata:
 
 1. **全程中文输出**——所有面向用户的交互必须使用中文。技术标识符保持原样。
 2. **单 Agent 顺序执行**——所有发现/验证/修复/回归均由主 orchestrator 自身完成，不启动子 Agent，确保用户确认后全程无人值守无授权弹窗
-3. **交互式配置 → 确认 → 之后运行中零交互**（确认后支持无人值守）
+3. **配置 → 确认 → 运行中零交互**（交互模式：确认后无人值守；参数模式：解析后直接无人值守）
 4. **多轮全视角扫描**（见 methodology.md）——每轮覆盖全部审查视角，多次迭代重复扫描抓遗漏，替代并行 Agent 的交叉确认
 5. **共识阈值 ≥2 轮**（Validation：同一问题在 ≥2 轮独立视角中被标记则确认）
 6. **修复后自审**（仅 fix 模式）

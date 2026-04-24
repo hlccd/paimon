@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from uuid import uuid4
 
 from loguru import logger
@@ -39,6 +40,19 @@ from ._verdict import (
     find_last_verdict_producer,
     parse_verdict,
 )
+
+
+@dataclass
+class PrepareResult:
+    """ShadesPipeline.prepare() 的返回值。
+
+    ok=True 时把 (task, plan) 交给 execute() 后台跑；
+    ok=False 时 msg 就是直接回用户的文字。
+    """
+    task: TaskEdict
+    plan: Plan | None
+    ok: bool
+    msg: str
 
 
 class ShadesPipeline:
@@ -62,62 +76,139 @@ class ShadesPipeline:
         self._user_id = user_id
         self._batch_ask_timeout = batch_ask_timeout
 
-    async def run(
+    async def _notify_progress(self, text: str) -> None:
+        """向用户推一条关键进度消息（走 march.ring_event → 派蒙独占出口 → 推送会话）。
+
+        失败静默（推送不可用不应打断管线）。
+        """
+        if not self._channel or not self._chat_id:
+            return
+        try:
+            from paimon.state import state as _state
+            if _state.march:
+                await _state.march.ring_event(
+                    channel_name=self._channel.name,
+                    chat_id=self._chat_id,
+                    source="四影",
+                    message=text,
+                )
+        except Exception as e:
+            logger.debug("[四影·progress] 推送失败: {}", e)
+
+    async def prepare(
         self,
         user_input: str,
         session_id: str = "",
         escalation_reason: str | None = None,
-    ) -> str:
-        task = await self._create_task(user_input, session_id, escalation_reason)
-        if escalation_reason:
-            logger.info(
-                "[四影] 魔女会转入 task={} reason={}",
-                task.id, escalation_reason,
-            )
-        logger.info("[四影] 管线启动 task={} title={}", task.id, task.title[:60])
+    ) -> "PrepareResult":
+        """前台同步跑：create_task → 入口审 → round-1 plan → 批量授权。
 
-        max_rounds = max(1, int(getattr(config, "shades_max_rounds", 3)))
-        plan: Plan | None = None
-        verdict: ReviewVerdict | None = None
-        last_results: dict[str, str] = {}
-        completed_ids: set[str] = set()  # 管线生命周期内所有"成功完成"的节点 id（跨轮）
-        round_idx = 1
-        round_cap_hit = False
+        必须在 SSE 仍活跃的上下文调用（ask_user 依赖活跃 SSE）。
+        返回 PrepareResult：成功时 (task, plan) 可交给 execute() 后台跑；
+        失败时 msg 就是给用户看的最终字符串。
+        """
+        task = await self._create_task(user_input, session_id, escalation_reason)
+        self.last_task_id = task.id
+        if escalation_reason:
+            logger.info("[四影·prepare] 魔女会转入 task={} reason={}", task.id, escalation_reason)
+        logger.info("[四影·prepare] task={} title={}", task.id, task.title[:60])
 
         try:
-            # 环 1：入口安全审
             safe, reason = await jonova.review(task, self._model, self._irminsul)
             if not safe:
                 await self._irminsul.task_update_status(task.id, status="rejected", actor="死执")
                 await istaroth.archive(
                     task, self._irminsul,
-                    failure_reason=f"死执拒绝: {reason}",
-                    rounds=0,
+                    failure_reason=f"死执拒绝: {reason}", rounds=0,
                 )
-                return f"请求未通过安全审查: {reason}"
+                return PrepareResult(
+                    task=task, plan=None, ok=False,
+                    msg=f"请求未通过安全审查: {reason}",
+                )
 
-            # 环 2：主循环
+            plan = await naberius.plan(
+                task, self._model, self._irminsul,
+                previous_plan=None, verdict=None, round=1,
+            )
+            await self._irminsul.task_update_status(
+                task.id, status="running", actor="空执",
+            )
+
+            # 批量授权（此刻 SSE 活跃 → ask_user 能问到用户）
+            scan_ok = await self._batch_authorize(task, plan, session_id)
+            if not scan_ok:
+                await istaroth.archive(
+                    task, self._irminsul,
+                    failure_reason="用户拒绝了全部敏感操作", rounds=1,
+                )
+                return PrepareResult(
+                    task=task, plan=plan, ok=False,
+                    msg="任务已取消（你拒绝了全部敏感操作）。",
+                )
+            return PrepareResult(task=task, plan=plan, ok=True, msg="")
+        except Exception as e:
+            logger.exception("[四影·prepare] 异常 task={}: {}", task.id, e)
+            try:
+                await istaroth.archive(
+                    task, self._irminsul,
+                    failure_reason=f"prepare 异常: {e}", rounds=0,
+                )
+            except Exception:
+                pass
+            return PrepareResult(
+                task=task, plan=None, ok=False,
+                msg=f"任务准备失败: {e}",
+            )
+
+    async def execute(
+        self,
+        task: TaskEdict,
+        initial_plan: Plan,
+        session_id: str = "",
+    ) -> str:
+        """后台跑：从 round-1 dispatch 开始，完成所有轮次与归档。
+
+        round-1 plan 来自 prepare()（已授权，不再问）；
+        round-2+ 进入循环再 naberius.plan + batch_authorize（会话级 authz_cache
+        通常让复审默认放行，除非 LLM 引入新类型敏感节点）。
+        """
+        self.last_task_id = task.id
+        max_rounds = max(1, int(getattr(config, "shades_max_rounds", 3)))
+        plan: Plan | None = initial_plan
+        verdict: ReviewVerdict | None = None
+        last_results: dict[str, str] = {}
+        completed_ids: set[str] = set()
+        round_idx = 1
+        round_cap_hit = False
+
+        try:
+            # 关键进度：任务启动
+            await self._notify_progress(
+                f"🧭 四影启动 task={task.id[:8]}\n"
+                f"  标题: {task.title[:80]}\n"
+                f"  DAG: {len(plan.subtasks)} 节点，上限 {max_rounds} 轮"
+            )
+
             while round_idx <= max_rounds:
-                plan = await naberius.plan(
-                    task, self._model, self._irminsul,
-                    previous_plan=plan, verdict=verdict, round=round_idx,
-                )
-
-                if round_idx == 1:
-                    await self._irminsul.task_update_status(
-                        task.id, status="running", actor="空执",
+                if round_idx > 1:
+                    plan = await naberius.plan(
+                        task, self._model, self._irminsul,
+                        previous_plan=plan, verdict=verdict, round=round_idx,
                     )
-
-                # 死执 scan + 派蒙批量授权
-                scan_ok = await self._batch_authorize(task, plan, session_id)
-                if not scan_ok:
-                    # 所有敏感节点都被拒 → 视作用户主动取消
-                    await istaroth.archive(
-                        task, self._irminsul,
-                        failure_reason="用户拒绝了全部敏感操作",
-                        rounds=round_idx,
+                    await self._notify_progress(
+                        f"🔁 进入 round {round_idx}（上轮 {verdict.level if verdict else '?'}）"
                     )
-                    return "任务已取消（你拒绝了全部敏感操作）。"
+                    scan_ok = await self._batch_authorize(task, plan, session_id)
+                    if not scan_ok:
+                        await istaroth.archive(
+                            task, self._irminsul,
+                            failure_reason="revise 轮用户拒绝了全部敏感操作",
+                            rounds=round_idx,
+                        )
+                        await self._notify_progress(
+                            f"❌ task={task.id[:8]} round {round_idx} 全部敏感节点被拒/无法授权"
+                        )
+                        return "任务已取消（revise 轮敏感操作全拒）。"
 
                 last_results = await asmoday.dispatch(
                     task, plan, self._model, self._irminsul,
@@ -134,6 +225,15 @@ class ShadesPipeline:
                     round_idx, verdict.level, len(verdict.issues),
                 )
                 await self._annotate_verdict_on_subtasks(plan, verdict)
+
+                # 关键进度 2/3：本轮各阶段 verdict 汇总（只一行，含三阶段通过情况）
+                stage_status = self._stage_status_line(plan, last_results)
+                icon = {"pass": "✅", "revise": "⚠️", "redo": "❌"}.get(verdict.level, "❓")
+                await self._notify_progress(
+                    f"{icon} round {round_idx} → {verdict.level}\n"
+                    f"  阶段: {stage_status}\n"
+                    f"  {verdict.summary[:120]}"
+                )
 
                 await self._irminsul.audit_append(
                     event_type="shades_round_verdict",
@@ -168,6 +268,11 @@ class ShadesPipeline:
             final = self._compose_final(plan, last_results, verdict, round_cap_hit)
             await istaroth.archive(task, self._irminsul, rounds=round_idx)
             logger.info("[四影] 管线完成 task={} rounds={}", task.id, round_idx)
+            # 把最终产物推到📨 推送（非写代码任务没 workspace summary.md，这里补）
+            head = "🎉" if not round_cap_hit else "⚠️"
+            await self._notify_progress(
+                f"{head} task={task.id[:8]} 完成（rounds={round_idx}）\n\n{final[:3500]}"
+            )
             return final
 
         except Exception as e:
@@ -191,7 +296,22 @@ class ShadesPipeline:
                 )
             except Exception as arc_err:
                 logger.error("[四影] 失败归档本身异常: {}", arc_err)
+            await self._notify_progress(
+                f"💥 task={task.id[:8]} 管线异常: {str(e)[:200]}"
+            )
             return f"任务执行失败: {e}"
+
+    async def run(
+        self,
+        user_input: str,
+        session_id: str = "",
+        escalation_reason: str | None = None,
+    ) -> str:
+        """兼容入口：prepare + execute 一把梭（前台全跑，不分前后台）。"""
+        prep = await self.prepare(user_input, session_id, escalation_reason)
+        if not prep.ok:
+            return prep.msg
+        return await self.execute(prep.task, prep.plan, session_id)
 
     # ---------------- batch authz ----------------
 
@@ -233,11 +353,21 @@ class ShadesPipeline:
                 "[四影·batch_ask] 频道 {} 未支持 ask_user，保守拒绝全部",
                 getattr(self._channel, "name", "?"),
             )
+            # 后台异步跑管线时 SSE 已关闭 → ask_user 无活跃通道
+            # 用户看到"任务失败"但不知原因，此处显式推送解释
+            await self._notify_progress(
+                f"🚫 task={task.id[:8]} 需要授权但 SSE 已关闭\n"
+                f"  涉及 {len(scan.items_to_ask)} 个敏感节点，保守全拒\n"
+                f"  建议：在 /task 命令前用 /grant <神名> 预授权，或拆解任务避免敏感操作"
+            )
             return await self._reject_all_sensitive(plan, scan.items_to_ask, task)
         except asyncio.TimeoutError:
             logger.info(
                 "[四影·batch_ask] 询问超时 ({}s)，保守拒绝",
                 self._batch_ask_timeout,
+            )
+            await self._notify_progress(
+                f"⏰ task={task.id[:8]} 授权询问超时（{self._batch_ask_timeout:.0f}s）→ 保守全拒"
             )
             return await self._reject_all_sensitive(plan, scan.items_to_ask, task)
 
@@ -393,20 +523,70 @@ class ShadesPipeline:
 
     # ---------------- verdict ----------------
 
-    def _resolve_verdict(self, plan: Plan, results: dict[str, str]) -> ReviewVerdict:
-        """从 plan 的"最后一个水神节点"取产物解析 verdict。无水神节点视为 pass。"""
-        water = find_last_verdict_producer(plan.subtasks)
-        if water is None:
-            return ReviewVerdict(level=LEVEL_PASS, summary="(无水神评审节点，默认通过)")
+    def _stage_status_line(self, plan: Plan, results: dict[str, str]) -> str:
+        """三阶段 verdict 浓缩成一行（给用户看）。非三阶段 DAG 返回简短节点统计。"""
+        stages = [
+            ("spec", "review_spec"),
+            ("design", "review_design"),
+            ("code", "review_code"),
+        ]
+        by_stage = {
+            s: None for _, s in stages  # review_spec → verdict level or None
+        }
+        for sub in plan.subtasks:
+            if sub.assignee != "水神":
+                continue
+            raw = results.get(sub.id, "").strip()
+            if not raw:
+                continue
+            for _, rv in stages:
+                if sub.description.startswith(f"[STAGE:{rv}]"):
+                    try:
+                        by_stage[rv] = parse_verdict(raw).level
+                    except Exception:
+                        pass
+                    break
 
-        raw = results.get(water.id, "")
-        if not raw:
-            # 水神节点失败/跳过：不强求评审结论，视为 pass 并附说明
+        if all(by_stage[rv] is None for _, rv in stages):
+            # 非三阶段 DAG
+            total = len(plan.subtasks)
+            completed = sum(1 for s in plan.subtasks if s.status == "completed")
+            return f"{completed}/{total} 完成"
+
+        icon_map = {"pass": "✓", "revise": "△", "redo": "✗", None: "·"}
+        parts = []
+        for stage, rv in stages:
+            parts.append(f"{stage} {icon_map.get(by_stage[rv], '?')}")
+        return " / ".join(parts)
+
+    def _resolve_verdict(self, plan: Plan, results: dict[str, str]) -> ReviewVerdict:
+        """聚合"本轮实际跑过且有产物的水神节点"，取**最坏 level** 的 verdict。
+
+        - 只看 results 有非空产物的水神节点（已实际执行）
+        - 从中取 level 最严重的（redo > revise > pass）
+        - 三阶段 DAG 下任一 review 非 pass 都会让整轮回炉（而不是只看末尾 review）
+        """
+        water_nodes_with_output = [
+            s for s in plan.subtasks
+            if s.assignee == "水神" and results.get(s.id, "").strip()
+        ]
+        if not water_nodes_with_output:
+            if find_last_verdict_producer(plan.subtasks) is None:
+                return ReviewVerdict(
+                    level=LEVEL_PASS, summary="(无水神评审节点，默认通过)",
+                )
             return ReviewVerdict(
                 level=LEVEL_PASS,
                 summary="(水神节点无产物，跳过评审视为通过)",
             )
-        return parse_verdict(raw)
+
+        # 三阶段聚合：任一 review 非 pass → 整轮非 pass；取最坏 level 的 verdict 返回。
+        # 没有这个聚合会导致 review_spec redo 但 review_code pass 时错判"整轮 pass"。
+        # （MVP 代价：当前 asmoday 仍会跑完所有节点再汇总；阶段门控留 Phase 2。）
+        _LEVEL_RANK = {"pass": 0, "revise": 1, "redo": 2}
+        parsed_list = [parse_verdict(results[s.id]) for s in water_nodes_with_output]
+        worst = max(parsed_list, key=lambda v: _LEVEL_RANK.get(v.level, 0))
+        return worst
 
     async def _annotate_verdict_on_subtasks(
         self, plan: Plan, verdict: ReviewVerdict,
@@ -470,6 +650,18 @@ class ShadesPipeline:
                     parts.append(r)
 
         body = "\n\n---\n\n".join(parts).strip()
+
+        # 终端产物太单薄（LLM 可能把"归档/整理/入库"当终点，真答案在上游）→ 拼全节点
+        _ADMIN_HINTS = ("已整理", "已归档", "存入知识库", "整理完毕", "归档完成", "已入库")
+        looks_admin = any(h in body for h in _ADMIN_HINTS)
+        if len(body) < 200 or looks_admin:
+            all_parts: list[str] = []
+            for s in plan.subtasks:
+                r = results.get(s.id, "")
+                if r and r not in all_parts:
+                    all_parts.append(f"【{s.assignee}】\n{r}")
+            if all_parts:
+                body = "\n\n---\n\n".join(all_parts).strip()
 
         if round_cap_hit and verdict is not None:
             body += (
