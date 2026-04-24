@@ -1,0 +1,450 @@
+"""岩神 · 理财（红利股追踪）面板
+
+3 个 tab:
+- 推荐选股: watchlist JOIN 最新 snapshot
+- 评分排行: 最新 snapshot top 100
+- 变化事件: 近 30 天 changes 时间轴
+
+单股详情 modal: Chart.js 画 90 天评分折线 + 维度卡片 + 原始指标。
+顶部: 统计卡片 + 触发扫描按钮组。
+"""
+
+from paimon.channels.webui.theme import (
+    THEME_COLORS, BASE_CSS, NAVIGATION_CSS, NAV_LINKS_CSS, navigation_html,
+)
+
+
+WEALTH_CSS = """
+    body { min-height: 100vh; }
+    .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .page-header h1 { font-size: 24px; color: var(--text-primary); font-weight: 600; }
+    .page-header .sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    .actions-bar { display: flex; gap: 8px; align-items: center; }
+    .btn-scan {
+        padding: 8px 14px; background: var(--paimon-panel-light); color: var(--text-secondary);
+        border: 1px solid var(--paimon-border); border-radius: 6px; cursor: pointer; font-size: 13px;
+    }
+    .btn-scan:hover { border-color: var(--gold-dark); color: var(--gold); }
+    .btn-scan.primary {
+        background: linear-gradient(135deg, var(--gold), var(--gold-light));
+        color: #000; border: none; font-weight: 600;
+    }
+    .btn-scan:disabled { opacity: .4; cursor: not-allowed; }
+
+    .stats-row { display: flex; gap: 16px; margin-bottom: 24px; }
+    .stat-card {
+        flex: 1; background: var(--paimon-panel); border: 1px solid var(--paimon-border);
+        border-radius: 10px; padding: 20px; text-align: center;
+    }
+    .stat-num { font-size: 26px; font-weight: 700; color: var(--gold); }
+    .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--paimon-border); }
+    .tab-btn {
+        padding: 10px 20px; background: transparent; border: none; color: var(--text-muted);
+        cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent;
+    }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .stock-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .stock-table th, .stock-table td {
+        padding: 10px 12px; border-bottom: 1px solid var(--paimon-border); text-align: left;
+    }
+    .stock-table th {
+        color: var(--gold); font-weight: 600; font-size: 12px; background: var(--paimon-panel);
+        position: sticky; top: 0; z-index: 1;
+    }
+    .stock-table tbody tr { cursor: pointer; transition: background .1s; }
+    .stock-table tbody tr:hover td { background: var(--paimon-panel); }
+    .stock-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .stock-table td.code { color: var(--text-muted); font-family: monospace; font-size: 12px; }
+    .stock-table .score-high { color: var(--status-success); font-weight: 600; }
+    .stock-table .score-mid { color: var(--gold); }
+    .stock-table .score-low { color: var(--text-muted); }
+    .advice { font-size: 12px; color: var(--text-secondary); }
+
+    /* 变化事件时间轴 */
+    .change-list { display: flex; flex-direction: column; gap: 10px; }
+    .change-item {
+        background: var(--paimon-panel); border-left: 4px solid var(--paimon-border);
+        border-radius: 6px; padding: 10px 16px; font-size: 13px;
+    }
+    .change-item.entered { border-left-color: var(--status-success); }
+    .change-item.exited { border-left-color: var(--status-error); }
+    .change-item.score-up { border-left-color: var(--star); }
+    .change-item.score-down { border-left-color: var(--status-warning); }
+    .change-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Modal */
+    .modal-backdrop {
+        position: fixed; top:0; left:0; width:100%; height:100%;
+        background: rgba(0,0,0,0.6); z-index: 100; display: none;
+        align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
+        border-radius: 12px; max-width: 880px; width: 100%; max-height: 90vh;
+        overflow-y: auto; padding: 24px;
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
+    .modal-title { font-size: 20px; font-weight: 600; color: var(--text-primary); }
+    .modal-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .btn-close {
+        background: transparent; border: none; color: var(--text-muted);
+        font-size: 24px; cursor: pointer; padding: 0 8px;
+    }
+    .btn-close:hover { color: var(--text-primary); }
+
+    .chart-wrap { margin-bottom: 20px; }
+    .chart-wrap canvas { max-height: 260px; }
+    .fallback-chart {
+        background: var(--paimon-bg); padding: 12px; border-radius: 6px;
+        font-size: 12px; color: var(--text-muted); font-family: monospace;
+    }
+
+    .dim-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+    .dim-card {
+        background: var(--paimon-bg); padding: 10px 12px; border-radius: 6px;
+    }
+    .dim-label { font-size: 11px; color: var(--text-muted); }
+    .dim-value { font-size: 18px; font-weight: 600; color: var(--gold-light); }
+
+    .raw-table { width: 100%; font-size: 13px; }
+    .raw-table td { padding: 4px 8px; }
+    .raw-table td:first-child { color: var(--text-muted); width: 40%; }
+
+    .reasons-box {
+        margin-top: 16px; padding: 12px; background: var(--paimon-bg); border-radius: 6px;
+        font-size: 12px; line-height: 1.6; color: var(--text-secondary); white-space: pre-wrap;
+    }
+    .advice-box {
+        margin-top: 10px; padding: 8px 12px; background: rgba(212,175,55,.08);
+        border: 1px solid var(--gold-dark); border-radius: 6px;
+        font-size: 13px; color: var(--gold-light);
+    }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 14px; }
+    .loading { display: inline-block; padding: 2px 10px; color: var(--text-muted); font-size: 12px; }
+"""
+
+
+WEALTH_BODY = """
+    <div class="container">
+        <div class="page-header">
+            <div>
+                <h1>岩神 · 理财</h1>
+                <div class="sub">A 股红利股追踪（评分 + 行业均衡 + 变化检测）</div>
+            </div>
+            <div class="actions-bar">
+                <button class="btn-scan" id="btnRescore" onclick="triggerScan('rescore')">重评分</button>
+                <button class="btn-scan" id="btnDaily" onclick="triggerScan('daily')">日更</button>
+                <button class="btn-scan primary" id="btnFull" onclick="triggerScan('full')">全扫描</button>
+                <button class="btn-scan" onclick="refreshAll()">刷新</button>
+            </div>
+        </div>
+
+        <div class="stats-row">
+            <div class="stat-card"><div class="stat-num" id="statWatchlist">-</div><div class="stat-label">推荐股池</div></div>
+            <div class="stat-card"><div class="stat-num" id="statLatest">-</div><div class="stat-label">最新扫描</div></div>
+            <div class="stat-card"><div class="stat-num" id="statChanges">-</div><div class="stat-label">近 7 天变化</div></div>
+            <div class="stat-card"><div class="stat-num" id="statCronStatus">-</div><div class="stat-label">定时任务</div></div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('recommended',this)">推荐选股</button>
+            <button class="tab-btn" onclick="switchTab('ranking',this)">评分排行</button>
+            <button class="tab-btn" onclick="switchTab('changes',this)">变化事件</button>
+        </div>
+
+        <div id="recommended" class="tab-panel active">
+            <div id="recEl"><div class="empty-state">加载中...</div></div>
+        </div>
+        <div id="ranking" class="tab-panel">
+            <div id="rankEl"><div class="empty-state">加载中...</div></div>
+        </div>
+        <div id="changes" class="tab-panel">
+            <div id="chgEl"><div class="empty-state">加载中...</div></div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="modal" onclick="if(event.target.id==='modal')closeModal()">
+        <div class="modal">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" id="modalTitle">-</div>
+                    <div class="modal-sub" id="modalSub">-</div>
+                </div>
+                <button class="btn-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="histChart"></canvas>
+                <div class="fallback-chart" id="fallbackChart" style="display:none"></div>
+            </div>
+            <div class="dim-grid" id="dimGrid"></div>
+            <table class="raw-table" id="rawTable"></table>
+            <div class="advice-box" id="adviceBox"></div>
+            <div class="reasons-box" id="reasonsBox"></div>
+        </div>
+    </div>
+"""
+
+
+WEALTH_SCRIPT = """
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+    (function(){
+        function esc(s){return s===null||s===undefined?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+        function scoreCls(s){
+            if(s>=75)return 'score-high';
+            if(s>=60)return 'score-mid';
+            return 'score-low';
+        }
+        function fmt(n, d){ if(n===null||n===undefined)return '-'; return Number(n).toFixed(d||2); }
+        function fmtCap(v){ return v>0?(v/1e8).toFixed(0)+'亿':'-'; }
+
+        window.switchTab=function(key,btn){
+            document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+            document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+            document.getElementById(key).classList.add('active');
+            btn.classList.add('active');
+        };
+
+        window.refreshAll=function(){
+            loadStats(); loadRecommended(); loadRanking(); loadChanges();
+        };
+
+        async function loadStats(){
+            try{
+                var r=await fetch('/api/wealth/stats'); var d=await r.json();
+                document.getElementById('statWatchlist').textContent=d.watchlist_count||0;
+                document.getElementById('statLatest').textContent=d.latest_scan_date||'-';
+                document.getElementById('statChanges').textContent=d.changes_7d||0;
+                document.getElementById('statCronStatus').textContent=d.cron_enabled?'已启用':'未启用';
+            }catch(e){}
+        }
+
+        function renderRow(r){
+            var dy=(r.dividend_yield||0)*100;
+            return '<tr onclick="openStock(\\''+esc(r.stock_code)+'\\',\\''+esc(r.stock_name)+'\\')">'
+                + '<td class="code">'+esc(r.stock_code)+'</td>'
+                + '<td>'+esc(r.stock_name)+'</td>'
+                + '<td>'+esc(r.industry)+'</td>'
+                + '<td class="num '+scoreCls(r.total_score)+'">'+fmt(r.total_score,1)+'</td>'
+                + '<td class="num">'+fmt(dy,2)+'%</td>'
+                + '<td class="num">'+fmt(r.pe,1)+'</td>'
+                + '<td class="num">'+fmt(r.pb,2)+'</td>'
+                + '<td class="num">'+fmtCap(r.market_cap)+'</td>'
+                + '<td class="advice">'+esc(r.advice||'')+'</td>'
+                + '</tr>';
+        }
+
+        function renderTable(rows){
+            if(!rows||!rows.length){ return '<div class="empty-state">暂无数据</div>'; }
+            return '<div style="overflow-x:auto"><table class="stock-table"><thead><tr>'
+                + '<th>代码</th><th>股票</th><th>行业</th>'
+                + '<th>评分</th><th>股息率</th><th>PE</th><th>PB</th><th>市值</th>'
+                + '<th>建议</th>'
+                + '</tr></thead><tbody>'
+                + rows.map(renderRow).join('')
+                + '</tbody></table></div>';
+        }
+
+        async function loadRecommended(){
+            var el=document.getElementById('recEl');
+            try{
+                var r=await fetch('/api/wealth/recommended'); var d=await r.json();
+                el.innerHTML=renderTable(d.stocks||[]);
+            }catch(e){ el.innerHTML='<div class="empty-state">加载失败: '+esc(String(e))+'</div>'; }
+        }
+
+        async function loadRanking(){
+            var el=document.getElementById('rankEl');
+            try{
+                var r=await fetch('/api/wealth/ranking?n=100'); var d=await r.json();
+                el.innerHTML=renderTable(d.stocks||[]);
+            }catch(e){ el.innerHTML='<div class="empty-state">加载失败</div>'; }
+        }
+
+        async function loadChanges(){
+            var el=document.getElementById('chgEl');
+            try{
+                var r=await fetch('/api/wealth/changes?days=30'); var d=await r.json();
+                var items=d.changes||[];
+                if(!items.length){ el.innerHTML='<div class="empty-state">近 30 天无变化</div>'; return; }
+                el.innerHTML='<div class="change-list">'
+                    + items.map(function(c){
+                        var cls='change-item';
+                        if(c.event_type==='entered')cls+=' entered';
+                        else if(c.event_type==='exited')cls+=' exited';
+                        else if(c.event_type==='score_change'){
+                            var diff=(c.new_value||0)-(c.old_value||0);
+                            cls += diff>=0 ? ' score-up' : ' score-down';
+                        }
+                        var labelMap={'entered':'新入选','exited':'退出','score_change':'评分变化'};
+                        return '<div class="'+cls+'" onclick="openStock(\\''+esc(c.stock_code)+'\\',\\''+esc(c.stock_name)+'\\')">'
+                            + '<b>'+esc(labelMap[c.event_type]||c.event_type)+'</b>&nbsp;'
+                            + esc(c.stock_name)+' ('+esc(c.stock_code)+')'
+                            + '<div class="change-meta">'+esc(c.event_date)+' · '+esc(c.description||'')+'</div>'
+                            + '</div>';
+                    }).join('')
+                    + '</div>';
+            }catch(e){ el.innerHTML='<div class="empty-state">加载失败</div>'; }
+        }
+
+        var _histChart=null;
+
+        window.openStock=async function(code, name){
+            document.getElementById('modalTitle').textContent=name+' ('+code+')';
+            document.getElementById('modalSub').textContent='加载中...';
+            document.getElementById('modal').classList.add('show');
+            try{
+                var r=await fetch('/api/wealth/stock/'+encodeURIComponent(code)+'?days=90');
+                var d=await r.json();
+                var history=d.history||[];
+                var current=d.current||null;
+
+                if(current){
+                    document.getElementById('modalSub').textContent=
+                        current.industry+' · '+current.scan_date+' · '+fmt(current.total_score,1)+' 分';
+                    // 维度卡片
+                    document.getElementById('dimGrid').innerHTML=[
+                        ['可持续性', current.sustainability_score, 30],
+                        ['财务堡垒', current.fortress_score, 25],
+                        ['估值安全', current.valuation_score, 20],
+                        ['分红记录', current.track_record_score, 18],
+                        ['盈利动能', current.momentum_score, 10],
+                        ['惩罚', current.penalty, ''],
+                    ].map(function(x){
+                        return '<div class="dim-card"><div class="dim-label">'+x[0]+'</div>'
+                            +'<div class="dim-value">'+fmt(x[1],0)+(x[2]?' / '+x[2]:'')+'</div></div>';
+                    }).join('');
+                    // 原始指标
+                    var dy=(current.dividend_yield||0)*100;
+                    document.getElementById('rawTable').innerHTML=[
+                        ['股息率', fmt(dy,2)+'%'],
+                        ['PE', fmt(current.pe,2)],
+                        ['PB', fmt(current.pb,2)],
+                        ['ROE', fmt(current.roe,2)+'%'],
+                        ['市值', fmtCap(current.market_cap)],
+                    ].map(function(x){ return '<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>'; }).join('');
+                    document.getElementById('adviceBox').textContent=current.advice||'';
+                    document.getElementById('reasonsBox').textContent=current.reasons||'';
+                } else {
+                    document.getElementById('modalSub').textContent='暂无快照';
+                    document.getElementById('dimGrid').innerHTML='';
+                    document.getElementById('rawTable').innerHTML='';
+                    document.getElementById('adviceBox').textContent='';
+                    document.getElementById('reasonsBox').textContent='';
+                }
+
+                // Chart.js 折线图
+                var ctx=document.getElementById('histChart').getContext('2d');
+                if(_histChart){ _histChart.destroy(); }
+                if(history.length && typeof Chart !== 'undefined'){
+                    document.getElementById('histChart').style.display='';
+                    document.getElementById('fallbackChart').style.display='none';
+                    _histChart=new Chart(ctx,{
+                        type:'line',
+                        data:{
+                            labels:history.map(function(h){return h.scan_date;}),
+                            datasets:[{
+                                label:'总分',
+                                data:history.map(function(h){return h.total_score;}),
+                                borderColor:'#d4af37', backgroundColor:'rgba(212,175,55,.1)',
+                                tension:.2, fill:true,
+                            }]
+                        },
+                        options:{
+                            responsive:true, maintainAspectRatio:false,
+                            plugins:{legend:{labels:{color:'#d1d5db'}}},
+                            scales:{
+                                y:{beginAtZero:false, ticks:{color:'#9ca3af'}, grid:{color:'#3d3450'}},
+                                x:{ticks:{color:'#9ca3af'}, grid:{color:'#3d3450'}},
+                            },
+                        },
+                    });
+                } else if(history.length){
+                    // Chart.js 没加载到：降级文本
+                    document.getElementById('histChart').style.display='none';
+                    var fc=document.getElementById('fallbackChart');
+                    fc.style.display='';
+                    fc.textContent=history.map(function(h){return h.scan_date+' — '+fmt(h.total_score,1);}).join('\\n');
+                } else {
+                    document.getElementById('histChart').style.display='none';
+                    document.getElementById('fallbackChart').style.display='';
+                    document.getElementById('fallbackChart').textContent='无历史数据';
+                }
+            }catch(e){ document.getElementById('modalSub').textContent='加载失败: '+e; }
+        };
+
+        window.closeModal=function(){
+            document.getElementById('modal').classList.remove('show');
+            if(_histChart){ _histChart.destroy(); _histChart=null; }
+        };
+
+        window.triggerScan=async function(mode){
+            var btnMap={rescore:'btnRescore', daily:'btnDaily', full:'btnFull'};
+            var btn=document.getElementById(btnMap[mode]);
+            if(!btn)return;
+            if(mode==='full' && !confirm('全市场扫描耗时 15-20 分钟，确认启动？'))return;
+            btn.disabled=true;
+            var oldText=btn.textContent;
+            btn.textContent='已触发...';
+            try{
+                var r=await fetch('/api/wealth/trigger', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({mode: mode}),
+                });
+                var d=await r.json();
+                if(d.ok){
+                    btn.textContent='运行中';
+                    // 10 秒后刷新数据（rescore 足够完成；daily/full 要更久）
+                    setTimeout(function(){
+                        btn.disabled=false; btn.textContent=oldText;
+                        refreshAll();
+                    }, mode==='rescore'?8000:30000);
+                } else {
+                    alert('触发失败: '+(d.error||'unknown'));
+                    btn.disabled=false; btn.textContent=oldText;
+                }
+            }catch(e){
+                alert('触发失败: '+e);
+                btn.disabled=false; btn.textContent=oldText;
+            }
+        };
+
+        window.onload=function(){ refreshAll(); };
+    })();
+    </script>
+"""
+
+
+def build_wealth_html() -> str:
+    return (
+        """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paimon - 理财</title>
+    <style>"""
+        + THEME_COLORS
+        + BASE_CSS
+        + NAVIGATION_CSS
+        + NAV_LINKS_CSS
+        + WEALTH_CSS
+        + """</style>
+</head>
+<body>"""
+        + navigation_html("wealth")
+        + WEALTH_BODY
+        + WEALTH_SCRIPT
+        + """</body>
+</html>"""
+    )

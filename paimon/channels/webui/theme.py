@@ -98,6 +98,7 @@ def navigation_html(active: str = "chat") -> str:
         ("dashboard", "/dashboard", "仪表盘"),
         ("tasks", "/tasks", "任务"),
         ("feed", "/feed", "信息流"),
+        ("wealth", "/wealth", "理财"),
         ("preferences", "/preferences", "偏好"),
         ("plugins", "/plugins", "插件"),
     ]

@@ -103,6 +103,10 @@ async def create_app(cfg: Config) -> list[Channel]:
     from paimon.archons.venti import VentiArchon
     state.venti = VentiArchon()
 
+    # 岩神单例（红利股追踪 cron 触发；同上）
+    from paimon.archons.zhongli import ZhongliArchon
+    state.zhongli = ZhongliArchon()
+
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision
     state.authz_cache = AuthzCache()
@@ -148,6 +152,26 @@ async def create_app(cfg: Config) -> list[Channel]:
         channel_name = payload.get("channel_name", "")
         chat_id = payload.get("chat_id", "")
         prompt = payload.get("prompt", "")
+
+        # ---- 岩神红利股采集（前缀分派，不走频道投递）----
+        # scheduled_tasks.task_prompt 形如 "[DIVIDEND_SCAN] full|daily|rescore"
+        # 由 /dividend on 创建两个 cron（daily + full）；rescore 为手动触发。
+        if prompt.startswith("[DIVIDEND_SCAN] "):
+            mode = prompt.split(" ", 1)[1].strip()
+            if not state.zhongli:
+                logger.error("[岩神·采集] 岩神未就绪，跳过 mode={}", mode)
+                return
+            try:
+                await state.zhongli.collect_dividend(
+                    mode=mode,
+                    irminsul=state.irminsul,
+                    march=state.march,
+                    chat_id=chat_id,
+                    channel_name=channel_name,
+                )
+            except Exception as e:
+                logger.exception("[岩神·采集] 异常 mode={}: {}", mode, e)
+            return
 
         # ---- 风神订阅采集（前缀分派，不走频道投递）----
         # scheduled_tasks.task_prompt 形如 "[FEED_COLLECT] <sub_id>"

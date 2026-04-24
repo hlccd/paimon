@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from paimon.angels.registry import SkillRegistry
     from paimon.angels.watcher import SkillHotLoader
     from paimon.archons.venti import VentiArchon
+    from paimon.archons.zhongli import ZhongliArchon
     from paimon.channels.base import Channel
     from paimon.channels.webui.push_hub import PushHub
     from paimon.config import Config
@@ -47,6 +48,8 @@ class RuntimeState:
     push_hub: PushHub | None = None
     # 风神单例（订阅采集入口；bootstrap 初始化）
     venti: "VentiArchon | None" = None
+    # 岩神单例（红利股采集入口；bootstrap 初始化）
+    zhongli: "ZhongliArchon | None" = None
 
 
 state = RuntimeState()

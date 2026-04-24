@@ -1,0 +1,45 @@
+# Python 编译文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 缓存数据（本地和用户目录）
+cache/
+data/cache/
+*.cache
+
+# 临时数据文件
+*.csv
+*.json
+!data/config.json
+
+# 日志文件
+*.log
+logs/
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 测试临时文件
+test_*.py
+quick_test.py
+tmp/
+temp/
+
+# 覆盖率报告
+.coverage
+htmlcov/
+
+# 虚拟环境（如果在技能目录创建）
+venv/
+env/
+.env

@@ -7,7 +7,7 @@
 """
 from .audit import AuditEntry
 from .authz import Authz
-from .dividend import DividendRecord
+from .dividend import ChangeEvent, ScoreSnapshot, WatchlistEntry
 from .irminsul import Irminsul
 from .memory import Memory, MemoryMeta
 from .schedule import ScheduledTask
@@ -24,7 +24,7 @@ __all__ = [
     "TaskEdict", "Subtask", "FlowEntry", "ProgressEntry",
     "TokenRow",
     "AuditEntry",
-    "DividendRecord",
+    "WatchlistEntry", "ScoreSnapshot", "ChangeEvent",
     "SessionRecord", "SessionMeta",
     "ScheduledTask",
 ]

@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 对照 docs/ 架构设计文档，梳理当前代码实现状态。
-> 更新时间：2026-04-24（第三轮：风神话题订阅 + 信息流面板）
+> 更新时间：2026-04-24（第四轮：岩神红利股追踪三层重构 + 理财面板）
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 30 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板（自然语言触发 + cron 采集 + LLM 日报 + 去重推送）** |
+| 已实现 | 31 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板**、**岩神红利股追踪三层重构+理财面板（skill 纯 I/O / 岩神管业务 / 世界树管存储；含 Chart.js 折线图）** |
 | 部分实现 | 0 | — |
 | 未开始 | 1 | 自进化 |
 
@@ -110,7 +110,7 @@
 | 水神 · Furina | 评审、游戏信息 | **已实现** (MVP) | `paimon/archons/furina.py` |
 | 火神 · Mavuika | Shell/代码执行、部署 | **已实现** (MVP) | `paimon/archons/mavuika.py` |
 | 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP + 话题订阅闭环) | `paimon/archons/venti.py` `collect_subscription` + `paimon/tools/builtin/subscribe.py` |
-| 岩神 · Zhongli | 理财、红利股 | **已实现** (MVP) | `paimon/archons/zhongli.py` |
+| 岩神 · Zhongli | 理财、红利股 | **已实现** (含红利股追踪闭环) | `paimon/archons/zhongli/` (scorer 纯函数 + zhongli.py 业务编排) + `paimon/tools/builtin/dividend.py` |
 | 冰神 · Tsaritsa | Skill 生态管理 | **已实现** (MVP) | `paimon/archons/tsaritsa.py` |
 
 ---
@@ -156,7 +156,7 @@
 | 活跃任务记录 | **已实现** | 四影管线 |
 | Token 记录 | **已实现** | 原石 |
 | 审计 / 归档 | **已实现** | 时执 |
-| 理财数据 | **API 就绪** | 岩神 (待接入) |
+| 理财数据（watchlist/snapshot/changes 三表）| **已接入** | 岩神写 + WebUI `/wealth` 读；旧 dividend_stocks 表已删 |
 | 聊天会话 | **已实现** | 派蒙 |
 | 定时任务 | **已实现** | 三月 |
 | 订阅（subscriptions + feed_items）| **已实现** | 风神写采集条目 / 派蒙写订阅声明 / WebUI 面板读写；UNIQUE(sub_id,url) 原生去重 |
@@ -172,6 +172,8 @@
 | 任务观测面板 | **已实现** | `paimon/channels/webui/tasks_html.py`（过滤订阅 `[FEED_COLLECT]` 任务归信息流面板）|
 | 订阅触发分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[FEED_COLLECT] <sub_id>` 前缀 → 直接调风神 `collect_subscription`，不走 LLM |
 | 信息流面板 | **已实现** | `paimon/channels/webui/feed_html.py`（订阅增删改 + feed_items 列表 + 按订阅/时间筛选 + 手动 run） |
+| 红利股采集分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[DIVIDEND_SCAN] <mode>` 前缀 → 岩神 `collect_dividend(mode)` |
+| 理财面板 | **已实现** | `paimon/channels/webui/wealth_html.py`（推荐/排行/变化 3 tab + Chart.js 折线 + 触发扫描按钮） |
 | WebUI 推送通知 | **已实现** | `send_text` / `send_file` 落推送会话 + PushHub 扇出 SSE；QQ 因 API 限制关闭 |
 | 自检系统 | **未开始** | — |
 
@@ -227,6 +229,9 @@ paimon/
     base.py                          Archon 基类
     nahida.py                        草神：推理 + 知识
     venti.py                         风神：通用采集（execute）+ 话题订阅（collect_subscription）
+    zhongli/                         岩神·目录化：scorer + 业务编排
+      scorer.py                      评分规则（纯函数；从 skill 搬家）
+      zhongli.py                     ZhongliArchon：collect_dividend/rescore/查询 API
   tools/
     base.py                          BaseTool + ToolContext
     registry.py                      工具注册表
@@ -234,25 +239,28 @@ paimon/
       exec.py                        Shell 执行
       skill.py                       use_skill
       schedule.py                    定时任务管理
-      subscribe.py                   话题订阅管理（派蒙闲聊可调，create/list/delete/run/pause/resume）
+      subscribe.py                   话题订阅管理（派蒙闲聊可调）
+      dividend.py                    红利股管理（top/changes/history/trigger_*）
   foundation/
     gnosis.py                        神之心 (LLM 资源池)
     leyline.py                       地脉 (事件总线)
     march.py                         三月 (定时调度)
     primogem.py                      原石 (Token 服务层)
     irminsul/                        世界树 (11 域存储层)
-      irminsul.py                    门面 (~60 个 API)
-      _db.py                         Schema + 迁移
+      irminsul.py                    门面 (~70 个 API)
+      _db.py                         Schema + 迁移（含旧 dividend_stocks 表 drop 清理）
       _paths.py                      路径安全
       authz.py / skills.py / knowledge.py / memory.py
-      task.py / token.py / audit.py / dividend.py
+      task.py / token.py / audit.py
+      dividend.py                    理财域（WatchlistRepo + ScoreSnapshotRepo + ChangeEventRepo）
       session.py / schedule.py / subscription.py
   channels/
     base.py                          Channel ABC（含 supports_push 能力声明 + ask_user 交互式询问）
-    webui/                           WebUI (aiohttp + SSE + 仪表盘 + 任务面板 + 插件面板 + 信息流面板)
+    webui/                           WebUI (aiohttp + SSE + 仪表盘 + 任务 + 插件 + 信息流 + 理财面板)
       push_hub.py                    推送扇出器（支持多标签 fan-out）
       plugins_html.py                冰神·插件面板（skill 生态 + 永久授权 tab）
       feed_html.py                   风神·信息流面板（订阅管理 + 采集条目列表 + 统计）
+      wealth_html.py                 岩神·理财面板（红利股推荐/排行/变化 + Chart.js 历史评分）
     telegram/                        Telegram (aiogram)
     qq/                              QQ (qq-botpy, supports_push=False)
 tools/
@@ -263,6 +271,9 @@ skills/
   xhs/SKILL.md                      小红书内容分析
   check/SKILL.md                     多轮迭代审查
   web-search/SKILL.md                Bing+百度双引擎全网搜索（风神订阅采集的底座）
+  dividend-tracker/                  BaoStock 数据抓取 CLI（岩神红利股追踪的数据底座）
+    main.py                          纯 I/O CLI（fetch-board/fetch-dividend/fetch-financial/cleanup-cache）
+    tracker/provider_baostock.py     BaoStock 登录 + 抓取
 templates/
   paimon.t                           派蒙人格 prompt
 ```

@@ -161,7 +161,7 @@ paimon/foundation/irminsul/
 ├── task.py              # TaskRepo + TaskEdict/Subtask/FlowEntry/ProgressEntry
 ├── token.py             # TokenRepo + TokenRow
 ├── audit.py             # AuditRepo + AuditEntry
-├── dividend.py          # DividendRepo + DividendRecord（岩神域占位）
+├── dividend.py          # DividendRepo（聚合 WatchlistRepo + ScoreSnapshotRepo + ChangeEventRepo）+ WatchlistEntry / ScoreSnapshot / ChangeEvent dataclass
 └── session.py           # SessionRepo + SessionRecord/SessionMeta（含 JSON 迁移脚本）
 ```
 
@@ -368,7 +368,7 @@ CREATE INDEX IF NOT EXISTS idx_session_updated ON session_records(updated_at);
 | task | `task_create` / `task_get` / `task_update_status` / `task_update_lifecycle` / `task_list` / `subtask_*` / `flow_*` / `progress_*`（共 10 个） |
 | token | `token_write` / `token_rows` / `token_aggregate` |
 | audit | `audit_append` / `audit_list` |
-| dividend | `dividend_write` / `dividend_list` |
+| dividend | `watchlist_save` / `watchlist_get` / `watchlist_last_refresh` / `snapshot_upsert` / `snapshot_clear_date` / `snapshot_latest_date` / `snapshot_latest_top` / `snapshot_latest_for_watchlist` / `snapshot_history` / `snapshot_get` / `change_save` / `change_recent` / `dividend_cleanup` |
 | session | `session_create` / `session_save` / `session_load` / `session_list` / `session_delete` / `session_archive` |
 
 **所有写 / 删方法必传 `actor: str` 参数**（服务方中文名），世界树统一按 §日志约定 打 INFO 日志。

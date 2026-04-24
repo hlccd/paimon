@@ -145,20 +145,58 @@ CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_revisions(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_revisions(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_task ON audit_revisions(task_id);
 
--- ============ 域 8: 理财数据（岩神占位）============
-CREATE TABLE IF NOT EXISTS dividend_stocks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL,
-    exchange TEXT NOT NULL DEFAULT '',
-    name TEXT NOT NULL DEFAULT '',
-    record_date TEXT NOT NULL,
-    amount REAL NOT NULL,
-    yield_pct REAL NOT NULL DEFAULT 0,
-    payload TEXT NOT NULL DEFAULT '{}',
-    created_at REAL NOT NULL
+-- ============ 域 8: 理财数据（岩神·红利股追踪）============
+-- 三张表：watchlist（推荐股池）+ snapshot（每日评分）+ changes（变化事件）
+-- 唯一写入者：岩神
+CREATE TABLE IF NOT EXISTS dividend_watchlist (
+    stock_code   TEXT PRIMARY KEY,
+    stock_name   TEXT NOT NULL DEFAULT '',
+    industry     TEXT NOT NULL DEFAULT '',
+    added_date   TEXT NOT NULL,
+    last_refresh TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_dividend_symbol ON dividend_stocks(symbol);
-CREATE INDEX IF NOT EXISTS idx_dividend_date ON dividend_stocks(record_date);
+CREATE INDEX IF NOT EXISTS idx_watchlist_industry ON dividend_watchlist(industry);
+
+CREATE TABLE IF NOT EXISTS dividend_snapshot (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_date             TEXT NOT NULL,
+    stock_code            TEXT NOT NULL,
+    stock_name            TEXT NOT NULL DEFAULT '',
+    industry              TEXT NOT NULL DEFAULT '',
+    total_score           REAL NOT NULL DEFAULT 0,
+    sustainability_score  REAL NOT NULL DEFAULT 0,
+    fortress_score        REAL NOT NULL DEFAULT 0,
+    valuation_score       REAL NOT NULL DEFAULT 0,
+    track_record_score    REAL NOT NULL DEFAULT 0,
+    momentum_score        REAL NOT NULL DEFAULT 0,
+    penalty               REAL NOT NULL DEFAULT 0,
+    dividend_yield        REAL NOT NULL DEFAULT 0,
+    pe                    REAL NOT NULL DEFAULT 0,
+    pb                    REAL NOT NULL DEFAULT 0,
+    roe                   REAL NOT NULL DEFAULT 0,
+    market_cap            REAL NOT NULL DEFAULT 0,
+    reasons               TEXT NOT NULL DEFAULT '',
+    advice                TEXT NOT NULL DEFAULT '',
+    detail_json           TEXT NOT NULL DEFAULT '{}',
+    created_at            REAL NOT NULL,
+    UNIQUE(scan_date, stock_code)
+);
+CREATE INDEX IF NOT EXISTS idx_snapshot_code_date ON dividend_snapshot(stock_code, scan_date DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshot_date_score ON dividend_snapshot(scan_date, total_score DESC);
+
+CREATE TABLE IF NOT EXISTS dividend_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_date  TEXT NOT NULL,
+    stock_code  TEXT NOT NULL,
+    stock_name  TEXT NOT NULL DEFAULT '',
+    event_type  TEXT NOT NULL,   -- 'entered' | 'exited' | 'score_change'
+    old_value   REAL,
+    new_value   REAL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_changes_date ON dividend_changes(event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_changes_code ON dividend_changes(stock_code, event_date DESC);
 
 -- ============ 域 10: 定时任务（三月）============
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -263,8 +301,22 @@ async def init_db(db_path) -> aiosqlite.Connection:
     await db.execute("PRAGMA journal_mode = WAL")  # 单用户仍有好处：读不阻塞写
     await db.executescript(SCHEMA_DDL)
     await _run_migrations(db)
+    await _drop_legacy_tables(db)
     await db.commit()
     return db
+
+
+async def _drop_legacy_tables(db: aiosqlite.Connection) -> None:
+    """清理历史版本遗留的表名（幂等；首次启动或新 DB 上无副作用）。"""
+    # 2026-04-24: 岩神·红利股追踪重构——旧 dividend_stocks 单表被 dividend_watchlist/
+    # dividend_snapshot/dividend_changes 取代；旧表从未被业务方写入。
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='dividend_stocks'",
+    ) as cur:
+        row = await cur.fetchone()
+    if row:
+        await db.execute("DROP TABLE dividend_stocks")
+        logger.info("[世界树] schema 迁移  DROP 旧表 dividend_stocks")
 
 
 async def _run_migrations(db: aiosqlite.Connection) -> None:

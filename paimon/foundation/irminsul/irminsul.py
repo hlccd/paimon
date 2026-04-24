@@ -12,7 +12,7 @@ from loguru import logger
 from ._db import init_db
 from .audit import AuditEntry, AuditRepo
 from .authz import Authz, AuthzRepo
-from .dividend import DividendRecord, DividendRepo
+from .dividend import ChangeEvent, DividendRepo, ScoreSnapshot, WatchlistEntry
 from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
@@ -305,22 +305,60 @@ class Irminsul:
             event_type=event_type, task_id=task_id, since=since, limit=limit,
         )
 
-    # ============ 域 8: 理财 ============
-    async def dividend_write(
-        self, symbol: str, record_date: str, amount: float, *,
-        exchange: str = "", name: str = "", yield_pct: float = 0.0,
-        payload: dict | None = None, actor: str,
-    ) -> None:
-        await self._dividend.write(
-            symbol, record_date, amount,
-            exchange=exchange, name=name, yield_pct=yield_pct,
-            payload=payload, actor=actor,
-        )
+    # ============ 域 8: 理财（岩神 · 红利股追踪）============
 
-    async def dividend_list(
-        self, *, symbol: str | None = None, since: str | None = None, limit: int = 100,
-    ) -> list[DividendRecord]:
-        return await self._dividend.list(symbol=symbol, since=since, limit=limit)
+    # -- watchlist --
+    async def watchlist_save(
+        self, entries: list[WatchlistEntry], refresh_date: str, *, actor: str,
+    ) -> int:
+        return await self._dividend.watchlist.save(entries, refresh_date, actor=actor)
+
+    async def watchlist_get(self) -> list[WatchlistEntry]:
+        return await self._dividend.watchlist.list()
+
+    async def watchlist_last_refresh(self) -> str | None:
+        return await self._dividend.watchlist.last_refresh()
+
+    # -- snapshot --
+    async def snapshot_upsert(
+        self, scan_date: str, snap: ScoreSnapshot, *, actor: str,
+    ) -> None:
+        await self._dividend.snapshot.upsert(scan_date, snap, actor=actor)
+
+    async def snapshot_clear_date(self, scan_date: str, *, actor: str) -> int:
+        return await self._dividend.snapshot.clear_date(scan_date, actor=actor)
+
+    async def snapshot_latest_date(self) -> str | None:
+        return await self._dividend.snapshot.latest_date()
+
+    async def snapshot_latest_top(self, n: int = 100) -> list[ScoreSnapshot]:
+        return await self._dividend.snapshot.latest_top(n)
+
+    async def snapshot_latest_for_watchlist(self) -> list[ScoreSnapshot]:
+        return await self._dividend.snapshot.latest_for_watchlist()
+
+    async def snapshot_history(
+        self, stock_code: str, days: int = 90,
+    ) -> list[ScoreSnapshot]:
+        return await self._dividend.snapshot.history(stock_code, days)
+
+    async def snapshot_get(
+        self, scan_date: str, stock_code: str,
+    ) -> ScoreSnapshot | None:
+        return await self._dividend.snapshot.get_one(scan_date, stock_code)
+
+    # -- changes --
+    async def change_save(
+        self, events: list[ChangeEvent], *, actor: str,
+    ) -> int:
+        return await self._dividend.changes.save(events, actor=actor)
+
+    async def change_recent(self, days: int = 7) -> list[ChangeEvent]:
+        return await self._dividend.changes.recent(days)
+
+    # -- 生命周期 --
+    async def dividend_cleanup(self, keep_days: int = 180, *, actor: str) -> dict:
+        return await self._dividend.cleanup(keep_days, actor=actor)
 
     # ============ 域 9: 会话 ============
     async def session_upsert(self, rec: SessionRecord, *, actor: str) -> None:

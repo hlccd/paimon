@@ -91,6 +91,14 @@ class WebUIChannel(Channel):
         self.app.router.add_delete("/api/feed/subs/{sub_id}", self.feed_subs_delete_api)
         self.app.router.add_post("/api/feed/subs/{sub_id}/run", self.feed_subs_run_api)
         self.app.router.add_get("/api/feed/items", self.feed_items_api)
+        # 岩神·理财面板
+        self.app.router.add_get("/wealth", self.wealth_page)
+        self.app.router.add_get("/api/wealth/stats", self.wealth_stats_api)
+        self.app.router.add_get("/api/wealth/recommended", self.wealth_recommended_api)
+        self.app.router.add_get("/api/wealth/ranking", self.wealth_ranking_api)
+        self.app.router.add_get("/api/wealth/changes", self.wealth_changes_api)
+        self.app.router.add_get("/api/wealth/stock/{code}", self.wealth_stock_api)
+        self.app.router.add_post("/api/wealth/trigger", self.wealth_trigger_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 推送长连接
         self.app.router.add_get("/api/push", self.push_stream)
@@ -401,6 +409,168 @@ class WebUIChannel(Channel):
             ]
         })
 
+    # ---------- 岩神 · 理财面板 ----------
+
+    def _snap_to_dict(self, s) -> dict:
+        """ScoreSnapshot → JSON 可序列化 dict。"""
+        return {
+            "id": s.id,
+            "scan_date": s.scan_date,
+            "stock_code": s.stock_code,
+            "stock_name": s.stock_name,
+            "industry": s.industry,
+            "total_score": s.total_score,
+            "sustainability_score": s.sustainability_score,
+            "fortress_score": s.fortress_score,
+            "valuation_score": s.valuation_score,
+            "track_record_score": s.track_record_score,
+            "momentum_score": s.momentum_score,
+            "penalty": s.penalty,
+            "dividend_yield": s.dividend_yield,
+            "pe": s.pe,
+            "pb": s.pb,
+            "roe": s.roe,
+            "market_cap": s.market_cap,
+            "reasons": s.reasons,
+            "advice": s.advice,
+        }
+
+    async def wealth_page(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.Response(text=self._get_login_html(), content_type="text/html")
+        from paimon.channels.webui.wealth_html import build_wealth_html
+        return web.Response(
+            text=build_wealth_html(),
+            content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    async def wealth_stats_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        march = self.state.march
+        if not irminsul:
+            return web.json_response({
+                "watchlist_count": 0, "latest_scan_date": None,
+                "changes_7d": 0, "cron_enabled": False,
+            })
+        wl = await irminsul.watchlist_get()
+        latest = await irminsul.snapshot_latest_date()
+        changes = await irminsul.change_recent(7)
+        cron_on = False
+        if march:
+            tasks = await march.list_tasks()
+            cron_on = any(
+                t.task_prompt.startswith("[DIVIDEND_SCAN] ") and t.enabled
+                for t in tasks
+            )
+        return web.json_response({
+            "watchlist_count": len(wl),
+            "latest_scan_date": latest,
+            "changes_7d": len(changes),
+            "cron_enabled": cron_on,
+        })
+
+    async def wealth_recommended_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"stocks": []})
+        rows = await irminsul.snapshot_latest_for_watchlist()
+        return web.json_response({"stocks": [self._snap_to_dict(r) for r in rows]})
+
+    async def wealth_ranking_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"stocks": []})
+        try:
+            n = max(1, min(int(request.query.get("n", "100")), 200))
+        except (TypeError, ValueError):
+            n = 100
+        rows = await irminsul.snapshot_latest_top(n)
+        return web.json_response({"stocks": [self._snap_to_dict(r) for r in rows]})
+
+    async def wealth_changes_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"changes": []})
+        try:
+            days = max(1, min(int(request.query.get("days", "30")), 180))
+        except (TypeError, ValueError):
+            days = 30
+        chs = await irminsul.change_recent(days)
+        return web.json_response({
+            "changes": [
+                {
+                    "id": c.id,
+                    "event_date": c.event_date,
+                    "stock_code": c.stock_code,
+                    "stock_name": c.stock_name,
+                    "event_type": c.event_type,
+                    "old_value": c.old_value,
+                    "new_value": c.new_value,
+                    "description": c.description,
+                }
+                for c in chs
+            ]
+        })
+
+    async def wealth_stock_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"history": [], "current": None})
+        code = request.match_info["code"]
+        import re as _re
+        if not _re.fullmatch(r"\d{6}", code):
+            return web.json_response({"error": "股票代码必须是 6 位数字"}, status=400)
+        try:
+            days = max(1, min(int(request.query.get("days", "90")), 365))
+        except (TypeError, ValueError):
+            days = 90
+        history = await irminsul.snapshot_history(code, days)
+        current = history[-1] if history else None
+        return web.json_response({
+            "history": [self._snap_to_dict(h) for h in history],
+            "current": self._snap_to_dict(current) if current else None,
+        })
+
+    async def wealth_trigger_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.zhongli or not self.state.irminsul or not self.state.march:
+            return web.json_response({"ok": False, "error": "岩神/世界树/三月未就绪"}, status=500)
+        try:
+            data = await request.json()
+            mode = (data.get("mode") or "").strip()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        if mode not in ("full", "daily", "rescore"):
+            return web.json_response({"ok": False, "error": "mode 必须是 full/daily/rescore"}, status=400)
+
+        # 防并发：正在跑时拒绝，避免 full_scan 15 分钟内被多次触发排队
+        if self.state.zhongli.is_scanning():
+            return web.json_response(
+                {"ok": False, "error": "已有扫描在进行中，请等待完成后再触发"},
+                status=409,
+            )
+
+        asyncio.create_task(self.state.zhongli.collect_dividend(
+            mode=mode,
+            irminsul=self.state.irminsul,
+            march=self.state.march,
+            chat_id=PUSH_CHAT_ID,   # 同文件顶部的常量
+            channel_name=self.name,
+        ))
+        return web.json_response({"ok": True, "mode": mode})
+
     async def plugins_skills_api(self, request: web.Request) -> web.Response:
         if self.require_auth:
             token = request.cookies.get("paimon_token")
@@ -522,9 +692,14 @@ class WebUIChannel(Channel):
             return web.json_response({"tasks": []})
 
         tasks = await march.list_tasks()
-        # 过滤订阅专用的内部 FEED_COLLECT 任务（归信息流面板 /feed 管理，
-        # 避免两个面板产生冲突的启停操作）
-        tasks = [t for t in tasks if not t.task_prompt.startswith("[FEED_COLLECT] ")]
+        # 过滤专用内部任务（归各自面板管理，避免冲突启停）：
+        # - [FEED_COLLECT]  → /feed 信息流面板
+        # - [DIVIDEND_SCAN] → /wealth 理财面板 + /dividend 指令
+        tasks = [
+            t for t in tasks
+            if not t.task_prompt.startswith("[FEED_COLLECT] ")
+            and not t.task_prompt.startswith("[DIVIDEND_SCAN] ")
+        ]
         return web.json_response({
             "tasks": [
                 {
