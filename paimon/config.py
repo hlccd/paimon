@@ -84,6 +84,17 @@ class Config(BaseSettings):
     task_cold_ttl_days: int = 30                 # cold → archived
     task_archived_ttl_days: int = 60             # archived 超时删除（30+60=90 对齐 docs）
 
+    # 风神 L1 · 事件级舆情监测（docs/archons/venti.md §L1 / docs/todo.md §风神增强 (3)(4)）
+    sentiment_enabled: bool = True
+    sentiment_event_lookback_days: int = 7        # 跨批次聚类回看窗口
+    sentiment_cluster_max_candidates: int = 20    # 单批送聚类 LLM 的"近期事件候选"上限
+    sentiment_max_items_per_event: int = 30       # 单事件最多关联条目（防错合并）
+    sentiment_p0_cooldown_minutes: int = 30       # 同事件 p0 紧急推冷却分钟
+    sentiment_p1_cooldown_hours: int = 4          # 同事件 p1 重要推冷却小时
+    sentiment_event_retention_days: int = 90      # feed_events 自动 GC 保留天数
+    sentiment_llm_calls_per_run_max: int = 30     # 单批最多 LLM 调用次数（防成本飞）
+    sentiment_fallback_on_llm_fail: bool = True   # LLM 故障时是否允许批次完成（False 则 abort）
+
     # 三月·自检系统（docs/foundation/march.md §自检体系）
     # Quick：秒级组件探针；Deep：调 check skill 跑代码体检
     selfcheck_enabled: bool = True

@@ -475,7 +475,7 @@ async def _classify_memory(content: str, model) -> tuple:
 
 # --------------- 话题订阅（风神）---------------
 
-_DEFAULT_SUBSCRIBE_CRON = "0 10 * * *"   # 每天 10 点
+_DEFAULT_SUBSCRIBE_CRON = "0 7 * * *"   # 每天 7 点（按服务器本地时间；中国大陆即北京时间）
 _MAX_SUBSCRIBE_QUERY_LEN = 200
 _VALID_ENGINES = {"", "baidu", "bing"}
 
@@ -494,7 +494,7 @@ def _parse_subscribe_args(args: str) -> tuple[str, str, str] | str:
             "例: /subscribe Claude 4.7\n"
             "    /subscribe 小米 SU7 | 0 10 * * *\n"
             "    /subscribe 大模型 | */6 * * * * | bing\n"
-            f"默认 cron: {_DEFAULT_SUBSCRIBE_CRON} (每日 10 点)\n"
+            f"默认 cron: {_DEFAULT_SUBSCRIBE_CRON} (每日 7 点)\n"
             "engine 可选: baidu / bing / 留空=双引擎"
         )
 

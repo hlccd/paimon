@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 对照 docs/ 架构设计文档，梳理当前代码实现状态。
-> 更新时间：2026-04-24（第六轮：三月·自检系统 Quick + Deep + 面板 + 世界树域 12）
+> 更新时间：2026-04-25（第七轮：风神 L1 事件级舆情 — 跨批次聚类 + 严重度 p0–p3 + 舆情面板 + 世界树域 11.5）
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 状态 | 数量 | 说明 |
 |------|------|------|
-| 已实现 | 33 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板**、**岩神红利股追踪三层重构+理财面板**、**雷↔水 三阶段闭环（草神 spec → 雷神 design/code + 自检 → 水神 check 审查 × 3；隔离 task workspace + merge 指令）**、**三月·自检系统（Quick 秒级 9 组件探针 + Deep 接入 check skill + 归档面板 + 保留策略 + cron 定时）** |
+| 已实现 | 34 | 三频道、神之心、原石、天使体系、意图分类、世界树、地脉、三月、守护进程、任务面板、**四影闭环（含多轮/DAG/并发/saga/批量授权）**、**时执生命周期闭环（会话超时+任务分层+三月调度）**、七神全部(MVP)、**权限体系(含四影路径批量)**、**WebUI 推送链路**、**插件面板**、**魔女会桥+天使超时**、**时执压缩(4 项改进)**、**L1 记忆系统**、**偏好面板**、**派蒙入口安全过滤**、**三月事件响铃**、**风神话题订阅+信息流面板**、**岩神红利股追踪三层重构+理财面板**、**雷↔水 三阶段闭环（草神 spec → 雷神 design/code + 自检 → 水神 check 审查 × 3；隔离 task workspace + merge 指令）**、**三月·自检系统（Quick 秒级 9 组件探针 + Deep 接入 check skill + 归档面板 + 保留策略 + cron 定时）**、**风神·L1 事件级舆情监测（跨批次聚类 + 浅池 LLM 双 prompt + 严重度 p0–p3 + 升级冷却 + 舆情面板）** |
 | 部分实现 | 0 | — |
 | 未开始 | 1 | 自进化 |
 
@@ -110,7 +110,7 @@
 | 雷神 · Raiden | 代码生成、自检 | **已实现**（含 design+code 分阶段 + 自检三件套 py_compile/ruff/pytest）| `paimon/archons/raiden.py`（+ `write_design` / `write_code` / `self_check` / `[STAGE:]` 分派）|
 | 水神 · Furina | 评审、游戏信息 | **已实现**（含三阶段 review 调 check skill 非交互参数模式）| `paimon/archons/furina.py`（+ `review_spec` / `review_design` / `review_code` / `[STAGE:]` 分派）|
 | 火神 · Mavuika | Shell/代码执行、部署 | **已实现** (MVP) | `paimon/archons/mavuika.py` |
-| 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP + 话题订阅闭环) | `paimon/archons/venti.py` `collect_subscription` + `paimon/tools/builtin/subscribe.py` |
+| 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP + 话题订阅 + L1 事件级舆情) | `paimon/archons/venti.py` `collect_subscription` + `paimon/archons/venti_event.py` `EventClusterer` + `paimon/tools/builtin/subscribe.py` |
 | 岩神 · Zhongli | 理财、红利股 | **已实现** (含红利股追踪闭环) | `paimon/archons/zhongli/` (scorer 纯函数 + zhongli.py 业务编排) + `paimon/tools/builtin/dividend.py` |
 | 冰神 · Tsaritsa | Skill 生态管理 | **已实现** (MVP) | `paimon/archons/tsaritsa.py` |
 
@@ -161,6 +161,7 @@
 | 聊天会话 | **已实现** | 派蒙 |
 | 定时任务 | **已实现** | 三月 |
 | 订阅（subscriptions + feed_items）| **已实现** | 风神写采集条目 / 派蒙写订阅声明 / WebUI 面板读写；UNIQUE(sub_id,url) 原生去重 |
+| 事件聚类（feed_events，域 11.5）| **已实现** | 风神 L1：跨批次聚类 + 严重度推送 / WebUI `/sentiment` 面板（[paimon/foundation/irminsul/feed_event.py](../paimon/foundation/irminsul/feed_event.py)） |
 | 自检归档（selfcheck_runs + blob 目录）| **已实现** | 三月 `SelfCheckService` 写 / WebUI `/selfcheck` 读；每次 run 独立目录 `.paimon/irminsul/selfcheck/{run_id}/` 保存 report.md / candidates.jsonl / state.json 不被覆盖 |
 
 ### 6.5 三月 · March (守护与调度)
@@ -232,7 +233,8 @@ paimon/
   archons/
     base.py                          Archon 基类
     nahida.py                        草神：推理 + 知识
-    venti.py                         风神：通用采集（execute）+ 话题订阅（collect_subscription）
+    venti.py                         风神：通用采集（execute）+ 话题订阅（collect_subscription + L1 事件分流推送）
+    venti_event.py                   风神·L1 事件级聚类员（EventClusterer：聚类 LLM + 事件分析 LLM + upsert）
     zhongli/                         岩神·目录化：scorer + 业务编排
       scorer.py                      评分规则（纯函数；从 skill 搬家）
       zhongli.py                     ZhongliArchon：collect_dividend/rescore/查询 API
@@ -259,12 +261,14 @@ paimon/
       task.py / token.py / audit.py
       dividend.py                    理财域（WatchlistRepo + ScoreSnapshotRepo + ChangeEventRepo）
       session.py / schedule.py / subscription.py
+      feed_event.py                  事件聚类域（FeedEventRepo：CRUD + 时间线聚合 + 信源 Top + 自动 GC）
   channels/
     base.py                          Channel ABC（含 supports_push 能力声明 + ask_user 交互式询问）
     webui/                           WebUI (aiohttp + SSE + 仪表盘 + 任务 + 插件 + 信息流 + 理财面板)
       push_hub.py                    推送扇出器（支持多标签 fan-out）
       plugins_html.py                冰神·插件面板（skill 生态 + 永久授权 tab）
       feed_html.py                   风神·信息流面板（订阅管理 + 采集条目列表 + 统计）
+      sentiment_html.py              风神·舆情看板（4 卡 + 事件时间线 + Chart.js 情感折线 + 严重度矩阵 + 信源 Top + 事件 Modal）
       wealth_html.py                 岩神·理财面板（红利股推荐/排行/变化 + Chart.js 历史评分）
     telegram/                        Telegram (aiogram)
     qq/                              QQ (qq-botpy, supports_push=False)

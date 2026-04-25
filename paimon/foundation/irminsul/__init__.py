@@ -8,6 +8,7 @@
 from .audit import AuditEntry
 from .authz import Authz
 from .dividend import ChangeEvent, ScoreSnapshot, WatchlistEntry
+from .feed_event import FeedEvent, is_severity_upgrade
 from .irminsul import Irminsul
 from .memory import Memory, MemoryMeta
 from .schedule import ScheduledTask
@@ -29,4 +30,5 @@ __all__ = [
     "SessionRecord", "SessionMeta",
     "ScheduledTask",
     "SelfcheckRun",
+    "FeedEvent", "is_severity_upgrade",
 ]

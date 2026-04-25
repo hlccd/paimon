@@ -254,6 +254,34 @@ CREATE INDEX IF NOT EXISTS idx_feed_sub ON feed_items(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_feed_captured ON feed_items(captured_at);
 CREATE INDEX IF NOT EXISTS idx_feed_pushed ON feed_items(pushed_at);
 
+-- ============ 域 11.5: 事件聚类（风神 L1 舆情）============
+-- 跨批次事件聚类：feed_events 为事件主体，feed_items.event_id 关联
+-- docs/archons/venti.md §L1 事件级舆情监测
+CREATE TABLE IF NOT EXISTS feed_events (
+    id              TEXT PRIMARY KEY,                -- 12 位 hex
+    subscription_id TEXT NOT NULL,                   -- 同订阅下聚类
+    title           TEXT NOT NULL DEFAULT '',        -- LLM 给的事件标题（≤80 字）
+    summary         TEXT NOT NULL DEFAULT '',        -- 一句话摘要（≤200 字）
+    entities_json   TEXT NOT NULL DEFAULT '[]',      -- ["人物", "公司", ...]
+    timeline_json   TEXT NOT NULL DEFAULT '[]',      -- [{ts, point}, ...]
+    severity        TEXT NOT NULL DEFAULT 'p3',      -- 'p0'|'p1'|'p2'|'p3'
+    sentiment_score REAL NOT NULL DEFAULT 0.0,       -- [-1.0, 1.0]
+    sentiment_label TEXT NOT NULL DEFAULT 'neutral', -- positive/neutral/negative/mixed
+    item_count      INTEGER NOT NULL DEFAULT 0,      -- 关联 feed_items 数
+    first_seen_at   REAL NOT NULL,                   -- 首次聚出时间
+    last_seen_at    REAL NOT NULL,                   -- 最近一次更新时间
+    last_pushed_at  REAL,                            -- 上次推送时间（限流用）
+    last_severity   TEXT NOT NULL DEFAULT '',        -- 上次推送时的 severity（升级判定）
+    pushed_count    INTEGER NOT NULL DEFAULT 0,
+    sources_json    TEXT NOT NULL DEFAULT '[]',      -- ["xxx.com", ...]
+    created_at      REAL NOT NULL,
+    updated_at      REAL NOT NULL,
+    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_feed_events_sub ON feed_events(subscription_id);
+CREATE INDEX IF NOT EXISTS idx_feed_events_last_seen ON feed_events(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feed_events_severity ON feed_events(severity);
+
 -- ============ 域 9: 聊天会话 ============
 CREATE TABLE IF NOT EXISTS session_records (
     id TEXT PRIMARY KEY,
@@ -316,6 +344,10 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("task_subtasks", "compensate", "TEXT NOT NULL DEFAULT ''"),
     # 三月·自检：Deep 进度快照（watcher 轮询 .check/state.json 后存此列）
     ("selfcheck_runs", "progress_json", "TEXT NOT NULL DEFAULT '{}'"),
+    # 风神 L1·事件级舆情：feed_items 关联事件 + 缓存条目级情感
+    ("feed_items", "event_id",         "TEXT NOT NULL DEFAULT ''"),
+    ("feed_items", "sentiment_score",  "REAL NOT NULL DEFAULT 0.0"),
+    ("feed_items", "sentiment_label",  "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

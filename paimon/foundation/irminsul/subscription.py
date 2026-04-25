@@ -47,6 +47,9 @@ class FeedItem:
     captured_at: float = 0.0
     pushed_at: float | None = None
     digest_id: str = ""
+    event_id: str = ""
+    sentiment_score: float = 0.0
+    sentiment_label: str = ""
 
 
 class SubscriptionRepo:
@@ -126,9 +129,13 @@ class SubscriptionRepo:
         return changed
 
     async def delete(self, sub_id: str, actor: str) -> bool:
-        # 先级联删 feed_items（FK 声明了但没开 CASCADE，这里主动清）
+        # 先级联删 feed_items + feed_events（FK 开 ON，没声明 CASCADE，这里主动清）
+        # 漏删 feed_events 会触发 FOREIGN KEY constraint failed，整个 delete 失败
         await self._db.execute(
             "DELETE FROM feed_items WHERE subscription_id = ?", (sub_id,),
+        )
+        await self._db.execute(
+            "DELETE FROM feed_events WHERE subscription_id = ?", (sub_id,),
         )
         async with self._db.execute(
             "DELETE FROM subscriptions WHERE id = ?", (sub_id,),
@@ -175,11 +182,89 @@ class SubscriptionRepo:
             )
         return inserted_ids
 
+    async def insert_feed_items_with_records(
+        self, sub_id: str, items: list[dict], actor: str,
+    ) -> list[dict]:
+        """跟 insert_feed_items 等价，但返回 [{id, **orig_item}]。
+
+        用途：风神事件聚类需要 db id + 原始字段配套传给 EventClusterer。
+        - 跳过空 url / 已存在 url（INSERT OR IGNORE）
+        - 返回结构：list of dict，每个 dict 含 db `id` + 原始 title/url/description/engine
+        - 顺序与传入 items 一致，被跳过的不会出现在返回里
+        """
+        if not items:
+            return []
+        now = time.time()
+        records: list[dict] = []
+        for it in items:
+            url = (it.get("url") or "").strip()
+            if not url:
+                continue
+            async with self._db.execute(
+                "INSERT OR IGNORE INTO feed_items "
+                "(subscription_id, url, title, description, engine, captured_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    sub_id, url,
+                    (it.get("title") or "")[:500],
+                    (it.get("description") or "")[:2000],
+                    (it.get("engine") or "")[:20],
+                    now,
+                ),
+            ) as cur:
+                if cur.rowcount > 0 and cur.lastrowid:
+                    records.append({
+                        "id": cur.lastrowid,
+                        "title": (it.get("title") or "")[:500],
+                        "url": url,
+                        "description": (it.get("description") or "")[:2000],
+                        "engine": (it.get("engine") or "")[:20],
+                        "captured_at": now,
+                    })
+        await self._db.commit()
+        if records:
+            logger.info(
+                "[世界树] {}·订阅条目入库 sub={} 新增={}（含 records）",
+                actor, sub_id, len(records),
+            )
+        return records
+
+    async def attach_event(
+        self, item_ids: list[int], event_id: str, *,
+        sentiment_score: float = 0.0,
+        sentiment_label: str = "",
+        actor: str,
+    ) -> int:
+        """把多条 feed_items 关联到一个 event_id + 写条目级情感快照。
+
+        - event_id 用于查询时按事件聚合 / 面板内 join
+        - sentiment_* 在条目层冗余存储（面板列表查询不必 join feed_events）
+        - 返回实际更新行数
+        """
+        if not item_ids:
+            return 0
+        placeholders = ",".join(["?"] * len(item_ids))
+        async with self._db.execute(
+            f"UPDATE feed_items SET "
+            f"event_id = ?, sentiment_score = ?, sentiment_label = ? "
+            f"WHERE id IN ({placeholders})",
+            (event_id, float(sentiment_score), sentiment_label, *item_ids),
+        ) as cur:
+            n = cur.rowcount
+        await self._db.commit()
+        if n:
+            logger.info(
+                "[世界树] {}·条目挂事件 {} 关联 {} 条 sentiment={}({:+.2f})",
+                actor, event_id, n, sentiment_label or "-", sentiment_score,
+            )
+        return n
+
     async def list_feed_items(
         self, *,
         sub_id: str | None = None,
         since: float | None = None,
         only_unpushed: bool = False,
+        event_id: str | None = None,
         limit: int = 200,
     ) -> list[FeedItem]:
         clauses, params = [], []
@@ -189,10 +274,13 @@ class SubscriptionRepo:
             clauses.append("captured_at >= ?"); params.append(since)
         if only_unpushed:
             clauses.append("pushed_at IS NULL")
+        if event_id is not None:
+            clauses.append("event_id = ?"); params.append(event_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = (
             "SELECT id, subscription_id, url, title, description, engine, "
-            "captured_at, pushed_at, digest_id "
+            "captured_at, pushed_at, digest_id, event_id, sentiment_score, "
+            "sentiment_label "
             f"FROM feed_items {where} ORDER BY captured_at DESC LIMIT ?"
         )
         params.append(limit)
@@ -203,6 +291,8 @@ class SubscriptionRepo:
                 id=r[0], subscription_id=r[1], url=r[2], title=r[3],
                 description=r[4], engine=r[5], captured_at=r[6],
                 pushed_at=r[7], digest_id=r[8],
+                event_id=r[9] or "", sentiment_score=float(r[10] or 0.0),
+                sentiment_label=r[11] or "",
             )
             for r in rows
         ]

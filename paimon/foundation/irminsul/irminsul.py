@@ -17,6 +17,7 @@ from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
 from .skills import SkillDecl, SkillRepo
+from .feed_event import FeedEvent, FeedEventRepo
 from .selfcheck import SelfcheckRepo, SelfcheckRun
 from .subscription import FeedItem, Subscription, SubscriptionRepo
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict, TaskRepo
@@ -51,6 +52,7 @@ class Irminsul:
         self._session: SessionRepo | None = None
         self._schedule: ScheduleRepo | None = None
         self._subscription: SubscriptionRepo | None = None
+        self._feed_event: FeedEventRepo | None = None
         self._selfcheck: SelfcheckRepo | None = None
 
     async def initialize(self) -> None:
@@ -73,6 +75,7 @@ class Irminsul:
         self._session = SessionRepo(self._db)
         self._schedule = ScheduleRepo(self._db)
         self._subscription = SubscriptionRepo(self._db)
+        self._feed_event = FeedEventRepo(self._db)
         self._selfcheck = SelfcheckRepo(self._db, self._selfcheck_root)
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
@@ -456,10 +459,13 @@ class Irminsul:
     async def feed_items_list(
         self, *,
         sub_id: str | None = None, since: float | None = None,
-        only_unpushed: bool = False, limit: int = 200,
+        only_unpushed: bool = False,
+        event_id: str | None = None,
+        limit: int = 200,
     ) -> list[FeedItem]:
         return await self._subscription.list_feed_items(
-            sub_id=sub_id, since=since, only_unpushed=only_unpushed, limit=limit,
+            sub_id=sub_id, since=since, only_unpushed=only_unpushed,
+            event_id=event_id, limit=limit,
         )
 
     async def feed_items_mark_pushed(
@@ -478,6 +484,108 @@ class Irminsul:
         self, *, sub_id: str | None = None, since: float | None = None,
     ) -> int:
         return await self._subscription.count_feed_items(sub_id=sub_id, since=since)
+
+    async def feed_items_insert_with_records(
+        self, sub_id: str, items: list[dict], *, actor: str,
+    ) -> list[dict]:
+        """带 records 的入库（含 db id + 原字段），供风神事件聚类用。"""
+        return await self._subscription.insert_feed_items_with_records(
+            sub_id, items, actor=actor,
+        )
+
+    async def feed_items_attach_event(
+        self, item_ids: list[int], event_id: str, *,
+        sentiment_score: float = 0.0,
+        sentiment_label: str = "",
+        actor: str,
+    ) -> int:
+        """把一组 feed_items 关联到 event_id + 写入条目级情感（覆盖）。"""
+        return await self._subscription.attach_event(
+            item_ids, event_id,
+            sentiment_score=sentiment_score,
+            sentiment_label=sentiment_label,
+            actor=actor,
+        )
+
+    # ============ 域 11.5: 事件聚类（风神 L1 舆情）============
+    async def feed_event_create(self, event: FeedEvent, *, actor: str) -> str:
+        return await self._feed_event.create(event, actor=actor)
+
+    async def feed_event_get(self, event_id: str) -> FeedEvent | None:
+        return await self._feed_event.get(event_id)
+
+    async def feed_event_update(
+        self, event_id: str, *, actor: str,
+        item_count_inc: int = 0,
+        pushed_count_inc: int = 0,
+        **fields,
+    ) -> bool:
+        return await self._feed_event.update(
+            event_id, actor=actor,
+            item_count_inc=item_count_inc,
+            pushed_count_inc=pushed_count_inc,
+            **fields,
+        )
+
+    async def feed_event_list(
+        self, *,
+        sub_id: str | None = None,
+        since: float | None = None,
+        severity: str | None = None,
+        limit: int = 100,
+    ) -> list[FeedEvent]:
+        return await self._feed_event.list(
+            sub_id=sub_id, since=since, severity=severity, limit=limit,
+        )
+
+    async def feed_event_count(
+        self, *,
+        sub_id: str | None = None,
+        since: float | None = None,
+        severity: str | None = None,
+    ) -> int:
+        return await self._feed_event.count(
+            sub_id=sub_id, since=since, severity=severity,
+        )
+
+    async def feed_event_count_by_severity(
+        self, *,
+        since: float | None = None,
+        sub_id: str | None = None,
+    ) -> dict[str, int]:
+        return await self._feed_event.count_by_severity(
+            since=since, sub_id=sub_id,
+        )
+
+    async def feed_event_avg_sentiment(
+        self, *,
+        since: float | None = None,
+        sub_id: str | None = None,
+    ) -> float:
+        return await self._feed_event.avg_sentiment(since=since, sub_id=sub_id)
+
+    async def feed_event_timeline(
+        self, *, days: int, sub_id: str | None = None,
+    ) -> list[dict]:
+        return await self._feed_event.timeline(days=days, sub_id=sub_id)
+
+    async def feed_event_sources_top(
+        self, *, days: int, limit: int = 10,
+        sub_id: str | None = None,
+    ) -> list[dict]:
+        return await self._feed_event.sources_top(
+            days=days, limit=limit, sub_id=sub_id,
+        )
+
+    async def feed_event_delete(self, event_id: str, *, actor: str) -> bool:
+        return await self._feed_event.delete(event_id, actor=actor)
+
+    async def feed_event_sweep_old(
+        self, *, retention_seconds: float, actor: str,
+    ) -> int:
+        return await self._feed_event.sweep_old(
+            retention_seconds=retention_seconds, actor=actor,
+        )
 
     # ============ 域 12: 自检归档（三月）============
     async def selfcheck_create(self, run: SelfcheckRun, *, actor: str) -> str:
