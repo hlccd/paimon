@@ -41,6 +41,12 @@ _WEB_SEARCH_TIMEOUT = 60.0
 # 去重窗口：过去 30 天的 url 视为已见
 _DEDUP_WINDOW_SECONDS = 30 * 24 * 3600
 
+# 事件型日报 LLM 重试退避：第 1 次失败等 60s，第 2 次失败等 180s，第 3 次失败
+# 不再重试，转走 P0+P1 兜底模板。`len(...)+1 = 总尝试次数`。
+# 选 60s/180s 而非更短：失败模式以「上游 edge transient hiccup」为主，
+# 拉长窗口能错过最常见的 30~60s 限流恢复期，再短反而连续撞同一波故障。
+_DIGEST_RETRY_DELAYS = (60.0, 180.0)
+
 
 _SYSTEM_PROMPT = """\
 你是风神·巴巴托斯，掌管自由与歌咏。你的职责是信息采集与分析。
@@ -94,27 +100,36 @@ def _build_fallback_digest(query: str, items: list[dict]) -> str:
 
 
 def _build_event_fallback_digest(query: str, processed_events: list) -> str:
-    """事件型日报 LLM 失败时的降级模板（按 severity 排序直列）。"""
+    """事件型日报 LLM 重试用尽后的精简降级模板：仅展示 P0 / P1。
+
+    设计取舍：P2/P3 多是日常资讯噪音，LLM 挂了的时候硬塞进公告反而难读；
+    省略后让用户聚焦真正紧急的内容。当天没有 P0/P1 时只发简短提示。
+    """
     if not processed_events:
         return f"**风神·订阅日报【{query}】** 本次无新事件。"
 
-    # 按 severity 升序（p0 在前）
-    rank = {"p0": 0, "p1": 1, "p2": 2, "p3": 3}
-    sorted_events = sorted(
-        processed_events,
-        key=lambda e: rank.get(e.severity, 4),
-    )
+    critical = [e for e in processed_events if e.severity in ("p0", "p1")]
+    skipped = len(processed_events) - len(critical)
 
+    if not critical:
+        return (
+            f"**风神·订阅日报【{query}】**\n"
+            f"（LLM 合成失败 / 重试用尽 · 当日无 P0/P1 事件，"
+            f"P2 及以下 {skipped} 个事件已省略）"
+        )
+
+    rank = {"p0": 0, "p1": 1}
+    sorted_events = sorted(critical, key=lambda e: rank.get(e.severity, 4))
+
+    skipped_tag = f"，P2 及以下 {skipped} 个已省略" if skipped else ""
     lines = [
         f"**风神·订阅日报【{query}】**",
-        f"（事件型 LLM 合成失败，按事件直列 · 共 {len(processed_events)} 个事件）",
+        f"（LLM 合成失败 · 仅展示 P0+P1 共 {len(critical)} 个{skipped_tag}）",
         "",
     ]
     for ev in sorted_events:
         title = (ev.title or "(无标题)").strip()
-        sev_icon = {"p0": "🔴", "p1": "🟠", "p2": "🔵", "p3": "⚪"}.get(
-            ev.severity, "⚪",
-        )
+        sev_icon = {"p0": "🔴", "p1": "🟠"}.get(ev.severity, "⚠")
         link = f"[{title}]({ev.first_url})" if ev.first_url else title
         upgrade = (
             "·升级" if (not ev.is_new and ev.severity_changed) else ""
@@ -536,7 +551,7 @@ class VentiArchon(Archon):
         """阶段 C 事件型日报。
 
         把本批次 ProcessedEvents 给 LLM，按 severity 分区组织成 markdown。
-        失败 → _build_event_fallback_digest 模板（按事件直列）。
+        LLM 调用按 _DIGEST_RETRY_DELAYS 重试；用尽后走 P0+P1 兜底模板。
         """
         if not processed_events:
             # 不应该到这里——调用方应已判过；保险返个空提示
@@ -573,26 +588,47 @@ class VentiArchon(Archon):
             {"role": "system", "content": system},
             {"role": "user", "content": json.dumps(events_payload, ensure_ascii=False)},
         ]
-        try:
-            raw, usage = await model._stream_text(messages)
-            await model._record_primogem(
-                "", "风神", usage, purpose="事件日报",
-            )
-        except Exception as e:
-            logger.warning(
-                "[风神·订阅] 事件型日报 LLM 失败，降级模板: {}", e,
-            )
-            return _build_event_fallback_digest(query, processed_events)
 
-        text = (raw or "").strip()
-        # 剥可能的 code fence（分析 prompt 已强约束，但兜一道）
-        if text.startswith("```"):
-            lines_ = text.splitlines()
-            if len(lines_) >= 2 and lines_[-1].strip() == "```":
-                text = "\n".join(lines_[1:-1]).strip()
-        if not text:
-            return _build_event_fallback_digest(query, processed_events)
-        return text
+        total_attempts = len(_DIGEST_RETRY_DELAYS) + 1
+        last_err: Exception | str | None = None
+        for attempt in range(total_attempts):
+            try:
+                raw, usage = await model._stream_text(messages)
+                await model._record_primogem(
+                    "", "风神", usage, purpose="事件日报",
+                )
+                text = (raw or "").strip()
+                # 剥可能的 code fence（analysis prompt 已强约束，但兜一道）
+                if text.startswith("```"):
+                    lines_ = text.splitlines()
+                    if len(lines_) >= 2 and lines_[-1].strip() == "```":
+                        text = "\n".join(lines_[1:-1]).strip()
+                if text:
+                    if attempt > 0:
+                        logger.info(
+                            "[风神·订阅] 事件型日报 LLM 第 {}/{} 次重试成功",
+                            attempt + 1, total_attempts,
+                        )
+                    return text
+                # 空内容也按失败处理，可能是流被截或 prompt 触发拒答
+                last_err = "LLM 返回空内容"
+            except Exception as e:
+                last_err = e
+
+            if attempt + 1 < total_attempts:
+                wait = _DIGEST_RETRY_DELAYS[attempt]
+                logger.warning(
+                    "[风神·订阅] 事件型日报 LLM 第 {}/{} 次失败: {}（{}s 后重试）",
+                    attempt + 1, total_attempts, last_err, int(wait),
+                )
+                await asyncio.sleep(wait)
+            else:
+                logger.warning(
+                    "[风神·订阅] 事件型日报 LLM 第 {}/{} 次失败: {}（重试用尽，降级 P0+P1 模板）",
+                    attempt + 1, total_attempts, last_err,
+                )
+
+        return _build_event_fallback_digest(query, processed_events)
 
     # ---------- 阶段 B · 舆情预警分级推送 ----------
 
