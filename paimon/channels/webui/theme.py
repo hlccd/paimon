@@ -132,10 +132,18 @@ NAV_LINKS_CSS = """
         border-radius: 10px;
         padding: 16px;
         margin-top: 24px;
+        /* 公告区固定 max-height，内容多时内部滚动；保持页面整体节奏不被拉长 */
+        display: flex; flex-direction: column;
+        max-height: 50vh;
+    }
+    /* 公告区滚动主体：head 不动，列表 + 历史区在这里滚 */
+    .digest-section > .digest-scroll {
+        flex: 1; overflow-y: auto; padding-right: 4px; /* 给滚动条留点缝 */
     }
     .digest-section .ds-head {
         display: flex; justify-content: space-between; align-items: center;
         margin-bottom: 12px; gap: 12px;
+        flex-shrink: 0;
     }
     .digest-section .ds-head h2 { font-size: 15px; color: var(--text-primary); font-weight: 600; }
     .digest-section .ds-tools { display: flex; gap: 8px; align-items: center; }
@@ -216,12 +224,11 @@ NAV_LINKS_CSS = """
     .digest-bulletin .db-mark-read:hover {
         color: var(--gold); border-color: var(--gold-dark);
     }
+    /* db-body 实际渲染由 .md-body 控制；这里只作 fallback（CDN 加载失败时仍能显示纯文本）*/
     .digest-bulletin .db-body {
         color: var(--text-primary);
         font-size: 13px;
         line-height: 1.7;
-        white-space: pre-wrap;
-        word-break: break-word;
     }
     .digest-bulletins-empty {
         text-align: center; color: var(--text-muted);
@@ -284,7 +291,6 @@ NAV_LINKS_CSS = """
         color: var(--text-secondary);
         font-size: 12px;
         line-height: 1.7;
-        white-space: pre-wrap;
         display: none;
     }
     .push-item.expanded .push-item-body { display: block; }
@@ -295,12 +301,71 @@ NAV_LINKS_CSS = """
         padding: 40px 20px;
         font-size: 13px;
     }
+
+    /* ===== Markdown 渲染样式（公告卡 / 历史卡 通用）===== */
+    .md-body {
+        color: var(--text-primary);
+        font-size: 13px;
+        line-height: 1.7;
+        word-break: break-word;
+    }
+    .md-body > *:first-child { margin-top: 0; }
+    .md-body > *:last-child { margin-bottom: 0; }
+    .md-body p { margin: 0 0 8px 0; }
+    .md-body ul, .md-body ol { margin: 4px 0 8px 20px; padding: 0; }
+    .md-body li { margin: 2px 0; }
+    .md-body h1, .md-body h2 {
+        font-size: 14px; color: var(--gold);
+        margin: 12px 0 6px 0; font-weight: 600;
+    }
+    .md-body h3, .md-body h4 {
+        font-size: 13px; color: var(--text-primary);
+        margin: 10px 0 4px 0; font-weight: 600;
+    }
+    .md-body blockquote {
+        margin: 4px 0 10px 0; padding: 8px 12px;
+        border-left: 3px solid var(--gold-dark);
+        background: rgba(212,175,55,.06);
+        color: var(--text-secondary);
+        border-radius: 0 6px 6px 0;
+    }
+    .md-body blockquote > *:first-child { margin-top: 0; }
+    .md-body blockquote > *:last-child { margin-bottom: 0; }
+    .md-body a { color: var(--star); text-decoration: none; }
+    .md-body a:hover { text-decoration: underline; color: var(--star-light); }
+    .md-body strong { color: var(--gold-light); font-weight: 600; }
+    .md-body em { color: var(--text-secondary); font-style: italic; }
+    .md-body code {
+        padding: 1px 5px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 12px;
+        background: var(--paimon-panel-light);
+        border-radius: 3px;
+        color: var(--gold-light);
+    }
+    .md-body pre {
+        margin: 6px 0 10px 0;
+        padding: 10px 12px;
+        background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border);
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 12px;
+    }
+    .md-body pre code { background: transparent; padding: 0; }
+    .md-body hr {
+        border: none; border-top: 1px dashed var(--paimon-border);
+        margin: 10px 0;
+    }
 """
 
 GLOBAL_PUSH_BELL_HTML = """
     <button id="navBell" class="nav-bell" onclick="window.gotoLatestDigests()" title="未读日报（点击跳转）">
         📨<span class="badge" id="navBellBadge"></span>
     </button>
+    <!-- Markdown 渲染：marked.js (parse) + DOMPurify (XSS sanitize)，公告卡 + 历史卡共用 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 """
 
 # 全局只剩两个职责：
@@ -310,6 +375,29 @@ GLOBAL_PUSH_BELL_HTML = """
 GLOBAL_PUSH_BELL_SCRIPT = r"""
 <script>
 (function(){
+    // Markdown 渲染（marked + DOMPurify CDN 加载好后注册到 window）
+    // 兜底：若 CDN 加载失败 / 还没就绪，退化为纯文本（HTML escape）
+    function _escFallback(s){
+        return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    window.renderMarkdown = function(text){
+        if(typeof window.marked === 'undefined' || typeof window.DOMPurify === 'undefined'){
+            // CDN 没加载好就退到 pre-wrap 纯文本
+            return '<div style="white-space:pre-wrap">' + _escFallback(text) + '</div>';
+        }
+        try{
+            // marked options: GFM 风格 + 自动换行（单换行 = <br>，更贴近聊天气泡）
+            var html = window.marked.parse(text || '', { breaks: true, gfm: true });
+            return window.DOMPurify.sanitize(html, {
+                // 只允许标准 markdown 产物的标签 + 链接 target=_blank
+                ADD_ATTR: ['target', 'rel'],
+            });
+        }catch(e){
+            return _escFallback(text);
+        }
+    };
+
     var _grouped = {};
 
     async function refreshUnreadBadge(){

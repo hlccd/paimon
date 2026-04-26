@@ -62,6 +62,8 @@ class ProcessedEvent:
     item_count: int                  # 本批次为此事件贡献的条目数
     sentiment_label: str
     sentiment_score: float
+    last_seen_at: float = 0.0        # 事件最近一次更新时间 (unix)，digest 时效过滤用
+    timeline: list = None            # [{"ts": int, "point": str}, ...]，digest 判定起源/动态用
 
 
 # ---------- 公共工具 ----------
@@ -320,6 +322,8 @@ class EventClusterer:
                 item_count=len(group_items),
                 sentiment_label=analysis["sentiment_label"],
                 sentiment_score=float(analysis["sentiment_score"]),
+                last_seen_at=now,
+                timeline=list(analysis.get("timeline") or []),
             ))
 
         logger.info(

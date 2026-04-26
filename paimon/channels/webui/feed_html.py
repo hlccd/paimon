@@ -264,7 +264,8 @@ FEED_SCRIPT = """
                         +     '<span>ID: '+esc(s.id.substring(0,8))+'</span>'
                         +     '<span>cron: '+esc(s.schedule_cron)+'</span>'
                         +     '<span>引擎: '+esc(engine)+'</span>'
-                        +     '<span>累计 '+s.item_count+' 条</span>'
+                        +     '<span title="每次最多抓取条数">每次抓 '+(s.max_items||10)+' 条</span>'
+                        +     '<span title="累计原始新闻 / 聚类后事件">累计 '+s.item_count+' 条 / '+(s.event_count||0)+' 个事件</span>'
                         +     '<span>上次: '+fmtTime(s.last_run_at)+'</span>'
                         +   '</div>'
                         +   err

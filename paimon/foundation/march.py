@@ -345,6 +345,7 @@ class MarchService:
         prompt: str = "",
         task_id: str = "",
         level: str = "silent",
+        extra: dict | None = None,
     ) -> bool:
         """事件响铃入口（2026-04-25 改造为静默归档）。
 
@@ -399,6 +400,10 @@ class MarchService:
         actor = source.split("·", 1)[0] if "·" in source else source
 
         # 落地到 push_archive（静默归档）
+        # extra: 调用方扩展字段（如 sub_id / event_id / change_id）+ task_id（如有）
+        merged_extra: dict = dict(extra) if extra else {}
+        if task_id and "task_id" not in merged_extra:
+            merged_extra["task_id"] = task_id
         rec_id = ""
         try:
             rec_id = await self._irminsul.push_archive_create(
@@ -406,7 +411,7 @@ class MarchService:
                 message_md=message,
                 channel_name=channel_name, chat_id=chat_id,
                 level=level,
-                extra={"task_id": task_id} if task_id else {},
+                extra=merged_extra,
             )
         except Exception as e:
             logger.error("[三月·事件响铃] 归档失败 source={}: {}", source, e)

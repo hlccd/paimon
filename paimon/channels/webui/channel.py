@@ -284,7 +284,8 @@ class WebUIChannel(Channel):
         subs = await irminsul.subscription_list()
         out = []
         for s in subs:
-            count = await irminsul.feed_items_count(sub_id=s.id)
+            item_count = await irminsul.feed_items_count(sub_id=s.id)
+            event_count = await irminsul.feed_event_count(sub_id=s.id)
             out.append({
                 "id": s.id,
                 "query": s.query,
@@ -293,10 +294,12 @@ class WebUIChannel(Channel):
                 "schedule_cron": s.schedule_cron,
                 "engine": s.engine,
                 "enabled": s.enabled,
+                "max_items": s.max_items,
                 "last_run_at": s.last_run_at,
                 "last_error": s.last_error,
                 "created_at": s.created_at,
-                "item_count": count,
+                "item_count": item_count,
+                "event_count": event_count,
             })
         return web.json_response({"subs": out})
 

@@ -177,19 +177,21 @@ WEALTH_BODY = """
                     <button onclick="window.markAllZhongliRead()">全部已读</button>
                 </div>
             </div>
-            <div id="zhongliBulletins">
-                <div class="digest-bulletins-empty">加载中...</div>
-            </div>
-            <div class="digest-history-toggle">
-                <button onclick="window.toggleZhongliHistory()" id="zhongliHistoryToggleBtn">
-                    📜 查看更多历史 ↓
-                </button>
-            </div>
-            <div id="zhongliHistoryWrap" style="display:none;margin-top:12px">
-                <input id="zhongliDigestSearch" placeholder="搜索历史内容（Enter 应用）"
-                    style="width:100%;padding:6px 10px;background:var(--paimon-bg);border:1px solid var(--paimon-border);border-radius:4px;color:var(--text-primary);font-size:12px;margin-bottom:10px" />
-                <div id="zhongliDigestList" class="digest-list">
-                    <div class="push-empty">加载中...</div>
+            <div class="digest-scroll">
+                <div id="zhongliBulletins">
+                    <div class="digest-bulletins-empty">加载中...</div>
+                </div>
+                <div class="digest-history-toggle">
+                    <button onclick="window.toggleZhongliHistory()" id="zhongliHistoryToggleBtn">
+                        📜 查看更多历史 ↓
+                    </button>
+                </div>
+                <div id="zhongliHistoryWrap" style="display:none;margin-top:12px">
+                    <input id="zhongliDigestSearch" placeholder="搜索历史内容（Enter 应用）"
+                        style="width:100%;padding:6px 10px;background:var(--paimon-bg);border:1px solid var(--paimon-border);border-radius:4px;color:var(--text-primary);font-size:12px;margin-bottom:10px" />
+                    <div id="zhongliDigestList" class="digest-list">
+                        <div class="push-empty">加载中...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -314,7 +316,7 @@ WEALTH_SCRIPT = """
                         + '</div>'
                         + markBtn
                         + '</div>'
-                        + '<div class="db-body">' + _esc(rec.message_md || '') + '</div>'
+                        + '<div class="db-body md-body">' + (window.renderMarkdown ? window.renderMarkdown(rec.message_md || '') : _esc(rec.message_md || '')) + '</div>'
                         + '</div>';
                 }).join('');
             }catch(e){
@@ -359,7 +361,7 @@ WEALTH_SCRIPT = """
                         + '<span class="push-item-time">'+_fmtTime(rec.created_at)+'</span>'
                         + '</div>'
                         + '<div class="push-item-preview">'+_esc(preview)+'</div>'
-                        + '<div class="push-item-body">'+_esc(rec.message_md||'')+'</div>'
+                        + '<div class="push-item-body md-body">'+(window.renderMarkdown?window.renderMarkdown(rec.message_md||''):_esc(rec.message_md||''))+'</div>'
                         + '</div>';
                 }).join('');
             }catch(e){

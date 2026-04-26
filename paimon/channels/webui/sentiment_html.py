@@ -254,19 +254,21 @@ SENTIMENT_BODY = """
                     <button onclick="window.markAllVentiRead()">全部已读</button>
                 </div>
             </div>
-            <div id="ventiBulletins">
-                <div class="digest-bulletins-empty">加载中...</div>
-            </div>
-            <div class="digest-history-toggle">
-                <button onclick="window.toggleVentiHistory()" id="ventiHistoryToggleBtn">
-                    📜 查看更多历史 ↓
-                </button>
-            </div>
-            <div id="ventiHistoryWrap" style="display:none;margin-top:12px">
-                <input id="ventiDigestSearch" placeholder="搜索历史内容（Enter 应用）"
-                    style="width:100%;padding:6px 10px;background:var(--paimon-bg);border:1px solid var(--paimon-border);border-radius:4px;color:var(--text-primary);font-size:12px;margin-bottom:10px" />
-                <div id="ventiDigestList" class="digest-list">
-                    <div class="push-empty">加载中...</div>
+            <div class="digest-scroll">
+                <div id="ventiBulletins">
+                    <div class="digest-bulletins-empty">加载中...</div>
+                </div>
+                <div class="digest-history-toggle">
+                    <button onclick="window.toggleVentiHistory()" id="ventiHistoryToggleBtn">
+                        📜 查看更多历史 ↓
+                    </button>
+                </div>
+                <div id="ventiHistoryWrap" style="display:none;margin-top:12px">
+                    <input id="ventiDigestSearch" placeholder="搜索历史内容（Enter 应用）"
+                        style="width:100%;padding:6px 10px;background:var(--paimon-bg);border:1px solid var(--paimon-border);border-radius:4px;color:var(--text-primary);font-size:12px;margin-bottom:10px" />
+                    <div id="ventiDigestList" class="digest-list">
+                        <div class="push-empty">加载中...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -695,7 +697,7 @@ SENTIMENT_SCRIPT = r"""
                         + '</div>'
                         + markBtn
                         + '</div>'
-                        + '<div class="db-body">' + esc(rec.message_md || '') + '</div>'
+                        + '<div class="db-body md-body">' + (window.renderMarkdown ? window.renderMarkdown(rec.message_md || '') : esc(rec.message_md || '')) + '</div>'
                         + '</div>';
                 }).join('');
             }catch(e){
@@ -741,7 +743,7 @@ SENTIMENT_SCRIPT = r"""
                         + '<span class="push-item-time">'+fmtTime(rec.created_at)+'</span>'
                         + '</div>'
                         + '<div class="push-item-preview">'+esc(preview)+'</div>'
-                        + '<div class="push-item-body">'+esc(rec.message_md||'')+'</div>'
+                        + '<div class="push-item-body md-body">'+(window.renderMarkdown?window.renderMarkdown(rec.message_md||''):esc(rec.message_md||''))+'</div>'
                         + '</div>';
                 }).join('');
             }catch(e){

@@ -298,13 +298,21 @@ class VentiArchon(Archon):
             digest = await self._compose_digest(sub.query, new_items, model)
 
         # Step 6: 综合日报推送
+        # source 含订阅 query，公告卡头部一眼可区分（actor 仍是"风神"，
+        # split("·",1)[0] 解析；extra_json 带 sub_id 给前端筛选 / 派蒙工具引用）
         digest_id = uuid4().hex[:12]
+        source_label = f"风神·订阅·{(sub.query or '未命名')[:20]}"
         try:
             ok = await march.ring_event(
                 channel_name=sub.channel_name,
                 chat_id=sub.chat_id,
-                source="风神",
+                source=source_label,
                 message=digest,
+                extra={
+                    "sub_id": sub.id,
+                    "query": sub.query,
+                    "digest_id": digest_id,
+                },
             )
         except Exception as e:
             logger.error("[风神·订阅] 响铃失败 sub={} err={}", sub_id, e)
@@ -440,7 +448,8 @@ class VentiArchon(Archon):
             # 不应该到这里——调用方应已判过；保险返个空提示
             return f"**风神·订阅日报【{query}】** 本次无新事件。"
 
-        # 给 LLM 的事件结构（裁剪冗长字段）
+        import time as _time
+        # 给 LLM 的事件结构（裁剪冗长字段；last_seen_at / timeline 给时效过滤用）
         events_payload = [
             {
                 "title": (ev.title or "")[:80],
@@ -453,11 +462,18 @@ class VentiArchon(Archon):
                 "severity_changed": ev.severity_changed,
                 "base_severity": ev.base_severity,
                 "item_count": ev.item_count,
+                "last_seen_at": _time.strftime(
+                    "%Y-%m-%d %H:%M",
+                    _time.localtime(ev.last_seen_at),
+                ) if ev.last_seen_at else "",
+                "timeline": ev.timeline or [],
             }
             for ev in processed_events
         ]
+        today_date = _time.strftime("%Y-%m-%d", _time.localtime())
         system = _EVENT_DIGEST_PROMPT.format(
             query=query, n=len(processed_events),
+            today_date=today_date,
         )
         messages = [
             {"role": "system", "content": system},
@@ -544,8 +560,13 @@ class VentiArchon(Archon):
                 ok = await march.ring_event(
                     channel_name=sub.channel_name,
                     chat_id=sub.chat_id,
-                    source="风神·舆情预警",
+                    source=f"风神·舆情预警·{(sub.query or '')[:20]}",
                     message=urgent_md,
+                    extra={
+                        "sub_id": sub.id,
+                        "query": sub.query,
+                        "event_id": ev.event_id,
+                    },
                 )
             except Exception as e:
                 logger.error(
