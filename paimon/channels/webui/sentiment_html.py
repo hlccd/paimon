@@ -251,6 +251,10 @@ SENTIMENT_BODY = """
             <div class="ds-head">
                 <h2>📨 风神 · 日报公告 <span id="ventiBulletinHint" style="font-size:12px;color:var(--text-muted);font-weight:normal;margin-left:8px"></span></h2>
                 <div class="ds-tools">
+                    <button onclick="window.ventiDayShift(-1)" title="前一天">←</button>
+                    <input type="date" id="ventiDateInput" onchange="window.ventiDateChange()" />
+                    <button onclick="window.ventiDayShift(1)" title="后一天">→</button>
+                    <button onclick="window.ventiJumpToday()" title="跳到今天">今天</button>
                     <button onclick="window.markAllVentiRead()">全部已读</button>
                 </div>
             </div>
@@ -260,7 +264,7 @@ SENTIMENT_BODY = """
                 </div>
                 <div class="digest-history-toggle">
                     <button onclick="window.toggleVentiHistory()" id="ventiHistoryToggleBtn">
-                        📜 查看更多历史 ↓
+                        🔍 搜索历史 ↓
                     </button>
                 </div>
                 <div id="ventiHistoryWrap" style="display:none;margin-top:12px">
@@ -659,28 +663,66 @@ SENTIMENT_SCRIPT = r"""
             if(sec) sec.scrollIntoView({behavior:'smooth', block:'start'});
         };
 
-        // ===== 风神日报公告区（最近 3 条展开式）+ 历史折叠区 =====
+        // ===== 风神日报公告区（按日期切换 · 默认今天）+ 搜索历史折叠区 =====
         var _ventiDigestSearch = '';
-        var _ventiBulletinLimit = 3;        // 顶部公告显示最近 N 条
         var _ventiHistoryShown = false;
 
+        function _todayStr(){
+            var d = new Date();
+            return d.getFullYear() + '-'
+                + String(d.getMonth()+1).padStart(2,'0') + '-'
+                + String(d.getDate()).padStart(2,'0');
+        }
+        function _dayBounds(dateStr){
+            // 'YYYY-MM-DD' → 当地午夜起到次日午夜（不含），unix 秒
+            var p = (dateStr||'').split('-');
+            if(p.length!==3) return null;
+            var since = new Date(+p[0], +p[1]-1, +p[2], 0, 0, 0).getTime()/1000;
+            return { since: since, until: since + 86400 };
+        }
+        function _shiftDate(dateStr, delta){
+            var p = (dateStr||_todayStr()).split('-');
+            var d = new Date(+p[0], +p[1]-1, +p[2], 0, 0, 0);
+            d.setDate(d.getDate() + delta);
+            return d.getFullYear() + '-'
+                + String(d.getMonth()+1).padStart(2,'0') + '-'
+                + String(d.getDate()).padStart(2,'0');
+        }
+        function _currentDate(){
+            var inp = document.getElementById('ventiDateInput');
+            return (inp && inp.value) || _todayStr();
+        }
+
         async function loadVentiBulletins(){
-            // 顶部公告区：最近 N 条 digest 直接展开式渲染（类似聊天气泡）
+            // 公告区：渲染当前选中日期的所有 digest（一日多篇也展开）
             var el = document.getElementById('ventiBulletins');
             if(!el) return;
+            var dateStr = _currentDate();
+            var b = _dayBounds(dateStr);
+            if(!b){
+                el.innerHTML = '<div class="digest-bulletins-empty">日期格式错误</div>';
+                return;
+            }
             try{
-                var qs = 'actor=' + encodeURIComponent('风神') + '&limit=' + _ventiBulletinLimit;
+                var qs = 'actor=' + encodeURIComponent('风神')
+                    + '&since=' + b.since + '&until=' + b.until + '&limit=50';
                 var r = await fetch('/api/push_archive/list?' + qs);
                 var d = await r.json();
                 var records = d.records || [];
                 var hint = document.getElementById('ventiBulletinHint');
+                var isToday = dateStr === _todayStr();
                 if(!records.length){
-                    el.innerHTML = '<div class="digest-bulletins-empty">暂无风神日报<br><small>明早 7:00 cron 跑过后会出现，或在订阅卡片点「运行」</small></div>';
-                    if(hint) hint.textContent = '';
+                    var tip = isToday
+                        ? '今天还没有日报<br><small>每日 07:00 cron 会自动生成，也可在订阅卡片点「运行」</small>'
+                        : '该日无日报<br><small>用 ← / → 切换其它日期</small>';
+                    el.innerHTML = '<div class="digest-bulletins-empty">'+tip+'</div>';
+                    if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'');
                     return;
                 }
                 var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
-                if(hint) hint.textContent = '· 最近 ' + records.length + ' 条' + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
+                if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'')
+                    + ' · ' + records.length + ' 篇'
+                    + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
                 el.innerHTML = records.map(function(rec){
                     var unread = rec.read_at == null;
                     var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
@@ -704,6 +746,21 @@ SENTIMENT_SCRIPT = r"""
                 el.innerHTML = '<div class="digest-bulletins-empty">加载失败: ' + esc(String(e)) + '</div>';
             }
         }
+        window.ventiDayShift = function(delta){
+            var inp = document.getElementById('ventiDateInput');
+            if(!inp) return;
+            inp.value = _shiftDate(inp.value || _todayStr(), delta);
+            loadVentiBulletins();
+        };
+        window.ventiDateChange = function(){
+            loadVentiBulletins();
+        };
+        window.ventiJumpToday = function(){
+            var inp = document.getElementById('ventiDateInput');
+            if(!inp) return;
+            inp.value = _todayStr();
+            loadVentiBulletins();
+        };
         window.markVentiBulletinRead = async function(id){
             try{
                 await fetch('/api/push_archive/' + encodeURIComponent(id) + '/read', {method: 'POST'});
@@ -716,7 +773,7 @@ SENTIMENT_SCRIPT = r"""
             _ventiHistoryShown = !_ventiHistoryShown;
             document.getElementById('ventiHistoryWrap').style.display = _ventiHistoryShown ? 'block' : 'none';
             document.getElementById('ventiHistoryToggleBtn').textContent =
-                _ventiHistoryShown ? '收起历史 ↑' : '📜 查看更多历史 ↓';
+                _ventiHistoryShown ? '收起搜索 ↑' : '🔍 搜索历史 ↓';
             if(_ventiHistoryShown) loadVentiDigests();
         };
 
@@ -797,14 +854,21 @@ SENTIMENT_SCRIPT = r"""
             }
         });
 
+        function _initVentiDate(){
+            // 默认选中今天；用户切换后保留其选择，不被自动刷新覆盖
+            var inp = document.getElementById('ventiDateInput');
+            if(inp && !inp.value) inp.value = _todayStr();
+        }
+
         window.loadAll=function(){
             loadOverview();             // 4 张统计卡：始终全局
             loadSubBanner();            // 订阅级 banner：依 filterSub 显隐
             loadEvents();               // 事件列表：跟 filterSub
             loadTimeline();             // 折线/矩阵：跟 filterSub
             loadSources();              // 信源 Top：跟 filterSub
-            loadVentiBulletins();       // 公告区：最近 3 篇展开卡片
-            // 历史折叠区按需加载（用户点「查看更多」时才 loadVentiDigests）
+            _initVentiDate();
+            loadVentiBulletins();       // 公告区：当前选中日期（默认今天）
+            // 搜索历史按需加载（用户点「搜索历史」时才 loadVentiDigests）
         };
         // inline onchange 走 window 全局，IIFE 内函数必须显式挂出去
         window.loadEvents=loadEvents;
@@ -823,6 +887,8 @@ SENTIMENT_SCRIPT = r"""
             loadSubBanner();   // banner 含上次/下次跑时间，需要刷新
             loadTimeline();
             loadSources();
+            // 仅在查看「今天」时刷新公告区（看历史日期时数据不变，免得抖）
+            if(_currentDate() === _todayStr()) loadVentiBulletins();
         }, 30000);
     })();
     </script>

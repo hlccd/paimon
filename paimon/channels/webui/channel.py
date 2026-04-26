@@ -686,11 +686,23 @@ class WebUIChannel(Channel):
         except (TypeError, ValueError):
             limit = 50
 
+        def _parse_ts(name: str) -> float | None:
+            raw = (request.query.get(name, "") or "").strip()
+            if not raw:
+                return None
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return None
+        since = _parse_ts("since")
+        until = _parse_ts("until")
+
         # 搜索时先大窗口拉再过滤（避免 limit 截断后漏了更早的命中条目）；
         # 没搜索时直接 limit
         fetch_limit = max(limit, 500) if q else limit
         records = await irminsul.push_archive_list(
-            actor=actor, only_unread=only_unread, limit=fetch_limit,
+            actor=actor, only_unread=only_unread,
+            since=since, until=until, limit=fetch_limit,
         )
         # 全文搜索：在 message_md / source 上做不区分大小写包含匹配
         if q:

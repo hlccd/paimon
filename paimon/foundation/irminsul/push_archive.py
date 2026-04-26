@@ -89,6 +89,7 @@ class PushArchiveRepo:
         actor: str | None = None,
         only_unread: bool = False,
         since: float | None = None,
+        until: float | None = None,
         limit: int = 50,
     ) -> list[PushArchiveRecord]:
         clauses, params = [], []
@@ -98,6 +99,8 @@ class PushArchiveRepo:
             clauses.append("read_at IS NULL")
         if since is not None:
             clauses.append("created_at >= ?"); params.append(since)
+        if until is not None:
+            clauses.append("created_at < ?"); params.append(until)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = (
             "SELECT id, source, actor, channel_name, chat_id, message_md, "

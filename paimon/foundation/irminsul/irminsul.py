@@ -655,10 +655,12 @@ class Irminsul:
         actor: str | None = None,
         only_unread: bool = False,
         since: float | None = None,
+        until: float | None = None,
         limit: int = 50,
     ) -> list[PushArchiveRecord]:
         return await self._push_archive.list(
-            actor=actor, only_unread=only_unread, since=since, limit=limit,
+            actor=actor, only_unread=only_unread,
+            since=since, until=until, limit=limit,
         )
 
     async def push_archive_count_unread(
