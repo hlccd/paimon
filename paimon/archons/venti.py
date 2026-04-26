@@ -22,10 +22,12 @@ from loguru import logger
 from paimon.archons.base import Archon
 from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.irminsul.task import Subtask, TaskEdict
+from paimon.foundation.march import today_local_bounds
 from paimon.llm.model import Model
 from paimon.session import Session
 
 if TYPE_CHECKING:
+    from paimon.foundation.irminsul.feed_event import FeedEvent
     from paimon.foundation.march import MarchService
 
 # web-search skill 脚本路径（文件存在则订阅能力可用；不存在仅告警不阻塞启动）
@@ -221,36 +223,54 @@ class VentiArchon(Archon):
         existing = await irminsul.feed_items_existing_urls(sub_id, since_ts=since_ts)
         new_items = [r for r in results if (r.get("url") or "") not in existing]
 
+        # Step 3.5: 没新条目时是否能直接退出？
+        # 旧逻辑：直接 return → 但当天若无 digest（cron 失败 / 首次失败补跑）
+        # 用户怎么手动跑都不会有公告。新逻辑：先看当天有无已发的同源 digest。
+        # - 已有 → skip：digest 不会更细，再走一遍只是浪费 LLM
+        # - 没有 → 继续往下，用今天累计的 events/items 兜底合成
+        source_label = f"风神·订阅·{(sub.query or '未命名')[:20]}"
+        day_start, day_end = today_local_bounds()
         if not new_items:
+            existing_today = await irminsul.push_archive_list(
+                actor="风神", since=day_start, until=day_end, limit=20,
+            )
+            has_today_digest = any(r.source == source_label for r in existing_today)
+            if has_today_digest:
+                logger.info(
+                    "[风神·订阅] 无新条目且当天已有 digest sub={} total={}（skip）",
+                    sub_id, len(results),
+                )
+                await irminsul.subscription_update(
+                    sub_id, actor="风神",
+                    last_run_at=time.time(), last_error="",
+                )
+                return
             logger.info(
-                "[风神·订阅] 无新条目（全部已见） sub={} total={}",
-                sub_id, len(results),
+                "[风神·订阅] 无新条目但当天还没 digest，尝试用累计数据补合成 sub={}",
+                sub_id,
             )
-            await irminsul.subscription_update(
-                sub_id, actor="风神",
-                last_run_at=time.time(), last_error="",
+
+        records: list = []
+        inserted_ids: list = []
+        if new_items:
+            logger.info(
+                "[风神·订阅] 新条目 {} 条 / 总 {} 条 sub={}",
+                len(new_items), len(results), sub_id,
             )
-            return
-
-        logger.info(
-            "[风神·订阅] 新条目 {} 条 / 总 {} 条 sub={}",
-            len(new_items), len(results), sub_id,
-        )
-
-        # Step 4: 落库（拿到 records 含 db id + 原字段，给步骤 4.5 用）
-        records = await irminsul.feed_items_insert_with_records(
-            sub_id, new_items, actor="风神",
-        )
-        if not records:
-            logger.warning("[风神·订阅] 条目入库 0 条 sub={}", sub_id)
-            return
-        inserted_ids = [r["id"] for r in records]
+            # Step 4: 落库（拿到 records 含 db id + 原字段，给 4.5 用）
+            records = await irminsul.feed_items_insert_with_records(
+                sub_id, new_items, actor="风神",
+            )
+            if not records:
+                logger.warning("[风神·订阅] 条目入库 0 条 sub={}", sub_id)
+                return
+            inserted_ids = [r["id"] for r in records]
 
         # Step 4.5: 事件聚类 + 结构化分析（L1 舆情 docs/archons/venti.md §L1）
-        # sentiment_enabled=False 时跳过；阶段 B 起 force_new=False 启用跨批次聚类
+        # sentiment_enabled=False 或本批次无 records 时跳过聚类
         from paimon.config import config as _cfg
         processed_events: list = []
-        if getattr(_cfg, "sentiment_enabled", True):
+        if records and getattr(_cfg, "sentiment_enabled", True):
             try:
                 from paimon.archons.venti_event import EventClusterer
                 clusterer = EventClusterer(
@@ -271,38 +291,80 @@ class VentiArchon(Archon):
 
         # Step 5: 风神·舆情预警（阶段 B）—— p0 紧急推送（含 p2/p3 升级到 p0）
         # docs/archons/venti.md §L1 / docs/todo.md §风神增强 (4)
-        # 触发条件（择一）：
-        #   - 新事件 severity=p0
-        #   - 已有事件升级到 p0（base_severity=p1/p2/p3）
-        # 升级冷却：同事件 30 分钟内不重复推（config.sentiment_p0_cooldown_minutes）
-        # 顺序考量：p0 是"紧急"语义，必须跑在 digest LLM 之前避免被阻塞；
-        # 用 try/except 包一层，预警异常不应阻塞日常日报推送。
-        try:
-            await self._dispatch_p0_alerts(
-                sub, processed_events, irminsul, march, _cfg,
-            )
-        except Exception as e:
-            logger.exception(
-                "[风神·订阅] 舆情预警链路异常 sub={}（不阻塞日报）: {}",
-                sub_id, e,
-            )
-
-        # Step 5.5: LLM 日报
-        # 阶段 C：processed_events 非空走事件型，否则降级到旧条目级（兼容
-        # sentiment_enabled=False 或聚类整体失败的场景，确保用户始终能拿到日报）
+        # 只对本批次新事件做升级判定；累计模式下「持续中的 p0」不该重复推
         if processed_events:
+            try:
+                await self._dispatch_p0_alerts(
+                    sub, processed_events, irminsul, march, _cfg,
+                )
+            except Exception as e:
+                logger.exception(
+                    "[风神·订阅] 舆情预警链路异常 sub={}（不阻塞日报）: {}",
+                    sub_id, e,
+                )
+
+        # Step 5.5: LLM 日报 —— 用「当天累计」事件 / 条目，而不是仅本批次
+        # 关键修复：dedup_per_day 下 upsert 会整段覆盖；如果只 summary 本批次，
+        # 下午刷新会把上午合成的内容从公告里抹掉。所以这里拉今日累计：
+        # - 优先用 feed_events（按 last_seen_at >= day_start，clusterer 会
+        #   把今日有动静的旧事件 last_seen_at 滚到今天，自动落进窗口）
+        # - 聚类整体失败 / 关闭时降级到 feed_items（按 captured_at >= day_start）
+        today_events = await irminsul.feed_event_list(
+            sub_id=sub.id, since=day_start, limit=200,
+        )
+        today_items = await irminsul.feed_items_list(
+            sub_id=sub.id, since=day_start, limit=500,
+        )
+
+        if not today_events and not today_items:
+            logger.info(
+                "[风神·订阅] 当天累计为空，不合成 digest sub={}", sub_id,
+            )
+            await irminsul.subscription_update(
+                sub_id, actor="风神",
+                last_run_at=time.time(), last_error="",
+            )
+            return
+
+        # event_id → 该事件今日第一条 feed_items 的 url（给 ProcessedEvent.first_url）
+        event_first_url: dict[str, str] = {}
+        for it in today_items:
+            eid = it.event_id or ""
+            if eid and eid not in event_first_url:
+                event_first_url[eid] = it.url
+
+        if today_events:
+            today_processed = [
+                self._feed_event_to_processed(
+                    ev, event_first_url.get(ev.id, ""), day_start,
+                )
+                for ev in today_events
+            ]
             digest = await self._compose_event_digest(
-                sub.query, processed_events, model,
+                sub.query, today_processed, model,
             )
         else:
-            digest = await self._compose_digest(sub.query, new_items, model)
+            today_items_payload = [
+                {
+                    "title": it.title or "",
+                    "url": it.url or "",
+                    "description": it.description or "",
+                    "engine": it.engine or "",
+                }
+                for it in today_items
+            ]
+            digest = await self._compose_digest(
+                sub.query, today_items_payload, model,
+            )
 
         # Step 6: 综合日报推送
         # source 含订阅 query，公告卡头部一眼可区分（actor 仍是"风神"，
         # split("·",1)[0] 解析；extra_json 带 sub_id 给前端筛选 / 派蒙工具引用）
         digest_id = uuid4().hex[:12]
-        source_label = f"风神·订阅·{(sub.query or '未命名')[:20]}"
         try:
+            # 日级幂等：cron 7am 跑过 + 用户中午手动「运行」会触两次响铃；
+            # dedup_per_day=True → 同 source 当天 upsert，message 没变就 no-op，
+            # 变了就原地更新并 reset 未读，避免一天同订阅出现两条公告
             ok = await march.ring_event(
                 channel_name=sub.channel_name,
                 chat_id=sub.chat_id,
@@ -313,6 +375,7 @@ class VentiArchon(Archon):
                     "query": sub.query,
                     "digest_id": digest_id,
                 },
+                dedup_per_day=True,
             )
         except Exception as e:
             logger.error("[风神·订阅] 响铃失败 sub={} err={}", sub_id, e)
@@ -321,10 +384,12 @@ class VentiArchon(Archon):
         if not ok:
             logger.warning("[风神·订阅] 响铃被拒/失败 sub={}（条目仍落盘）", sub_id)
 
-        # Step 7: 标记 + 订阅 tick
-        await irminsul.feed_items_mark_pushed(
-            inserted_ids, digest_id, actor="风神",
-        )
+        # Step 7: 标记 + 订阅 tick（仅 mark 本批次刚插入的；累计模式下旧条目
+        # 上次跑时已经 mark 过 pushed_at）
+        if inserted_ids:
+            await irminsul.feed_items_mark_pushed(
+                inserted_ids, digest_id, actor="风神",
+            )
         await irminsul.subscription_update(
             sub_id, actor="风神",
             last_run_at=time.time(), last_error="",
@@ -435,6 +500,35 @@ class VentiArchon(Archon):
         if not text:
             return _build_fallback_digest(query, items)
         return text
+
+    @staticmethod
+    def _feed_event_to_processed(
+        ev: "FeedEvent", first_url: str, day_start: float,
+    ) -> "ProcessedEvent":
+        """把 feed_events 表中的事件转成 ProcessedEvent，喂给日报合成。
+
+        累计模式（dedup_per_day 用）下不知道「本批次」是哪批，所以：
+        - is_new = first_seen_at 是否落在今日窗口内
+        - severity_changed / base_severity 缺失（设默认值），LLM prompt 里这两
+          字段是参考性的，缺失只是损失一点叙述深度，不影响推送决策
+        - first_url 由调用方传入（取该事件今日 feed_items 里第一条 url）
+        """
+        from paimon.archons.venti_event import ProcessedEvent
+        return ProcessedEvent(
+            event_id=ev.id,
+            severity=ev.severity,
+            base_severity="",
+            is_new=ev.first_seen_at >= day_start,
+            severity_changed=False,
+            title=ev.title,
+            summary=ev.summary,
+            first_url=first_url or "",
+            item_count=ev.item_count,
+            sentiment_label=ev.sentiment_label,
+            sentiment_score=ev.sentiment_score,
+            last_seen_at=ev.last_seen_at,
+            timeline=ev.timeline or [],
+        )
 
     async def _compose_event_digest(
         self, query: str, processed_events: list, model: Model,

@@ -35,6 +35,20 @@ RING_EVENT_WINDOW_SECONDS = 60
 RING_EVENT_MAX_PER_WINDOW = 10
 
 
+def today_local_bounds(now: float | None = None) -> tuple[float, float]:
+    """返回当地时区今天 [00:00, 次日 00:00) 的 unix 秒区间。
+
+    用于 ring_event(dedup_per_day=True) 计算日级幂等键。与前端的
+    `new Date(Y, M-1, D, 0,0,0).getTime()/1000` 保持一致（同机器时区）。
+    """
+    t = time.time() if now is None else now
+    lt = time.localtime(t)
+    midnight = time.mktime(
+        (lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, lt.tm_isdst)
+    )
+    return midnight, midnight + 86400
+
+
 def _cron_next(expr: str, base_ts: float) -> float:
     """计算 cron 表达式相对 base_ts 的下次触发 unix 时间戳。
 
@@ -346,6 +360,7 @@ class MarchService:
         task_id: str = "",
         level: str = "silent",
         extra: dict | None = None,
+        dedup_per_day: bool = False,
     ) -> bool:
         """事件响铃入口（2026-04-25 改造为静默归档）。
 
@@ -362,10 +377,16 @@ class MarchService:
           prompt:       已废弃，传入会被并入 message 末尾（保兼容）
           task_id:      可选，关联的定时任务 id（写入 extra_json）
           level:        'silent'（默认，不打断）| 'loud'（预留，当前实现仍是静默）
+          dedup_per_day: 日级幂等模式（默认 False）。True 时按 (actor, source,
+                        当地日期) 去重：当日首次响铃新建一条；同日再次响铃且
+                        message 未变 → no-op；message 变了 → 原地更新并 reset
+                        未读。适用于「每日订阅日报」/「红利股变化」这类 cron
+                        + 手动刷新会重复推送的场景。事件驱动型（P0 预警）应
+                        保持 False。dedup 路径跳过滑窗限流（upsert 本身幂等）。
 
         返回：
-          True  — 已归档
-          False — 被限流拒绝
+          True  — 已归档（含 created / updated / unchanged）
+          False — 被限流拒绝（仅非 dedup 路径）
 
         抛出：
           ValueError — message 为空 / source / channel_name / chat_id 缺失
@@ -386,15 +407,17 @@ class MarchService:
         if any(c in source for c in "\n\r\t"):
             raise ValueError("ring_event: source 不能含换行/制表符")
 
-        key = (source, channel_name, chat_id)
-        if not self._rate_limit_check(key):
-            logger.warning(
-                "[三月·事件响铃] 限流拒绝 source={} channel={}/{} "
-                "({}s 内已 ≥{} 次)",
-                source, channel_name, chat_id[:20],
-                RING_EVENT_WINDOW_SECONDS, RING_EVENT_MAX_PER_WINDOW,
-            )
-            return False
+        # 非 dedup 路径才走滑窗限流；dedup 是幂等 upsert，重复调用本身无副作用
+        if not dedup_per_day:
+            key = (source, channel_name, chat_id)
+            if not self._rate_limit_check(key):
+                logger.warning(
+                    "[三月·事件响铃] 限流拒绝 source={} channel={}/{} "
+                    "({}s 内已 ≥{} 次)",
+                    source, channel_name, chat_id[:20],
+                    RING_EVENT_WINDOW_SECONDS, RING_EVENT_MAX_PER_WINDOW,
+                )
+                return False
 
         # 从 source 推出 actor（"风神·舆情日报" → "风神"）；用于面板按神分组
         actor = source.split("·", 1)[0] if "·" in source else source
@@ -405,33 +428,54 @@ class MarchService:
         if task_id and "task_id" not in merged_extra:
             merged_extra["task_id"] = task_id
         rec_id = ""
+        upsert_status = ""  # created / updated / unchanged（仅 dedup 路径有值）
         try:
-            rec_id = await self._irminsul.push_archive_create(
-                source=source, actor=actor,
-                message_md=message,
-                channel_name=channel_name, chat_id=chat_id,
-                level=level,
-                extra=merged_extra,
-            )
+            if dedup_per_day:
+                day_start, day_end = today_local_bounds()
+                upsert_status, rec_id = await self._irminsul.push_archive_upsert_daily(
+                    source=source, actor=actor,
+                    message_md=message,
+                    day_start=day_start, day_end=day_end,
+                    channel_name=channel_name, chat_id=chat_id,
+                    level=level,
+                    extra=merged_extra,
+                )
+            else:
+                rec_id = await self._irminsul.push_archive_create(
+                    source=source, actor=actor,
+                    message_md=message,
+                    channel_name=channel_name, chat_id=chat_id,
+                    level=level,
+                    extra=merged_extra,
+                )
         except Exception as e:
             logger.error("[三月·事件响铃] 归档失败 source={}: {}", source, e)
             return False
 
         # 通知 WebUI 红点更新（前端 SSE 可订阅；当前用前端 30s 轮询，
         # 这条 publish 是预留扩展点）
-        try:
-            await self._leyline.publish(
-                "push.archived",
-                {"id": rec_id, "actor": actor, "source": source, "level": level},
-                source=f"三月·事件响铃@{actor}",
-            )
-        except Exception as e:
-            logger.debug("[三月·事件响铃] leyline publish 失败（不影响归档）: {}", e)
+        # dedup 路径下 unchanged 状态不再触发红点（用户既然已读、内容也没变）
+        publish_event = not (dedup_per_day and upsert_status == "unchanged")
+        if publish_event:
+            try:
+                await self._leyline.publish(
+                    "push.archived",
+                    {"id": rec_id, "actor": actor, "source": source, "level": level},
+                    source=f"三月·事件响铃@{actor}",
+                )
+            except Exception as e:
+                logger.debug("[三月·事件响铃] leyline publish 失败（不影响归档）: {}", e)
 
-        logger.info(
-            "[三月·事件响铃] source={} → push_archive {} (actor={} len={})",
-            source, rec_id, actor, len(message),
-        )
+        if dedup_per_day:
+            logger.info(
+                "[三月·事件响铃] source={} → push_archive {} (actor={} len={} daily={})",
+                source, rec_id, actor, len(message), upsert_status,
+            )
+        else:
+            logger.info(
+                "[三月·事件响铃] source={} → push_archive {} (actor={} len={})",
+                source, rec_id, actor, len(message),
+            )
 
         # audit 落盘（失败不影响推送链路）
         try:

@@ -647,6 +647,26 @@ class Irminsul:
             level=level, extra=extra,
         )
 
+    async def push_archive_upsert_daily(
+        self,
+        *,
+        source: str,
+        actor: str,
+        message_md: str,
+        day_start: float,
+        day_end: float,
+        channel_name: str = "webui",
+        chat_id: str = "",
+        level: str = "silent",
+        extra: dict | None = None,
+    ) -> tuple[str, str]:
+        return await self._push_archive.upsert_daily(
+            source=source, actor=actor, message_md=message_md,
+            day_start=day_start, day_end=day_end,
+            channel_name=channel_name, chat_id=chat_id,
+            level=level, extra=extra,
+        )
+
     async def push_archive_get(self, rec_id: str) -> PushArchiveRecord | None:
         return await self._push_archive.get(rec_id)
 

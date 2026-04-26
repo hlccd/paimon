@@ -72,6 +72,82 @@ class PushArchiveRepo:
         )
         return rec_id
 
+    async def upsert_daily(
+        self,
+        *,
+        source: str,
+        actor: str,
+        message_md: str,
+        day_start: float,
+        day_end: float,
+        channel_name: str = "webui",
+        chat_id: str = "",
+        level: str = "silent",
+        extra: dict[str, Any] | None = None,
+    ) -> tuple[str, str]:
+        """日级幂等写入：(actor, source, [day_start, day_end)) 唯一。
+
+        - 命中且 message_md 一致 → 不动，返回 ("unchanged", id)（保留已读状态）
+        - 命中但 message_md 变 → 更新文本/extra/level，reset read_at=NULL，
+          保留 created_at（位置不漂），返回 ("updated", id)
+        - 未命中 → 新建一条，返回 ("created", id)
+
+        典型用途：每日订阅日报 / 红利股变化等「一天一篇」型推送，避免
+        cron + 手动刷新两次推送在同一天产生两条公告。
+        事件驱动型推送（如 P0 预警）不应走这条路径。
+        """
+        async with self._db.execute(
+            "SELECT id, message_md, created_at FROM push_archive "
+            "WHERE actor = ? AND source = ? "
+            "AND created_at >= ? AND created_at < ? "
+            "ORDER BY created_at ASC LIMIT 1",
+            (actor, source, day_start, day_end),
+        ) as cur:
+            row = await cur.fetchone()
+
+        extra_json = json.dumps(extra or {}, ensure_ascii=False)
+
+        if row is None:
+            rec_id = uuid4().hex[:12]
+            now = time.time()
+            await self._db.execute(
+                "INSERT INTO push_archive "
+                "(id, source, actor, channel_name, chat_id, message_md, level, "
+                "extra_json, created_at, read_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,NULL)",
+                (
+                    rec_id, source, actor, channel_name, chat_id,
+                    message_md, level, extra_json, now,
+                ),
+            )
+            await self._db.commit()
+            logger.info(
+                "[世界树·推送归档] daily-upsert 新建 {} actor={} source={} len={}",
+                rec_id, actor, source, len(message_md),
+            )
+            return ("created", rec_id)
+
+        rec_id = row[0]
+        if (row[1] or "") == (message_md or ""):
+            logger.debug(
+                "[世界树·推送归档] daily-upsert 内容未变 {} actor={} source={}（已读状态保留）",
+                rec_id, actor, source,
+            )
+            return ("unchanged", rec_id)
+
+        await self._db.execute(
+            "UPDATE push_archive SET message_md = ?, extra_json = ?, "
+            "level = ?, read_at = NULL "
+            "WHERE id = ?",
+            (message_md, extra_json, level, rec_id),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树·推送归档] daily-upsert 内容更新 {} actor={} source={} len={}（重置未读）",
+            rec_id, actor, source, len(message_md),
+        )
+        return ("updated", rec_id)
+
     # ---------- 查询 ----------
 
     async def get(self, rec_id: str) -> PushArchiveRecord | None:
