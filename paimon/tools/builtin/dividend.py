@@ -17,6 +17,7 @@ _VALID_ACTIONS = {
     "top", "recommended", "changes", "history", "query",
     "trigger_full", "trigger_daily", "rescore",
     "cron_on", "cron_off",
+    "latest_digest",
 }
 
 
@@ -25,9 +26,12 @@ class DividendTool(BaseTool):
     description = (
         "管理**红利股追踪**（岩神后台 cron 扫描 A 股 + 评分 + 推送）。\n"
         "action ∈ top / recommended / changes / history / query / trigger_full / "
-        "trigger_daily / rescore / cron_on / cron_off。\n"
+        "trigger_daily / rescore / cron_on / cron_off / latest_digest。\n"
         "**何时用**：用户问「红利股推荐」/「某股票（如茅台/601988）最近评分怎样」/"
-        "「最近红利股变化」/「帮我全扫一下红利股」/「开启红利股定时推送」。\n"
+        "「最近红利股变化」/「帮我全扫一下红利股」/「开启红利股定时推送」/"
+        "「最近一份岩神理财报告」（latest_digest）。\n"
+        "**注意**：岩神变化推送不再主动进聊天，已归档到 /wealth 面板和推送抽屉；"
+        "用户问起时务必用 latest_digest 把内容拉出来复述。\n"
         "**不要用** schedule/subscribe——这是专用红利股工具，走世界树 dividend 域 + "
         "skill dividend-tracker 数据源。\n"
         "**查询优先读数据库**（top/recommended/changes 秒级）；触发扫描耗时 15+ 分钟（full）"
@@ -57,6 +61,10 @@ class DividendTool(BaseTool):
                 "type": "string",
                 "description": "自由文本查询（action=query 时用，让岩神自然语言分派）",
             },
+            "limit": {
+                "type": "integer",
+                "description": "latest_digest 时拉取最近 N 篇（默认 1，上限 5）",
+            },
         },
         "required": ["action"],
     }
@@ -75,6 +83,23 @@ class DividendTool(BaseTool):
         irminsul = state.irminsul
 
         # -------- 查询类（秒级）--------
+
+        if action == "latest_digest":
+            import time as _time
+            try:
+                limit = int(kwargs.get("limit", 1) or 1)
+            except (TypeError, ValueError):
+                limit = 1
+            limit = max(1, min(limit, 5))
+            records = await irminsul.push_archive_list(actor="岩神", limit=limit)
+            if not records:
+                return "暂无岩神理财归档。可能尚未触发采集（cron_on / trigger_daily / trigger_full）。"
+            out = []
+            for r in records:
+                ts = _time.strftime("%m-%d %H:%M", _time.localtime(r.created_at))
+                unread = " [未读]" if r.read_at is None else ""
+                out.append(f"## 【{r.source}】{ts}{unread}\n\n{r.message_md}")
+            return "\n\n---\n\n".join(out)
 
         if action == "top":
             n = max(1, min(int(kwargs.get("n") or 20), 100))

@@ -17,20 +17,21 @@ from paimon.tools.base import BaseTool, ToolContext
 class SubscribeTool(BaseTool):
     name = "subscribe"
     description = (
-        "管理**话题订阅**（风神定时采集 web-search 结果 → LLM 写日报 → 推送）。\n"
-        "action ∈ create/list/delete/run/pause/resume。\n"
-        "**何时用**：用户说「订阅 / 每 N 分钟给我推送某主题的最新消息 / 关注某话题」。\n"
+        "管理**话题订阅**（风神定时采集 web-search 结果 → LLM 写日报 → 归档到面板）。\n"
+        "action ∈ create / list / delete / run / pause / resume / latest_digest。\n"
+        "**何时用**：用户说「订阅 / 每 N 分钟给我推送某主题的最新消息 / 关注某话题」"
+        "或者**问「今天的舆情怎么样 / 最近的新闻 / 风神最新一篇日报」**（用 latest_digest）。\n"
         "**不要用** schedule 工具做这个——schedule 只是到点发 prompt 给 LLM 跑一次，"
-        "本工具会落库 + 去重 + 日报化推送。\n"
-        "**操作既有订阅**（delete/pause/resume）时 sub_id 支持 id 前缀或**关键词模糊匹配**，"
-        "例：用户说「停掉小米 SU7 订阅」可以直接传 sub_id='小米 SU7'，本工具会按 query 匹配。"
+        "本工具会落库 + 去重 + 日报化归档。\n"
+        "**注意**：日报不再主动推送到聊天，只归档到 /sentiment 面板和推送抽屉；"
+        "用户问起时务必用 latest_digest 把内容拉出来复述。"
     )
     parameters = {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "list", "delete", "run", "pause", "resume"],
+                "enum": ["create", "list", "delete", "run", "pause", "resume", "latest_digest"],
                 "description": "操作类型",
             },
             "query": {
@@ -53,10 +54,14 @@ class SubscribeTool(BaseTool):
             "sub_id": {
                 "type": "string",
                 "description": (
-                    "目标订阅（delete/run/pause/resume 必填）。"
+                    "目标订阅（delete/run/pause/resume 必填，latest_digest 可选缩窄到指定订阅）。"
                     "支持：完整 id / id 前缀（8 字即可）/ query 关键词模糊匹配。"
                     "例如用户说「删掉小米订阅」可直接传 '小米'。"
                 ),
+            },
+            "limit": {
+                "type": "integer",
+                "description": "latest_digest 时拉取最近 N 篇（默认 1，上限 5）",
             },
         },
         "required": ["action"],
@@ -73,9 +78,61 @@ class SubscribeTool(BaseTool):
             return await self._create(ctx, kwargs)
         if action == "list":
             return await self._list()
+        if action == "latest_digest":
+            return await self._latest_digest(kwargs)
         if action in ("delete", "run", "pause", "resume"):
             return await self._manage(action, kwargs.get("sub_id", ""))
         return f"未知 action: {action}"
+
+    async def _latest_digest(self, kwargs: dict) -> str:
+        """从推送归档里拉风神最近的 N 篇 digest（用户问「今天舆情怎样」时调）。"""
+        from paimon.state import state
+
+        try:
+            limit = int(kwargs.get("limit", 1) or 1)
+        except (TypeError, ValueError):
+            limit = 1
+        limit = max(1, min(limit, 5))
+
+        sub_id_arg = (kwargs.get("sub_id") or "").strip()
+        target_query = ""
+        if sub_id_arg:
+            # 模糊解析订阅，缩窄到指定订阅的 digest
+            sub = await state.irminsul.subscription_get(sub_id_arg)
+            if not sub:
+                all_subs = await state.irminsul.subscription_list()
+                arg_lower = sub_id_arg.lower()
+                matches = (
+                    [s for s in all_subs if s.id.startswith(sub_id_arg)]
+                    or [s for s in all_subs if arg_lower in s.query.lower()]
+                )
+                if matches:
+                    sub = matches[0]
+            if sub:
+                target_query = sub.query
+
+        # 拉风神 actor 的归档（按 created_at 降序）
+        records = await state.irminsul.push_archive_list(
+            actor="风神", limit=20,
+        )
+        if target_query:
+            # 二次过滤：日报 message_md 通常含订阅 query，做包含匹配
+            records = [
+                r for r in records
+                if target_query in r.message_md or target_query in r.source
+            ]
+
+        records = records[:limit]
+        if not records:
+            hint = f"（订阅: {target_query}）" if target_query else ""
+            return f"暂无风神日报归档{hint}。可能尚未触发采集，或订阅不存在。"
+
+        out = []
+        for r in records:
+            ts = time.strftime("%m-%d %H:%M", time.localtime(r.created_at))
+            unread = " [未读]" if r.read_at is None else ""
+            out.append(f"## 【{r.source}】{ts}{unread}\n\n{r.message_md}")
+        return "\n\n---\n\n".join(out)
 
     async def _create(self, ctx: ToolContext, kwargs: dict) -> str:
         from paimon.core.commands import create_subscription

@@ -10,6 +10,7 @@ from .authz import Authz
 from .dividend import ChangeEvent, ScoreSnapshot, WatchlistEntry
 from .feed_event import FeedEvent, is_severity_upgrade
 from .irminsul import Irminsul
+from .push_archive import PushArchiveRecord
 from .memory import Memory, MemoryMeta
 from .schedule import ScheduledTask
 from .selfcheck import SelfcheckRun
@@ -31,4 +32,5 @@ __all__ = [
     "ScheduledTask",
     "SelfcheckRun",
     "FeedEvent", "is_severity_upgrade",
+    "PushArchiveRecord",
 ]

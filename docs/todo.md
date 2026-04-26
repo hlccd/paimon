@@ -67,6 +67,7 @@
 - [ ] **时执**上下文压缩阈值（3.5k 偏低）
 - [x] ~~**生执**依赖环回滚机制~~ —— 2026-04-24 选 **saga 补偿**（非状态快照）：`Subtask.compensate` 字段由生执在编排时按需声明（仅有副作用的节点），pipeline 失败时 `_saga.run_compensations` 按 completed 反序执行，交火神 archon 落地；环检测第一轮降级线性、第二轮硬失败
 - [ ] **异常日志**落盘方案（独立日志设施，不入世界树）
+- [ ] **通用日报合成器**（`paimon/foundation/digest/`）下一步：等岩神 / 草神 / 水神**任意一个真实接入**事件聚类 + 日报路径后，再抽 `DigestPipeline + DomainAdapter` 协议（数据流层抽象）。当前仅抽了 prompt 层（2026-04-26），数据流仍由各神独立持有 repo。等 ≥2 个具体实现才能找出正确的协议边界，避免过早抽象。
 - [x] ~~**Skill / Tool sensitivity** 字段设计~~ —— 2026-04-23 采用"工具敏感清单 + 装载时派生"模型。敏感清单见 `paimon/core/authz/sensitive_tools.py`；冰神扫 skills/ 时按 `allowed_tools` 自动派生 sensitivity，`Bash(git:*)` 这类受限声明归一化处理。
 - [x] ~~**永久授权**存储结构~~ —— 2026-04-23 世界树 authz 域：`(subject_type, subject_id, user_id) → decision` 三元组，decision ∈ {`permanent_allow`, `permanent_deny`}。先按 skill 粒度实装，tool / 按参数模式未来扩展。
 - [x] ~~**用户答复**交互形态~~ —— 2026-04-23 纯文本识别（规则引擎 `paimon/core/authz/keywords.py`）+ 30s 超时保守拒绝。识别 21 种答复模式含否定短语（"不要放行"等）。

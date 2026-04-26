@@ -36,6 +36,27 @@ SENTIMENT_CSS = """
     }
     .btn:hover { border-color: var(--gold-dark); color: var(--gold); }
 
+    /* 未读 digest banner（actor 有未读归档时顶部提示） */
+    .unread-banner {
+        display: none;
+        background: linear-gradient(90deg, rgba(212,175,55,.12), rgba(110,198,255,.04));
+        border: 1px solid var(--gold-dark);
+        border-radius: 8px;
+        padding: 10px 16px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: var(--text-primary);
+        cursor: pointer;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        transition: background 0.15s;
+    }
+    .unread-banner.show { display: flex; }
+    .unread-banner:hover { background: linear-gradient(90deg, rgba(212,175,55,.2), rgba(110,198,255,.06)); }
+    .unread-banner b { color: var(--gold); font-weight: 700; }
+    .unread-banner .ub-action { color: var(--gold); font-size: 12px; flex-shrink: 0; }
+
     /* 订阅级 banner（filterSub 选中时显示） */
     .sub-banner {
         display: none;
@@ -223,6 +244,30 @@ SENTIMENT_BODY = """
             <div class="header-actions">
                 <button class="btn" onclick="loadAll()">刷新</button>
                 <a href="/feed" class="btn" style="text-decoration:none">信息流原始流</a>
+            </div>
+        </div>
+
+        <div id="digest" class="digest-section" style="margin-top:0">
+            <div class="ds-head">
+                <h2>📨 风神 · 日报公告 <span id="ventiBulletinHint" style="font-size:12px;color:var(--text-muted);font-weight:normal;margin-left:8px"></span></h2>
+                <div class="ds-tools">
+                    <button onclick="window.markAllVentiRead()">全部已读</button>
+                </div>
+            </div>
+            <div id="ventiBulletins">
+                <div class="digest-bulletins-empty">加载中...</div>
+            </div>
+            <div class="digest-history-toggle">
+                <button onclick="window.toggleVentiHistory()" id="ventiHistoryToggleBtn">
+                    📜 查看更多历史 ↓
+                </button>
+            </div>
+            <div id="ventiHistoryWrap" style="display:none;margin-top:12px">
+                <input id="ventiDigestSearch" placeholder="搜索历史内容（Enter 应用）"
+                    style="width:100%;padding:6px 10px;background:var(--paimon-bg);border:1px solid var(--paimon-border);border-radius:4px;color:var(--text-primary);font-size:12px;margin-bottom:10px" />
+                <div id="ventiDigestList" class="digest-list">
+                    <div class="push-empty">加载中...</div>
+                </div>
             </div>
         </div>
 
@@ -606,12 +651,158 @@ SENTIMENT_SCRIPT = r"""
                 + itemsHtml;
         }
 
+        // 顶部红点跳转到本面板时滚动到公告区（公告区已上移到顶部，等价于到顶）
+        window.openVentiDigests=function(){
+            var sec=document.getElementById('digest');
+            if(sec) sec.scrollIntoView({behavior:'smooth', block:'start'});
+        };
+
+        // ===== 风神日报公告区（最近 3 条展开式）+ 历史折叠区 =====
+        var _ventiDigestSearch = '';
+        var _ventiBulletinLimit = 3;        // 顶部公告显示最近 N 条
+        var _ventiHistoryShown = false;
+
+        async function loadVentiBulletins(){
+            // 顶部公告区：最近 N 条 digest 直接展开式渲染（类似聊天气泡）
+            var el = document.getElementById('ventiBulletins');
+            if(!el) return;
+            try{
+                var qs = 'actor=' + encodeURIComponent('风神') + '&limit=' + _ventiBulletinLimit;
+                var r = await fetch('/api/push_archive/list?' + qs);
+                var d = await r.json();
+                var records = d.records || [];
+                var hint = document.getElementById('ventiBulletinHint');
+                if(!records.length){
+                    el.innerHTML = '<div class="digest-bulletins-empty">暂无风神日报<br><small>明早 7:00 cron 跑过后会出现，或在订阅卡片点「运行」</small></div>';
+                    if(hint) hint.textContent = '';
+                    return;
+                }
+                var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
+                if(hint) hint.textContent = '· 最近 ' + records.length + ' 条' + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
+                el.innerHTML = records.map(function(rec){
+                    var unread = rec.read_at == null;
+                    var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
+                    var dot = unread ? '<span class="db-unread-dot" title="未读"></span>' : '';
+                    var markBtn = unread
+                        ? '<button class="db-mark-read" onclick="event.stopPropagation();window.markVentiBulletinRead(\'' + esc(rec.id) + '\')">标记已读</button>'
+                        : '';
+                    return '<div class="' + cls + '" data-id="' + esc(rec.id) + '">'
+                        + '<div class="db-head">'
+                        + '<div class="db-head-left">'
+                        + dot
+                        + '<span class="db-source">' + esc(rec.source) + '</span>'
+                        + '<span class="db-time">' + fmtTime(rec.created_at) + '</span>'
+                        + '</div>'
+                        + markBtn
+                        + '</div>'
+                        + '<div class="db-body">' + esc(rec.message_md || '') + '</div>'
+                        + '</div>';
+                }).join('');
+            }catch(e){
+                el.innerHTML = '<div class="digest-bulletins-empty">加载失败: ' + esc(String(e)) + '</div>';
+            }
+        }
+        window.markVentiBulletinRead = async function(id){
+            try{
+                await fetch('/api/push_archive/' + encodeURIComponent(id) + '/read', {method: 'POST'});
+                // 重新拉公告区（更新 read 样式 + 数字提示）
+                await loadVentiBulletins();
+                if(typeof window.refreshNavBadge === 'function') window.refreshNavBadge();
+            }catch(e){}
+        };
+        window.toggleVentiHistory = function(){
+            _ventiHistoryShown = !_ventiHistoryShown;
+            document.getElementById('ventiHistoryWrap').style.display = _ventiHistoryShown ? 'block' : 'none';
+            document.getElementById('ventiHistoryToggleBtn').textContent =
+                _ventiHistoryShown ? '收起历史 ↑' : '📜 查看更多历史 ↓';
+            if(_ventiHistoryShown) loadVentiDigests();
+        };
+
+        async function loadVentiDigests(){
+            var listEl=document.getElementById('ventiDigestList');
+            if(!listEl)return;
+            listEl.innerHTML='<div class="push-empty">加载中...</div>';
+            try{
+                var qs='actor='+encodeURIComponent('风神')+'&limit=100';
+                if(_ventiDigestSearch) qs+='&q='+encodeURIComponent(_ventiDigestSearch);
+                var r=await fetch('/api/push_archive/list?'+qs);
+                var d=await r.json();
+                var records=d.records||[];
+                if(!records.length){
+                    listEl.innerHTML='<div class="push-empty">暂无风神日报'+(_ventiDigestSearch?'（搜索无结果）':'')+'</div>';
+                    return;
+                }
+                listEl.innerHTML=records.map(function(rec){
+                    var unread = rec.read_at == null;
+                    var preview = (rec.message_md||'').slice(0,200);
+                    return '<div class="push-item '+(unread?'unread':'')+'" data-id="'+esc(rec.id)+'" onclick="window.toggleVentiDigest(this)">'
+                        + '<div class="push-item-head">'
+                        + '<span class="push-item-source">'+esc(rec.source)+'</span>'
+                        + '<span class="push-item-time">'+fmtTime(rec.created_at)+'</span>'
+                        + '</div>'
+                        + '<div class="push-item-preview">'+esc(preview)+'</div>'
+                        + '<div class="push-item-body">'+esc(rec.message_md||'')+'</div>'
+                        + '</div>';
+                }).join('');
+            }catch(e){
+                listEl.innerHTML='<div class="push-empty">加载失败: '+esc(String(e))+'</div>';
+            }
+        }
+        window.toggleVentiDigest = async function(el){
+            var wasExpanded = el.classList.contains('expanded');
+            // 收起其它已展开的（同 section 内只展开一条）
+            document.querySelectorAll('#ventiDigestList .push-item.expanded').forEach(function(x){
+                if(x!==el) x.classList.remove('expanded');
+            });
+            if(wasExpanded){ el.classList.remove('expanded'); return; }
+            el.classList.add('expanded');
+            if(el.classList.contains('unread')){
+                var id = el.getAttribute('data-id');
+                try{
+                    await fetch('/api/push_archive/'+encodeURIComponent(id)+'/read', {method:'POST'});
+                    el.classList.remove('unread');
+                    // 更新 banner + 全局红点（refreshUnreadBadge 在 theme 里 30s 一刷，这里手动触发一次）
+                    if(typeof window.refreshNavBadge==='function') window.refreshNavBadge();
+                }catch(e){}
+            }
+        };
+        window.markAllVentiRead = async function(){
+            try{
+                await fetch('/api/push_archive/read_all?actor='+encodeURIComponent('风神'),
+                    {method:'POST'});
+                document.querySelectorAll('#ventiDigestList .push-item.unread').forEach(function(el){
+                    el.classList.remove('unread');
+                });
+                // 公告区也刷新（已读样式生效）
+                await loadVentiBulletins();
+                if(typeof window.refreshNavBadge==='function') window.refreshNavBadge();
+            }catch(e){}
+        };
+        // 搜索框 Enter 触发
+        document.addEventListener('keydown', function(e){
+            if(e.key==='Enter' && document.activeElement && document.activeElement.id==='ventiDigestSearch'){
+                _ventiDigestSearch = document.activeElement.value.trim();
+                loadVentiDigests();
+            }
+        });
+        // hash=#digest 时自动滚动到日报区（红点 / banner 跳转入口）
+        window.addEventListener('load', function(){
+            if(location.hash === '#digest'){
+                setTimeout(function(){
+                    var sec=document.getElementById('digest');
+                    if(sec) sec.scrollIntoView({behavior:'smooth', block:'start'});
+                }, 200);
+            }
+        });
+
         window.loadAll=function(){
-            loadOverview();      // 4 张统计卡：始终全局
-            loadSubBanner();     // 订阅级 banner：依 filterSub 显隐
-            loadEvents();        // 事件列表：跟 filterSub
-            loadTimeline();      // 折线/矩阵：跟 filterSub
-            loadSources();       // 信源 Top：跟 filterSub
+            loadOverview();             // 4 张统计卡：始终全局
+            loadSubBanner();            // 订阅级 banner：依 filterSub 显隐
+            loadEvents();               // 事件列表：跟 filterSub
+            loadTimeline();             // 折线/矩阵：跟 filterSub
+            loadSources();              // 信源 Top：跟 filterSub
+            loadVentiBulletins();       // 公告区：最近 3 篇展开卡片
+            // 历史折叠区按需加载（用户点「查看更多」时才 loadVentiDigests）
         };
         // inline onchange 走 window 全局，IIFE 内函数必须显式挂出去
         window.loadEvents=loadEvents;

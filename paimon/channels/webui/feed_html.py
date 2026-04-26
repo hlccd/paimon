@@ -150,8 +150,25 @@ FEED_BODY = """
                         <input id="formQuery" placeholder="例: Claude 4.7 新特性" />
                     </div>
                     <div class="form-field">
-                        <label>cron (默认每日 10 点)</label>
-                        <input id="formCron" placeholder="0 10 * * *" />
+                        <label>触发频率</label>
+                        <select id="formCronMode" onchange="onCronModeChange()">
+                            <option value="daily" selected>每天</option>
+                            <option value="weekday">工作日</option>
+                            <option value="hourly">每隔 N 小时</option>
+                            <option value="custom">自定义 cron</option>
+                        </select>
+                    </div>
+                    <div class="form-field" id="formCronTimeWrap">
+                        <label>具体时间</label>
+                        <input id="formCronTime" type="time" value="07:00" step="60" />
+                    </div>
+                    <div class="form-field" id="formCronHourlyWrap" style="display:none">
+                        <label>间隔（小时）</label>
+                        <input id="formCronHourly" type="number" min="1" max="24" value="6" />
+                    </div>
+                    <div class="form-field" id="formCronCustomWrap" style="display:none">
+                        <label>cron 表达式</label>
+                        <input id="formCron" placeholder="0 7 * * *" />
                     </div>
                     <div class="form-field">
                         <label>引擎</label>
@@ -163,7 +180,7 @@ FEED_BODY = """
                     </div>
                     <button class="btn-primary" onclick="createSub()">创建订阅</button>
                 </div>
-                <div class="form-hint">推送会落到固定「📨 推送」会话（WebUI）或当前频道</div>
+                <div class="form-hint">默认每天上午 7:00 触发；推送会落到本面板和舆情看板的「日报公告」区</div>
             </div>
             <div id="subListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
         </div>
@@ -264,9 +281,36 @@ FEED_SCRIPT = """
             }catch(e){ el.innerHTML='<div class="empty-state">加载失败: '+esc(String(e))+'</div>'; }
         }
 
+        // 触发频率模式切换 → 显示对应输入控件
+        window.onCronModeChange=function(){
+            var mode=document.getElementById('formCronMode').value;
+            document.getElementById('formCronTimeWrap').style.display = (mode==='daily'||mode==='weekday') ? '' : 'none';
+            document.getElementById('formCronHourlyWrap').style.display = mode==='hourly' ? '' : 'none';
+            document.getElementById('formCronCustomWrap').style.display = mode==='custom' ? '' : 'none';
+        };
+
+        // 把 UI 模式 + 时间组合成 cron 表达式
+        function buildCronExpr(){
+            var mode=document.getElementById('formCronMode').value;
+            if(mode==='custom') return document.getElementById('formCron').value.trim();
+            if(mode==='hourly'){
+                var n=parseInt(document.getElementById('formCronHourly').value || '6', 10);
+                if(isNaN(n)||n<1||n>24) n=6;
+                return '0 */'+n+' * * *';
+            }
+            var t=document.getElementById('formCronTime').value || '07:00';
+            var parts=t.split(':');
+            var hh=parseInt(parts[0]||'7', 10);
+            var mm=parseInt(parts[1]||'0', 10);
+            if(isNaN(hh)) hh=7;
+            if(isNaN(mm)) mm=0;
+            if(mode==='weekday') return mm+' '+hh+' * * 1-5';
+            return mm+' '+hh+' * * *';   // daily
+        }
+
         window.createSub=async function(){
             var q=document.getElementById('formQuery').value.trim();
-            var c=document.getElementById('formCron').value.trim();
+            var c=buildCronExpr();
             var eng=document.getElementById('formEngine').value;
             if(!q){alert('请填关键词');return;}
             try{
@@ -277,7 +321,9 @@ FEED_SCRIPT = """
                 var d=await r.json();
                 if(d.ok){
                     document.getElementById('formQuery').value='';
-                    document.getElementById('formCron').value='';
+                    // 自定义 cron 框清空，模式 + time 保留默认
+                    var customEl=document.getElementById('formCron');
+                    if(customEl) customEl.value='';
                     refreshAll();
                 }else{
                     alert('创建失败: '+(d.error||'unknown'));

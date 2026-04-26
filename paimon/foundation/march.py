@@ -35,6 +35,23 @@ RING_EVENT_WINDOW_SECONDS = 60
 RING_EVENT_MAX_PER_WINDOW = 10
 
 
+def _cron_next(expr: str, base_ts: float) -> float:
+    """计算 cron 表达式相对 base_ts 的下次触发 unix 时间戳。
+
+    必须显式用 timezone-aware datetime 喂给 croniter——否则 croniter 把 cron
+    解析为 UTC 而非系统本地时区（即使系统 timezone 已正确配置）。
+    举例：cron '0 12 * * *' 在中国大陆 (UTC+8) 应返回北京时间 12:00 unix，
+    但如果传 unix timestamp 或 naive datetime，会返回 UTC 12:00 (= 北京 20:00)。
+    """
+    from datetime import datetime
+    from croniter import croniter
+
+    # astimezone() 无参数 = 用系统本地时区，结果是 timezone-aware datetime
+    base_dt = datetime.fromtimestamp(base_ts).astimezone()
+    nxt_dt = croniter(expr, base_dt).get_next(datetime)
+    return nxt_dt.timestamp()
+
+
 class MarchService:
     def __init__(self, irminsul: Irminsul, leyline: Leyline):
         self._irminsul = irminsul
@@ -48,8 +65,58 @@ class MarchService:
         self._last_lifecycle_sweep: float = time.time()
         self._lifecycle_sweep_running: bool = False
 
+    async def _reconcile_cron_schedules(self) -> None:
+        """启动时重算所有 enabled cron 任务的 next_run_at。
+
+        历史 next_run_at 可能因 croniter 时区 bug（按 UTC 而非本地时区解析）
+        而错位 8 小时。重启时按 _cron_next 重新算一次对齐到本地时区。
+        副作用：每次重启 cron 任务都会"重新对齐到下次"，错过的执行不会补；
+        这是 cron 语义的合理近似，避免重启风暴。
+        """
+        try:
+            tasks = await self._irminsul.schedule_list(enabled_only=True)
+        except Exception as e:
+            logger.warning("[三月] 启动 cron 重对齐：拉任务失败 {}", e)
+            return
+        now = time.time()
+        fixed = 0
+        for task in tasks:
+            if task.trigger_type != "cron":
+                continue
+            expr = task.trigger_value.get("expr", "") if task.trigger_value else ""
+            if not expr:
+                continue
+            try:
+                new_next = _cron_next(expr, now)
+            except Exception as e:
+                logger.warning("[三月] cron '{}' 重算失败 task={}: {}", expr, task.id, e)
+                continue
+            old_next = task.next_run_at
+            # 只在差距大于 30 分钟时才覆盖（避免无意义的频繁更新）
+            if abs(new_next - old_next) > 30 * 60:
+                try:
+                    await self._irminsul.schedule_update(
+                        task.id, actor="三月·重对齐", next_run_at=new_next,
+                    )
+                    fixed += 1
+                    logger.info(
+                        "[三月] cron 重对齐 task={} expr='{}' "
+                        "old_next={} new_next={} ({})",
+                        task.id, expr,
+                        time.strftime("%m-%d %H:%M", time.localtime(old_next)) if old_next else "-",
+                        time.strftime("%m-%d %H:%M", time.localtime(new_next)),
+                        "本地时间",
+                    )
+                except Exception as e:
+                    logger.warning("[三月] cron 重对齐写库失败 task={}: {}", task.id, e)
+        if fixed > 0:
+            logger.info("[三月] 启动 cron 重对齐：修复 {} 条错位任务", fixed)
+
     async def start(self) -> None:
         self._running = True
+
+        # 启动时纠正 cron next_run_at（修历史时区错位 + 重启对齐）
+        await self._reconcile_cron_schedules()
 
         # 启动对齐：算到下一个整分钟（:00）还有多久，先睡到那里再开始轮询
         # 之后每轮都按"当前时间到下一个 :00"精确睡眠，避免长期漂移
@@ -210,9 +277,7 @@ class MarchService:
             expr = task.trigger_value.get("expr", "")
             if expr:
                 try:
-                    from croniter import croniter
-                    cron = croniter(expr, finished_at)
-                    return cron.get_next(float)
+                    return _cron_next(expr, finished_at)
                 except Exception as e:
                     logger.error("[三月] cron 表达式解析失败 '{}': {}", expr, e)
             return None
@@ -279,36 +344,44 @@ class MarchService:
         message: str = "",
         prompt: str = "",
         task_id: str = "",
+        level: str = "silent",
     ) -> bool:
-        """事件响铃入口（docs/foundation/march.md §推送响铃 · 事件触发）。
+        """事件响铃入口（2026-04-25 改造为静默归档）。
 
-        数据收集者（风神 / 岩神 / 草神 等）感知到重要数据时，主动请求三月响铃
-        推送给用户。三月转发地脉 `march.ring` 事件，派蒙订阅后投递（复用定时响
-        铃的投递链路）。
+        历史：原本经地脉 `march.ring` 投递到聊天会话，污染对话流。
+        现在：所有 ring_event 调用静默落地到世界树 `push_archive` 域，
+        WebUI 导航栏全局红点 + 抽屉消费；聊天会话只承载用户对话 + /schedule
+        定时任务（_fire_task 路径不变）。
 
         参数：
-          channel_name: 目标频道（webui / telegram / qq）
-          chat_id:      目标会话
-          source:       调用方（"风神" / "岩神" / ...），用于审计 + 限流
-          message:      已整理好的文案（不走 LLM，直发）
-          prompt:       需派蒙 LLM 人格化后投递的提示
-          task_id:      可选，关联的定时任务 id
+          channel_name: 推送目标频道（webui / telegram / qq），仅供归档元信息
+          chat_id:      推送目标会话 id（同上，归档用）
+          source:       调用方（"风神·舆情日报" / "风神·舆情预警" / "岩神·..."）
+          message:      整理好的 markdown 文案（必填；prompt 字段已废弃）
+          prompt:       已废弃，传入会被并入 message 末尾（保兼容）
+          task_id:      可选，关联的定时任务 id（写入 extra_json）
+          level:        'silent'（默认，不打断）| 'loud'（预留，当前实现仍是静默）
 
         返回：
-          True  — 已入队地脉（不保证送达：频道不支持 / SSE 断连等可能静默失败）
-          False — 被限流拒绝（同 source+channel+chat 60s 内 ≥ 10 次）
+          True  — 已归档
+          False — 被限流拒绝
 
         抛出：
-          ValueError — message 和 prompt 同时为空 / 其他参数缺失
+          ValueError — message 为空 / source / channel_name / chat_id 缺失
         """
-        if not (message or prompt):
-            raise ValueError("ring_event: message 或 prompt 至少一个非空")
-        # strip 校验：避免 "   " 或含控制字符（换行/制表）绕过非空检查
+        # prompt 字段早期设计为 LLM 人格化提示，现已废弃；如调用方还传，并入 message
+        if prompt and not message:
+            message = prompt
+        elif prompt and message:
+            message = f"{message}\n\n{prompt}"
+        if not message:
+            raise ValueError("ring_event: message 非空（prompt 已废弃，请用 message）")
+        # strip 校验
         source = (source or "").strip()
         channel_name = (channel_name or "").strip()
         chat_id = (chat_id or "").strip()
         if not source or not channel_name or not chat_id:
-            raise ValueError("ring_event: source / channel_name / chat_id 均必填（不能为空白）")
+            raise ValueError("ring_event: source / channel_name / chat_id 均必填")
         if any(c in source for c in "\n\r\t"):
             raise ValueError("ring_event: source 不能含换行/制表符")
 
@@ -322,26 +395,37 @@ class MarchService:
             )
             return False
 
-        payload: dict[str, Any] = {
-            "channel_name": channel_name,
-            "chat_id": chat_id,
-            "source": source,
-        }
-        if task_id:
-            payload["task_id"] = task_id
-        if prompt:
-            payload["prompt"] = prompt
-        if message:
-            payload["message"] = message
+        # 从 source 推出 actor（"风神·舆情日报" → "风神"）；用于面板按神分组
+        actor = source.split("·", 1)[0] if "·" in source else source
 
-        # 复用 march.ring 订阅路径（派蒙 _on_march_ring 已兼容 message/prompt）
-        await self._leyline.publish(
-            "march.ring", payload, source=f"三月·事件响铃@{source}",
-        )
+        # 落地到 push_archive（静默归档）
+        rec_id = ""
+        try:
+            rec_id = await self._irminsul.push_archive_create(
+                source=source, actor=actor,
+                message_md=message,
+                channel_name=channel_name, chat_id=chat_id,
+                level=level,
+                extra={"task_id": task_id} if task_id else {},
+            )
+        except Exception as e:
+            logger.error("[三月·事件响铃] 归档失败 source={}: {}", source, e)
+            return False
+
+        # 通知 WebUI 红点更新（前端 SSE 可订阅；当前用前端 30s 轮询，
+        # 这条 publish 是预留扩展点）
+        try:
+            await self._leyline.publish(
+                "push.archived",
+                {"id": rec_id, "actor": actor, "source": source, "level": level},
+                source=f"三月·事件响铃@{actor}",
+            )
+        except Exception as e:
+            logger.debug("[三月·事件响铃] leyline publish 失败（不影响归档）: {}", e)
 
         logger.info(
-            "[三月·事件响铃] source={} → {}/{} len_msg={} len_prompt={}",
-            source, channel_name, chat_id[:20], len(message), len(prompt),
+            "[三月·事件响铃] source={} → push_archive {} (actor={} len={})",
+            source, rec_id, actor, len(message),
         )
 
         # audit 落盘（失败不影响推送链路）
@@ -350,12 +434,12 @@ class MarchService:
                 event_type="march_ring_event",
                 payload={
                     "source": source,
+                    "actor": actor,
+                    "archive_id": rec_id,
                     "channel_name": channel_name,
                     "chat_id": chat_id,
-                    "has_message": bool(message),
-                    "has_prompt": bool(prompt),
-                    "message_prefix": message[:200] if message else "",
-                    "prompt_prefix": prompt[:200] if prompt else "",
+                    "level": level,
+                    "message_prefix": message[:200],
                     "task_id": task_id,
                 },
                 actor=f"三月·{source}",
@@ -391,8 +475,7 @@ class MarchService:
             expr = trigger_value.get("expr", "")
             if expr:
                 try:
-                    from croniter import croniter
-                    return croniter(expr, now).get_next(float)
+                    return _cron_next(expr, now)
                 except Exception:
                     pass
             return now + 60

@@ -131,6 +131,27 @@ WEALTH_CSS = """
 
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 14px; }
     .loading { display: inline-block; padding: 2px 10px; color: var(--text-muted); font-size: 12px; }
+
+    /* 未读岩神 digest banner */
+    .unread-banner {
+        display: none;
+        background: linear-gradient(90deg, rgba(212,175,55,.12), rgba(110,198,255,.04));
+        border: 1px solid var(--gold-dark);
+        border-radius: 8px;
+        padding: 10px 16px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: var(--text-primary);
+        cursor: pointer;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        transition: background 0.15s;
+    }
+    .unread-banner.show { display: flex; }
+    .unread-banner:hover { background: linear-gradient(90deg, rgba(212,175,55,.2), rgba(110,198,255,.06)); }
+    .unread-banner b { color: var(--gold); font-weight: 700; }
+    .unread-banner .ub-action { color: var(--gold); font-size: 12px; flex-shrink: 0; }
 """
 
 
@@ -146,6 +167,30 @@ WEALTH_BODY = """
                 <button class="btn-scan" id="btnDaily" onclick="triggerScan('daily')">日更</button>
                 <button class="btn-scan primary" id="btnFull" onclick="triggerScan('full')">全扫描</button>
                 <button class="btn-scan" onclick="refreshAll()">刷新</button>
+            </div>
+        </div>
+
+        <div id="digest" class="digest-section" style="margin-top:0">
+            <div class="ds-head">
+                <h2>📨 岩神 · 推送公告 <span id="zhongliBulletinHint" style="font-size:12px;color:var(--text-muted);font-weight:normal;margin-left:8px"></span></h2>
+                <div class="ds-tools">
+                    <button onclick="window.markAllZhongliRead()">全部已读</button>
+                </div>
+            </div>
+            <div id="zhongliBulletins">
+                <div class="digest-bulletins-empty">加载中...</div>
+            </div>
+            <div class="digest-history-toggle">
+                <button onclick="window.toggleZhongliHistory()" id="zhongliHistoryToggleBtn">
+                    📜 查看更多历史 ↓
+                </button>
+            </div>
+            <div id="zhongliHistoryWrap" style="display:none;margin-top:12px">
+                <input id="zhongliDigestSearch" placeholder="搜索历史内容（Enter 应用）"
+                    style="width:100%;padding:6px 10px;background:var(--paimon-bg);border:1px solid var(--paimon-border);border-radius:4px;color:var(--text-primary);font-size:12px;margin-bottom:10px" />
+                <div id="zhongliDigestList" class="digest-list">
+                    <div class="push-empty">加载中...</div>
+                </div>
             </div>
         </div>
 
@@ -215,8 +260,159 @@ WEALTH_SCRIPT = """
             btn.classList.add('active');
         };
 
+        // 顶部红点跳转到本面板时滚动到公告区（公告区已上移到顶部，等价于到顶）
+        window.openZhongliDigests=function(){
+            var sec=document.getElementById('digest');
+            if(sec) sec.scrollIntoView({behavior:'smooth', block:'start'});
+        };
+
+        // ===== 岩神推送公告区 + 历史折叠区 =====
+        function _esc(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+        function _fmtTime(ts){
+            if(!ts||ts<=0)return '-';
+            var d=new Date(ts*1000);
+            var mm=(d.getMonth()+1).toString().padStart(2,'0');
+            var dd=d.getDate().toString().padStart(2,'0');
+            var hh=d.getHours().toString().padStart(2,'0');
+            var mi=d.getMinutes().toString().padStart(2,'0');
+            return mm+'-'+dd+' '+hh+':'+mi;
+        }
+        var _zhongliDigestSearch = '';
+        var _zhongliBulletinLimit = 3;
+        var _zhongliHistoryShown = false;
+
+        async function loadZhongliBulletins(){
+            // 顶部公告区：最近 N 条 digest 直接展开式渲染
+            var el = document.getElementById('zhongliBulletins');
+            if(!el) return;
+            try{
+                var qs = 'actor=' + encodeURIComponent('岩神') + '&limit=' + _zhongliBulletinLimit;
+                var r = await fetch('/api/push_archive/list?' + qs);
+                var d = await r.json();
+                var records = d.records || [];
+                var hint = document.getElementById('zhongliBulletinHint');
+                if(!records.length){
+                    el.innerHTML = '<div class="digest-bulletins-empty">暂无岩神推送<br><small>开启定时（cron_on）或手动触发 trigger_daily / trigger_full 后会出现</small></div>';
+                    if(hint) hint.textContent = '';
+                    return;
+                }
+                var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
+                if(hint) hint.textContent = '· 最近 ' + records.length + ' 条' + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
+                el.innerHTML = records.map(function(rec){
+                    var unread = rec.read_at == null;
+                    var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
+                    var dot = unread ? '<span class="db-unread-dot" title="未读"></span>' : '';
+                    var markBtn = unread
+                        ? '<button class="db-mark-read" onclick="event.stopPropagation();window.markZhongliBulletinRead(\'' + _esc(rec.id) + '\')">标记已读</button>'
+                        : '';
+                    return '<div class="' + cls + '" data-id="' + _esc(rec.id) + '">'
+                        + '<div class="db-head">'
+                        + '<div class="db-head-left">'
+                        + dot
+                        + '<span class="db-source">' + _esc(rec.source) + '</span>'
+                        + '<span class="db-time">' + _fmtTime(rec.created_at) + '</span>'
+                        + '</div>'
+                        + markBtn
+                        + '</div>'
+                        + '<div class="db-body">' + _esc(rec.message_md || '') + '</div>'
+                        + '</div>';
+                }).join('');
+            }catch(e){
+                el.innerHTML = '<div class="digest-bulletins-empty">加载失败: ' + _esc(String(e)) + '</div>';
+            }
+        }
+        window.markZhongliBulletinRead = async function(id){
+            try{
+                await fetch('/api/push_archive/' + encodeURIComponent(id) + '/read', {method: 'POST'});
+                await loadZhongliBulletins();
+                if(typeof window.refreshNavBadge === 'function') window.refreshNavBadge();
+            }catch(e){}
+        };
+        window.toggleZhongliHistory = function(){
+            _zhongliHistoryShown = !_zhongliHistoryShown;
+            document.getElementById('zhongliHistoryWrap').style.display = _zhongliHistoryShown ? 'block' : 'none';
+            document.getElementById('zhongliHistoryToggleBtn').textContent =
+                _zhongliHistoryShown ? '收起历史 ↑' : '📜 查看更多历史 ↓';
+            if(_zhongliHistoryShown) loadZhongliDigests();
+        };
+
+        async function loadZhongliDigests(){
+            var listEl=document.getElementById('zhongliDigestList');
+            if(!listEl)return;
+            listEl.innerHTML='<div class="push-empty">加载中...</div>';
+            try{
+                var qs='actor='+encodeURIComponent('岩神')+'&limit=100';
+                if(_zhongliDigestSearch) qs+='&q='+encodeURIComponent(_zhongliDigestSearch);
+                var r=await fetch('/api/push_archive/list?'+qs);
+                var d=await r.json();
+                var records=d.records||[];
+                if(!records.length){
+                    listEl.innerHTML='<div class="push-empty">暂无岩神推送'+(_zhongliDigestSearch?'（搜索无结果）':'')+'</div>';
+                    return;
+                }
+                listEl.innerHTML=records.map(function(rec){
+                    var unread = rec.read_at == null;
+                    var preview = (rec.message_md||'').slice(0,200);
+                    return '<div class="push-item '+(unread?'unread':'')+'" data-id="'+_esc(rec.id)+'" onclick="window.toggleZhongliDigest(this)">'
+                        + '<div class="push-item-head">'
+                        + '<span class="push-item-source">'+_esc(rec.source)+'</span>'
+                        + '<span class="push-item-time">'+_fmtTime(rec.created_at)+'</span>'
+                        + '</div>'
+                        + '<div class="push-item-preview">'+_esc(preview)+'</div>'
+                        + '<div class="push-item-body">'+_esc(rec.message_md||'')+'</div>'
+                        + '</div>';
+                }).join('');
+            }catch(e){
+                listEl.innerHTML='<div class="push-empty">加载失败: '+_esc(String(e))+'</div>';
+            }
+        }
+        window.toggleZhongliDigest = async function(el){
+            var wasExpanded = el.classList.contains('expanded');
+            document.querySelectorAll('#zhongliDigestList .push-item.expanded').forEach(function(x){
+                if(x!==el) x.classList.remove('expanded');
+            });
+            if(wasExpanded){ el.classList.remove('expanded'); return; }
+            el.classList.add('expanded');
+            if(el.classList.contains('unread')){
+                var id = el.getAttribute('data-id');
+                try{
+                    await fetch('/api/push_archive/'+encodeURIComponent(id)+'/read', {method:'POST'});
+                    el.classList.remove('unread');
+                    if(typeof window.refreshNavBadge==='function') window.refreshNavBadge();
+                }catch(e){}
+            }
+        };
+        window.markAllZhongliRead = async function(){
+            try{
+                await fetch('/api/push_archive/read_all?actor='+encodeURIComponent('岩神'),
+                    {method:'POST'});
+                document.querySelectorAll('#zhongliDigestList .push-item.unread').forEach(function(el){
+                    el.classList.remove('unread');
+                });
+                // 公告区也刷新
+                await loadZhongliBulletins();
+                if(typeof window.refreshNavBadge==='function') window.refreshNavBadge();
+            }catch(e){}
+        };
+        document.addEventListener('keydown', function(e){
+            if(e.key==='Enter' && document.activeElement && document.activeElement.id==='zhongliDigestSearch'){
+                _zhongliDigestSearch = document.activeElement.value.trim();
+                loadZhongliDigests();
+            }
+        });
+        window.addEventListener('load', function(){
+            if(location.hash === '#digest'){
+                setTimeout(function(){
+                    var sec=document.getElementById('digest');
+                    if(sec) sec.scrollIntoView({behavior:'smooth', block:'start'});
+                }, 200);
+            }
+        });
+
         window.refreshAll=function(){
             loadStats(); loadRecommended(); loadRanking(); loadChanges();
+            loadZhongliBulletins();
+            // 历史折叠区按需加载（用户点「查看更多」时才 loadZhongliDigests）
         };
 
         async function loadStats(){

@@ -325,6 +325,26 @@ CREATE TABLE IF NOT EXISTS selfcheck_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_selfcheck_kind ON selfcheck_runs(kind);
 CREATE INDEX IF NOT EXISTS idx_selfcheck_time ON selfcheck_runs(triggered_at DESC);
+
+-- ============ 域 13: 推送归档（替代主动推送到聊天会话）============
+-- 各神（风神/岩神/三月）原本经 march.ring_event 推到「📨 推送」聊天的内容，
+-- 改为静默归档到本表 + 全局红点抽屉消费。聊天会话彻底纯净（用户对话）。
+-- docs/foundation/march.md §推送归档（2026-04-25 新增）
+CREATE TABLE IF NOT EXISTS push_archive (
+    id            TEXT PRIMARY KEY,                  -- 12 位 hex
+    source        TEXT NOT NULL,                     -- "风神·舆情日报" / "风神·舆情预警" / "岩神·..."
+    actor         TEXT NOT NULL,                     -- "风神" / "岩神" / "三月"，用于按神分组
+    channel_name  TEXT NOT NULL DEFAULT 'webui',     -- 原本要投递的频道（保留供 audit / 未来恢复）
+    chat_id       TEXT NOT NULL DEFAULT '',
+    message_md    TEXT NOT NULL,                     -- markdown 内容（原 ring_event message 字段）
+    level         TEXT NOT NULL DEFAULT 'silent',    -- 'silent' | 'loud'，预留给未来恢复打断推送
+    extra_json    TEXT NOT NULL DEFAULT '{}',        -- 关联 task_id / event_id / sub_id / change_id 等
+    created_at    REAL NOT NULL,
+    read_at       REAL                                -- NULL = 未读；标记后填入时间戳
+);
+CREATE INDEX IF NOT EXISTS idx_push_archive_created ON push_archive(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_push_archive_actor   ON push_archive(actor);
+CREATE INDEX IF NOT EXISTS idx_push_archive_unread  ON push_archive(read_at);
 """
 
 

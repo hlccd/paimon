@@ -95,61 +95,35 @@ def _truncate(text: str, n: int) -> str:
     return text[:n] if len(text) > n else text
 
 
-# ---------- Prompt 模板 ----------
+# ---------- 风神领域 DigestSpec（注入通用 prompt 模板）----------
 
-_CLUSTER_SYSTEM = """\
-你是事件聚类员。给定一批新闻条目，把"同一事件"的多条放进同一组；可选地把整组归并到某个候选事件。
+from paimon.foundation.digest import (
+    DigestSpec,
+    render_analyze_prompt,
+    render_cluster_prompt,
+)
 
-什么算同一事件：
-- 主体（人物 / 公司 / 产品 / 事件名）+ 关键动作 + 时间窗口高度重合
-- 同主题不同事件（如"苹果发布会"vs"苹果裁员"）必须分开成不同组
-- 拿不准时优先拆分（宁可分裂，不要错合并），让单条独成一组
+VENTI_DIGEST_SPEC = DigestSpec(
+    actor="风神·巴巴托斯",
+    domain="舆情新闻",
+    item_kind="新闻条目",
+    entity_kinds="人物 / 公司 / 产品 / 地点",
+    cluster_examples=(
+        '  * "OpenAI 发布 GPT-5"、"GPT-5 上线" → 合并\n'
+        '  * "苹果 WWDC 公布 X"、"WWDC 大会回顾"、"X 在 WWDC 亮相" → 合并\n'
+        '  * "DeepSeek V4 发布"、"DeepSeek 新模型开源" → 合并\n'
+        '  * "苹果发布会" vs "苹果裁员" → 分开（不同动作）\n'
+        '  * "OpenAI 起诉" vs "Anthropic 融资" → 分开（不同主体）'
+    ),
+    digest_focus="事件影响 + 整体情感倾向",
+    regular_examples="产品迭代 / 例行公告",
+    advice_examples="具体下一步看什么 / 何时再来扫（可选）",
+)
 
-输出严格 JSON，不要 markdown / code fence / 说明，schema：
-{
-  "groups": [
-    {
-      "item_indices": [<int>, ...],          // 同事件的条目下标（来自"待判定的新条目"）
-      "merge_with_event_id": <str | null>    // null = 开启新事件；非空 = 整组合并到该已有事件
-    }
-  ]
-}
-
-硬性要求：
-1. 每个 item_indices 元素**必须出现且只出现一次**（不要漏、不要重复）
-2. 至少有一组（不能返回 groups: []）
-3. merge_with_event_id 必须从"候选事件"列表的 event_id 中精确选取；不要编造
-4. 没有合适的候选事件时，merge_with_event_id 写 null
-"""
-
-_ANALYZE_SYSTEM = """\
-你是舆情分析员。基于条目内容产出事件结构化档案。
-
-约束：
-- title ≤ 80 字，单句，能让人秒懂"是啥事"
-- summary ≤ 200 字，中性叙述，覆盖事件核心 + 关键当事方 + 时间
-- entities：≤ 8 个关键实体，可包含人物 / 机构 / 产品 / 地点
-- timeline：≤ 5 个时间节点，每条 {ts(unix秒, 估算可)}{point(动作描述)}
-- severity 严格判定（不要为推送倾斜）：
-  * p0 = 立即推送（重大违法 / 大规模事故 / 行业级冲击 / 涉及生命安全）
-  * p1 = 当日重要（行业争议焦点 / 重要发布 / 政策变更 / 重大财务事件）
-  * p2 = 常规关注（产品更新 / 一般报道 / 例行声明）
-  * p3 = 背景信息（综述 / 历史复盘 / 边角条目）
-- sentiment_score: [-1.0, 1.0]，-1 极负到 +1 极正
-- sentiment_label ∈ {positive, neutral, negative, mixed}
-- 若是 merge 模式，summary 在 base 摘要基础上"增量演进"，不要从头复述
-
-输出严格 JSON，不要 markdown / code fence / 说明，schema：
-{
-  "title": "<str>",
-  "summary": "<str>",
-  "entities": ["<str>", ...],
-  "timeline": [{"ts": <int>, "point": "<str>"}, ...],
-  "severity": "<p0|p1|p2|p3>",
-  "sentiment_score": <float>,
-  "sentiment_label": "<positive|neutral|negative|mixed>"
-}
-"""
+# 风神聚类 + 分析 system prompt 由通用模板渲染（一次性 .format）
+# 日报 prompt 走 venti.py 的 _compose_event_digest（保留 {query}/{n} 占位待 format）
+_CLUSTER_SYSTEM = render_cluster_prompt(VENTI_DIGEST_SPEC)
+_ANALYZE_SYSTEM = render_analyze_prompt(VENTI_DIGEST_SPEC)
 
 
 # ---------- EventClusterer ----------

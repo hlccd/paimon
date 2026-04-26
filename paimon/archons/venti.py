@@ -72,28 +72,10 @@ _DIGEST_PROMPT = """\
 
 
 # 阶段 C · 事件型日报（按事件而非条目组织）
-_EVENT_DIGEST_PROMPT = """\
-你是风神·巴巴托斯。把本批次事件整理成一段事件型日报。
-
-用户订阅主题：「{query}」
-
-下面是本批次产出的 {n} 个事件（JSON 数组），每个事件已经过聚类 + 结构化分析。
-请按以下体裁输出 markdown 中文日报：
-
-1. **开头一句 40 字内"今日要点"概述**（覆盖最重要的 1-2 个事件）
-2. **重要区**（severity ∈ {{p0, p1}} 的事件，可能为空）
-   - 每条格式：`- 🔴/🟠 **[严重度·标记]** [事件标题](首个 url) — 摘要 — 情感[标签]`
-   - 标记：新事件不写、p1 升级写"·升级"、p0 写"·紧急"
-   - 实体多时（≤4 个）用 `（涉及：实体A、实体B）`
-3. **常规区**（severity ∈ {{p2, p3}}）
-   - 每条格式：`- [事件标题](首个 url) — 一句话要点`
-4. **末尾整体情感**：一行写"整体情感：xxx；建议关注：xxx"
-
-约束：
-- 全文 ≤ 600 字
-- 只输出最终日报文本，不要任何前置说明 / code fence
-- 重要区在前，常规区在后；空区可省略整段
-"""
+# 风神日报 system prompt 由通用 composer 渲染（保留 {query}/{n} 占位待调用方 .format）
+from paimon.archons.venti_event import VENTI_DIGEST_SPEC
+from paimon.foundation.digest import render_digest_prompt
+_EVENT_DIGEST_PROMPT = render_digest_prompt(VENTI_DIGEST_SPEC)
 
 
 def _build_fallback_digest(query: str, items: list[dict]) -> str:

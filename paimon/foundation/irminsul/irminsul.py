@@ -18,6 +18,7 @@ from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
 from .skills import SkillDecl, SkillRepo
 from .feed_event import FeedEvent, FeedEventRepo
+from .push_archive import PushArchiveRecord, PushArchiveRepo
 from .selfcheck import SelfcheckRepo, SelfcheckRun
 from .subscription import FeedItem, Subscription, SubscriptionRepo
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict, TaskRepo
@@ -53,6 +54,7 @@ class Irminsul:
         self._schedule: ScheduleRepo | None = None
         self._subscription: SubscriptionRepo | None = None
         self._feed_event: FeedEventRepo | None = None
+        self._push_archive: PushArchiveRepo | None = None
         self._selfcheck: SelfcheckRepo | None = None
 
     async def initialize(self) -> None:
@@ -76,6 +78,7 @@ class Irminsul:
         self._schedule = ScheduleRepo(self._db)
         self._subscription = SubscriptionRepo(self._db)
         self._feed_event = FeedEventRepo(self._db)
+        self._push_archive = PushArchiveRepo(self._db)
         self._selfcheck = SelfcheckRepo(self._db, self._selfcheck_root)
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
@@ -625,3 +628,58 @@ class Irminsul:
     def selfcheck_ensure_blob_dir(self, run_id: str) -> Path:
         """确保 blob 目录存在并返回路径。"""
         return self._selfcheck.ensure_blob_dir(run_id)
+
+    # ============ 域 13: 推送归档（替代主动聊天推送）============
+    async def push_archive_create(
+        self,
+        *,
+        source: str,
+        actor: str,
+        message_md: str,
+        channel_name: str = "webui",
+        chat_id: str = "",
+        level: str = "silent",
+        extra: dict | None = None,
+    ) -> str:
+        return await self._push_archive.create(
+            source=source, actor=actor, message_md=message_md,
+            channel_name=channel_name, chat_id=chat_id,
+            level=level, extra=extra,
+        )
+
+    async def push_archive_get(self, rec_id: str) -> PushArchiveRecord | None:
+        return await self._push_archive.get(rec_id)
+
+    async def push_archive_list(
+        self, *,
+        actor: str | None = None,
+        only_unread: bool = False,
+        since: float | None = None,
+        limit: int = 50,
+    ) -> list[PushArchiveRecord]:
+        return await self._push_archive.list(
+            actor=actor, only_unread=only_unread, since=since, limit=limit,
+        )
+
+    async def push_archive_count_unread(
+        self, *, actor: str | None = None,
+    ) -> int:
+        return await self._push_archive.count_unread(actor=actor)
+
+    async def push_archive_count_unread_grouped(self) -> dict[str, int]:
+        return await self._push_archive.count_unread_grouped()
+
+    async def push_archive_mark_read(self, rec_id: str) -> bool:
+        return await self._push_archive.mark_read(rec_id)
+
+    async def push_archive_mark_read_all(
+        self, *, actor: str | None = None,
+    ) -> int:
+        return await self._push_archive.mark_read_all(actor=actor)
+
+    async def push_archive_sweep_old(
+        self, *, retention_seconds: float, actor: str = "三月",
+    ) -> int:
+        return await self._push_archive.sweep_old(
+            retention_seconds=retention_seconds, actor=actor,
+        )
