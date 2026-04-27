@@ -227,11 +227,25 @@ class Model:
                 stream_iter = active_provider.chat_stream(runtime_messages, tools=tools)
             except Exception as e:
                 if self.gnosis:
-                    self.gnosis.report_failure(active_provider.model_name)
-                    fallback = self.gnosis.get_provider("shallow")
+                    # 按 provider_source 精确上报：profile 级走 _by_profile，
+                    # env/default 走 _providers（按 model_name）
+                    if provider_source.startswith("profile:"):
+                        self.gnosis.report_failure_by_profile(
+                            provider_source.split(":", 1)[1],
+                        )
+                    else:
+                        self.gnosis.report_failure(active_provider.model_name)
+                    # 重新走 _pick_provider：三级 fallback 会自动跳过刚才标记
+                    # 不健康的那条，拿到语义正确的备用（或 env 兜底）
+                    fallback, fallback_source = await self._pick_provider(component, purpose)
                     if fallback is not active_provider:
-                        logger.warning("[神之心·故障切换] chat 切换到备用 provider")
+                        logger.warning(
+                            "[神之心·故障切换] {} / {} {} → {} ({})",
+                            component, purpose, provider_source,
+                            fallback.model_name, fallback_source,
+                        )
                         active_provider = fallback
+                        provider_source = fallback_source
                         try:
                             stream_iter = active_provider.chat_stream(runtime_messages, tools=tools)
                         except Exception as e2:
@@ -309,7 +323,12 @@ class Model:
                 return
 
             if self.gnosis:
-                self.gnosis.report_success(active_provider.model_name)
+                if provider_source.startswith("profile:"):
+                    self.gnosis.report_success_by_profile(
+                        provider_source.split(":", 1)[1],
+                    )
+                else:
+                    self.gnosis.report_success(active_provider.model_name)
             self._merge_usage(total_usage, usage)
 
             tool_calls = tc_acc.get_tool_calls()

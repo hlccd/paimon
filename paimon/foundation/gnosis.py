@@ -79,6 +79,8 @@ class Gnosis:
         # M2：按 profile_id 缓存 Provider 实例（构造成本：新建 SDK client）
         # 热切换时由 leyline `llm.profile.updated` 触发 invalidate_profile
         self._by_profile: dict[str, ProviderHealth] = {}
+        # 并发 cache miss 时互斥构造（避免同 pid 构造两次 client 泄露）
+        self._profile_build_lock = asyncio.Lock()
         self._irminsul: "Irminsul | None" = None  # bootstrap 注入，get_provider_by_profile_id 用
 
     def register(self, name: str, provider: Provider) -> None:
@@ -177,50 +179,63 @@ class Gnosis:
 
         返回 None 的情况：profile 不存在 / api_key 缺失 / 当前不健康且未过冷却窗口。
         上层收到 None 应回落到 get_default_provider / self.provider。
+
+        并发安全：fast path 无锁（命中缓存 + 健康）；miss 路径上 lock 避免
+        同 pid 并发构造出两个 client（双 double-check 模式）。
         """
         if not profile_id:
             return None
+        # Fast path: 命中且健康直接返（热路径，避免锁）
         ph = self._by_profile.get(profile_id)
         if ph and self._is_available(ph):
             return ph.provider
         if ph and not self._is_available(ph):
             return None   # 不健康，让上层回落
-        # 缓存 miss → 从世界树读 profile 构造
-        if self._irminsul is None:
-            logger.warning("[神之心] get_provider_by_profile_id 调用时 irminsul 未注入")
-            return None
-        try:
-            profile = await self._irminsul.llm_profile_get(
-                profile_id, include_key=True,
+
+        # Slow path: 需要构造，加锁避免并发重复构造
+        async with self._profile_build_lock:
+            # double-check：拿锁过程中可能别的协程已构造好
+            ph = self._by_profile.get(profile_id)
+            if ph and self._is_available(ph):
+                return ph.provider
+            if ph and not self._is_available(ph):
+                return None
+            # 真的 miss → 从世界树读 profile 构造
+            if self._irminsul is None:
+                logger.warning("[神之心] get_provider_by_profile_id 调用时 irminsul 未注入")
+                return None
+            try:
+                profile = await self._irminsul.llm_profile_get(
+                    profile_id, include_key=True,
+                )
+            except Exception as e:
+                logger.error("[神之心] 读 profile 失败 {}: {}", profile_id, e)
+                return None
+            if profile is None:
+                logger.warning("[神之心] profile 不存在 {}", profile_id)
+                return None
+            if not profile.api_key:
+                logger.warning(
+                    "[神之心] profile '{}' 无 api_key，跳过构造", profile.name,
+                )
+                return None
+            try:
+                provider = make_provider_from_profile(
+                    profile, max_tokens=self._cfg.max_tokens,
+                )
+            except Exception as e:
+                logger.error(
+                    "[神之心] 构造 Provider 失败 profile='{}': {}", profile.name, e,
+                )
+                return None
+            self._by_profile[profile_id] = ProviderHealth(
+                name=f"profile:{profile.name}", provider=provider,
             )
-        except Exception as e:
-            logger.error("[神之心] 读 profile 失败 {}: {}", profile_id, e)
-            return None
-        if profile is None:
-            logger.warning("[神之心] profile 不存在 {}", profile_id)
-            return None
-        if not profile.api_key:
-            logger.warning(
-                "[神之心] profile '{}' 无 api_key，跳过构造", profile.name,
+            logger.info(
+                "[神之心·注册] profile '{}' ({}) -> {} 构造完成",
+                profile.name, profile_id, profile.model,
             )
-            return None
-        try:
-            provider = make_provider_from_profile(
-                profile, max_tokens=self._cfg.max_tokens,
-            )
-        except Exception as e:
-            logger.error(
-                "[神之心] 构造 Provider 失败 profile='{}': {}", profile.name, e,
-            )
-            return None
-        self._by_profile[profile_id] = ProviderHealth(
-            name=f"profile:{profile.name}", provider=provider,
-        )
-        logger.info(
-            "[神之心·注册] profile '{}' ({}) -> {} 构造完成",
-            profile.name, profile_id, profile.model,
-        )
-        return provider
+            return provider
 
     async def get_default_provider(self) -> "Provider | None":
         """全局默认 profile 的 Provider；路由未命中时的兜底。"""
