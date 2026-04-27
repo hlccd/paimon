@@ -179,7 +179,12 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
         sk = state.skill_registry.get(intent.skill_name) if state.skill_registry else None
         desc = (sk.description if sk else intent.skill_name) or intent.skill_name
         try:
-            await reply.notice(f"🎯 走 {intent.skill_name} —— {desc[:60]}", kind="ack")
+            # 用 milestone 而不是 ack：QQ 端 ack 设计是暂存到首条 milestone 才发
+            # （四影 prepare 阶段为省 seq 的优化），但天使路径没有后续 milestone，
+            # ack 暂存会导致用户在 30s+ 工具循环里看不到任何提示。这里要立即发。
+            # 同时用 reply.flush 把首次发送 chunk 推出去（QQ 是批次渠道，notice
+            # 自身已直发，无需 flush；这里 flush 兜底以防别处实现差异）。
+            await reply.notice(f"🎯 走 {intent.skill_name} —— {desc[:60]}", kind="milestone")
         except Exception:
             pass
         await run_session_chat(msg, channel, session, skill_name=intent.skill_name)
