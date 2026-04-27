@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,35 @@ from loguru import logger
 
 from paimon.channels.base import Channel, ChannelReply, IncomingMessage
 from paimon.channels.qq.reply import QQ_MAX_MESSAGE_LENGTH, QQChannelReply, _chunk_text
+
+
+# 含 markdown 语法的检测——保守路线：宁愿漏检（走纯文本无害），不要误判（普通文本走 md
+# 在不支持的客户端上渲染会很怪）。
+# 命中以下任一即视为 markdown：
+#   - ``` 代码块（最强信号）
+#   - 行首 # 标题（# / ## / ###...）
+#   - 行首 - / * / 1. 列表项
+#   - [text](http://...) 链接
+#   - **bold** 成对加粗
+#   - 表格（|...| + 下一行 |---|）
+_MD_PATTERNS = [
+    re.compile(r"```"),
+    re.compile(r"^#{1,6}\s+\S", re.MULTILINE),
+    re.compile(r"^[\-\*]\s+\S", re.MULTILINE),
+    re.compile(r"^\d+\.\s+\S", re.MULTILINE),
+    re.compile(r"\[[^\]\n]+\]\(https?://[^)\s]+\)"),
+    re.compile(r"\*\*[^*\n]+\*\*"),
+    re.compile(r"^\|.+\|\s*\n^\|\s*-+", re.MULTILINE),
+]
+
+
+def _looks_like_markdown(text: str) -> bool:
+    if not text:
+        return False
+    for p in _MD_PATTERNS:
+        if p.search(text):
+            return True
+    return False
 
 
 class QQChannel(Channel):
@@ -25,6 +55,10 @@ class QQChannel(Channel):
         self._client: botpy.Client | None = None
         self._task: asyncio.Task | None = None
         self._chat_contexts: dict[str, dict[str, Any]] = {}
+        # markdown 进程级降级标志：API 调用失败一次（通常是无权限）后永久关闭 md 尝试，
+        # 避免每条 md 消息都先试再 fallback，浪费 API 配额且增加延迟。
+        # 重启 paimon 进程会重置（让用户在开通权限后无需改代码就生效）。
+        self._md_disabled: bool = False
 
     def register_chat_context(self, chat_id: str, msg_type: str, msg_id: str):
         self._chat_contexts[chat_id] = {
@@ -82,6 +116,43 @@ class QQChannel(Channel):
         # msg_id 永远是 None 被腾讯 API 拒绝（被动回复必须有 msg_id）。
         if msg_id is None and ctx:
             msg_id = ctx.get("last_msg_id")
+
+        # markdown 路径：默认开启，仅含 md 语法的消息走 msg_type=2；
+        # API 调用失败一次（如 bot 无 md 权限）→ _md_disabled 永久关闭，后续走纯文本。
+        use_md = (not self._md_disabled) and _looks_like_markdown(text)
+
+        if use_md:
+            try:
+                if msg_type == "group":
+                    await api.post_group_message(
+                        group_openid=chat_id,
+                        msg_type=2,
+                        markdown={"content": text},
+                        msg_id=msg_id,
+                        msg_seq=msg_seq,
+                    )
+                    return
+                elif msg_type == "c2c":
+                    await api.post_c2c_message(
+                        openid=chat_id,
+                        msg_type=2,
+                        markdown={"content": text},
+                        msg_id=msg_id,
+                        msg_seq=msg_seq,
+                    )
+                    return
+                else:
+                    logger.warning("[派蒙·QQ频道] 未知消息类型 {}", msg_type)
+                    return
+            except Exception as e:
+                # 通常是 bot 无 markdown 权限。记一次 WARNING + 进程级降级 +
+                # fallback 到纯文本（避免本条消息丢失）。
+                self._md_disabled = True
+                logger.warning(
+                    "[派蒙·QQ频道] markdown 发送失败，本进程降级为纯文本（重启后会再次尝试 md）: {}",
+                    e,
+                )
+                # 继续走下面的纯文本路径
 
         try:
             if msg_type == "group":
