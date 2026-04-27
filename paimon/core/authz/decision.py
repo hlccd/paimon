@@ -72,7 +72,8 @@ class AuthzDecision:
         # 2) 永久授权命中
         cached = self._cache.get("skill", skill_name)
         if cached == "permanent_allow":
-            return Verdict.ALLOW, f"（按之前的永久授权放行 skill「{skill_name}」）"
+            # 静默放行：自启动自动放行后，每次都提示"按永久授权放行"是噪音
+            return Verdict.ALLOW, ""
         if cached == "permanent_deny":
             return (
                 Verdict.DENY,
