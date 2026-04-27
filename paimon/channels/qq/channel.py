@@ -10,7 +10,7 @@ import botpy
 from loguru import logger
 
 from paimon.channels.base import Channel, ChannelReply, IncomingMessage
-from paimon.channels.qq.reply import QQ_MAX_MESSAGE_LENGTH, QQChannelReply, _chunk_text
+from paimon.channels.qq.reply import QQ_CHUNK_LIMIT, QQChannelReply, _chunk_text
 
 
 # 含 markdown 语法的检测——保守路线：宁愿漏检（走纯文本无害），不要误判（普通文本走 md
@@ -182,7 +182,7 @@ class QQChannel(Channel):
         ctx = self._get_context(chat_id)
         msg_type = ctx["msg_type"] if ctx else None
 
-        chunks = _chunk_text(text, QQ_MAX_MESSAGE_LENGTH)
+        chunks = _chunk_text(text, QQ_CHUNK_LIMIT)
         for chunk in chunks:
             seq = self.take_seq(chat_id)
             await self._send_message(

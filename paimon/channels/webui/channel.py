@@ -2268,8 +2268,9 @@ class WebUIChannel(Channel):
         """派蒙侧推送入口。忽略外部 chat_id，统一落到固定"📨 推送"会话。
 
         行为：
-          1) 在推送会话历史里追加一条 assistant 消息（落世界树）
-          2) 通过 PushHub 扇出到所有在线的 /api/push 客户端
+          1) 用 smart_chunk 按 1500 字 + markdown 友好边界拆分（避免单气泡过长）
+          2) 每个 chunk 作为独立 assistant 消息追加到推送会话（落世界树）
+          3) 每个 chunk 独立扇出到所有在线的 /api/push 客户端（前端渲染成多气泡）
         规则对齐 docs/aimon.md §2.6：推送不干扰正常会话。
         """
         if not text or not text.strip():
@@ -2283,42 +2284,51 @@ class WebUIChannel(Channel):
         # 保底确保推送会话存在（启动时已建，这里幂等兜底）
         await self._ensure_push_session()
 
+        from paimon.channels._chunk import smart_chunk
+        chunks = smart_chunk(text, max_len=1500)
+        if not chunks:
+            return
+
         push_session = session_mgr.sessions.get(PUSH_SESSION_ID)
+        total_delivered = 0
+        for chunk in chunks:
+            if push_session is not None:
+                ts = time.time()
+                push_session.messages.append({
+                    "role": "assistant",
+                    "content": chunk,
+                    "_push_ts": ts,
+                    "_push_source": chat_id,
+                })
+                push_session.updated_at = ts
+
+            payload = {
+                "type": "push",
+                "content": chunk,
+                "ts": time.time(),
+                "source": chat_id,
+            }
+            if self.state.push_hub:
+                total_delivered += await self.state.push_hub.publish(
+                    PUSH_CHAT_ID, payload,
+                )
+
+        # 整批 chunk 写完后落一次盘（减少 IO）
         if push_session is not None:
-            # 追加为 assistant 消息，持久化到世界树
-            ts = time.time()
-            push_session.messages.append({
-                "role": "assistant",
-                "content": text,
-                "_push_ts": ts,
-                "_push_source": chat_id,  # 溯源：原计划投递的 chat_id
-            })
-            push_session.updated_at = ts
             try:
                 await session_mgr.save_session_async(push_session)
             except Exception as e:
                 logger.warning("[派蒙·WebUI·推送] 会话落盘失败: {}", e)
 
-        # 扇出到在线客户端
-        payload = {
-            "type": "push",
-            "content": text,
-            "ts": time.time(),
-            "source": chat_id,
-        }
-        delivered = 0
-        if self.state.push_hub:
-            delivered = await self.state.push_hub.publish(PUSH_CHAT_ID, payload)
-
-        if delivered == 0:
+        if total_delivered == 0:
             logger.info(
-                "[派蒙·WebUI·推送] 无在线监听者，已写入推送会话 (chat_id={} len={})",
-                chat_id, len(text),
+                "[派蒙·WebUI·推送] 无在线监听者，已写入推送会话 (chat_id={} 拆分={}段 总长={})",
+                chat_id, len(chunks), len(text),
             )
         else:
             logger.info(
-                "[派蒙·WebUI·推送] 已扇出 {} 路 (源 chat_id={} len={})",
-                delivered, chat_id, len(text),
+                "[派蒙·WebUI·推送] 已扇出 {} 路 (源 chat_id={} 拆分={}段 总长={})",
+                total_delivered, chat_id, len(chunks), len(text),
             )
 
     async def send_file(self, chat_id: str, file_path: Path, caption: str = "") -> None:

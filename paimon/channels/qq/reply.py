@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from paimon.channels._chunk import smart_chunk
 from paimon.channels.base import ChannelReply
 
 if TYPE_CHECKING:
     from paimon.channels.qq.channel import QQChannel
 
-QQ_MAX_MESSAGE_LENGTH = 2000
+QQ_MAX_MESSAGE_LENGTH = 2000  # 腾讯硬限制，仍保留作上限保护
+QQ_CHUNK_LIMIT = 1500          # 实际拆分门限，留 500 字余量给 markdown 控制字符
 PASSIVE_REPLY_TIMEOUT = 290
 
 # notice kind 的处理策略。
@@ -19,15 +21,13 @@ _NOTICE_KINDS_DROP = {"tool", "thinking"}  # 直接丢弃
 _NOTICE_KINDS_SEND = {"ack", "milestone", "done_recap"}
 
 
-def _chunk_text(text: str, max_len: int = QQ_MAX_MESSAGE_LENGTH) -> list[str]:
-    if len(text) <= max_len:
-        return [text] if text.strip() else []
-    chunks: list[str] = []
-    for i in range(0, len(text), max_len):
-        chunk = text[i : i + max_len]
-        if chunk.strip():
-            chunks.append(chunk)
-    return chunks
+def _chunk_text(text: str, max_len: int = QQ_CHUNK_LIMIT) -> list[str]:
+    """按 markdown 友好边界拆分（见 paimon/channels/_chunk.py）。
+
+    保留为模块级函数是为了兼容 channel.py / reply.py 现有调用点；
+    实际逻辑全部委托给 smart_chunk。
+    """
+    return smart_chunk(text, max_len=max_len)
 
 
 class QQChannelReply(ChannelReply):
