@@ -9,138 +9,106 @@ from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.leyline import Leyline
 from paimon.foundation.march import MarchService
 from paimon.foundation.primogem import Primogem
-from paimon.llm import AnthropicProvider, Model, OpenAIProvider
+from paimon.foundation.gnosis import make_provider_from_profile
+from paimon.foundation.irminsul.llm_profile import LLMProfile
+from paimon.llm import Model
 from paimon.llm.base import Provider
 from paimon.session import SessionManager
 from paimon.state import state
 
 
-def _make_provider(cfg: Config, name: str) -> Provider:
-    if name == "claude-xiaomi":
-        return AnthropicProvider.from_params(
-            api_key=cfg.claude_xiaomi_api_key,
-            base_url=cfg.claude_xiaomi_base_url,
-            model=cfg.claude_xiaomi_model,
-            max_tokens=cfg.max_tokens,
-        )
-    elif name == "claude-official":
-        return AnthropicProvider.from_params(
-            api_key=cfg.claude_official_api_key,
-            base_url=cfg.claude_official_base_url,
-            model=cfg.claude_official_model,
-            max_tokens=cfg.max_tokens,
-        )
-    elif name == "openai":
-        return OpenAIProvider.from_params(
-            api_key=cfg.openai_api_key,
-            base_url=cfg.openai_base_url,
-            model=cfg.openai_model,
-        )
-    elif name == "deepseek-pro":
-        return OpenAIProvider.from_params(
-            api_key=cfg.deepseek_api_key,
-            base_url=cfg.deepseek_base_url,
-            model=cfg.deepseek_pro_model,
-            extra_body=(
-                {"thinking": {"type": "enabled"}}
-                if cfg.deepseek_pro_thinking else None
-            ),
-            reasoning_effort=(
-                cfg.deepseek_reasoning_effort
-                if cfg.deepseek_pro_thinking else None
-            ),
-        )
-    elif name == "deepseek-flash":
-        return OpenAIProvider.from_params(
-            api_key=cfg.deepseek_api_key,
-            base_url=cfg.deepseek_base_url,
-            model=cfg.deepseek_flash_model,
-            extra_body=(
-                {"thinking": {"type": "enabled"}}
-                if cfg.deepseek_flash_thinking else None
-            ),
-            reasoning_effort=(
-                cfg.deepseek_reasoning_effort
-                if cfg.deepseek_flash_thinking else None
-            ),
-        )
-    else:
-        raise ValueError(f"未知的 Provider: {name}")
+def _env_to_profile(cfg: Config, name: str) -> LLMProfile:
+    """把 .env 里名叫 name 的 provider 配置转成临时 LLMProfile 对象（不落库）。
 
-
-def _build_llm_profile_seeds(cfg: Config) -> list:
-    """从 .env 的 5 个 provider 配置派生初始 LLMProfile 列表（跳过 api_key 为空的）。
-
-    M1：只在首次启动（世界树 llm_profiles 表为空）时种入，用户后续通过面板
-    管理。.env 变更不影响已种数据。
+    seed / .env 回落启动都复用这个 helper，保证单一来源；真正构造 Provider
+    统一交给 `make_provider_from_profile`，避免两套 SDK 构造代码（M3 DRY）。
     """
-    from paimon.foundation.irminsul.llm_profile import LLMProfile
-
-    seeds: list = []
-    # Anthropic 系
-    if cfg.claude_xiaomi_api_key:
-        seeds.append(LLMProfile(
-            name="claude-xiaomi",
-            provider_kind="anthropic",
+    if name == "claude-xiaomi":
+        return LLMProfile(
+            name=name, provider_kind="anthropic",
             api_key=cfg.claude_xiaomi_api_key,
             base_url=cfg.claude_xiaomi_base_url,
             model=cfg.claude_xiaomi_model,
             max_tokens=cfg.max_tokens,
             notes="小米内网代理 Claude",
-        ))
-    if cfg.claude_official_api_key:
-        seeds.append(LLMProfile(
-            name="claude-official",
-            provider_kind="anthropic",
+        )
+    elif name == "claude-official":
+        return LLMProfile(
+            name=name, provider_kind="anthropic",
             api_key=cfg.claude_official_api_key,
             base_url=cfg.claude_official_base_url,
             model=cfg.claude_official_model,
             max_tokens=cfg.max_tokens,
             notes="Claude 官方 API",
-        ))
-    # OpenAI 兼容系
-    if cfg.openai_api_key:
-        seeds.append(LLMProfile(
-            name="openai",
-            provider_kind="openai",
+        )
+    elif name == "openai":
+        return LLMProfile(
+            name=name, provider_kind="openai",
             api_key=cfg.openai_api_key,
             base_url=cfg.openai_base_url,
             model=cfg.openai_model,
             notes="OpenAI 兼容入口",
-        ))
-    # DeepSeek 双档（api_key 共享）
-    if cfg.deepseek_api_key:
-        ds_extra_pro = (
-            {"thinking": {"type": "enabled"}}
-            if cfg.deepseek_pro_thinking else {}
         )
-        ds_effort_pro = cfg.deepseek_reasoning_effort if cfg.deepseek_pro_thinking else ""
-        seeds.append(LLMProfile(
-            name="deepseek-pro",
-            provider_kind="openai",
+    elif name == "deepseek-pro":
+        return LLMProfile(
+            name=name, provider_kind="openai",
             api_key=cfg.deepseek_api_key,
             base_url=cfg.deepseek_base_url,
             model=cfg.deepseek_pro_model,
-            reasoning_effort=ds_effort_pro,
-            extra_body=ds_extra_pro,
+            reasoning_effort=(
+                cfg.deepseek_reasoning_effort
+                if cfg.deepseek_pro_thinking else ""
+            ),
+            extra_body=(
+                {"thinking": {"type": "enabled"}}
+                if cfg.deepseek_pro_thinking else {}
+            ),
             notes="DeepSeek v4-pro（强推理）",
-        ))
-        ds_extra_flash = (
-            {"thinking": {"type": "enabled"}}
-            if cfg.deepseek_flash_thinking else {}
         )
-        ds_effort_flash = cfg.deepseek_reasoning_effort if cfg.deepseek_flash_thinking else ""
-        seeds.append(LLMProfile(
-            name="deepseek-flash",
-            provider_kind="openai",
+    elif name == "deepseek-flash":
+        return LLMProfile(
+            name=name, provider_kind="openai",
             api_key=cfg.deepseek_api_key,
             base_url=cfg.deepseek_base_url,
             model=cfg.deepseek_flash_model,
-            reasoning_effort=ds_effort_flash,
-            extra_body=ds_extra_flash,
+            reasoning_effort=(
+                cfg.deepseek_reasoning_effort
+                if cfg.deepseek_flash_thinking else ""
+            ),
+            extra_body=(
+                {"thinking": {"type": "enabled"}}
+                if cfg.deepseek_flash_thinking else {}
+            ),
             notes="DeepSeek v4-flash（轻量）",
-        ))
-    return seeds
+        )
+    else:
+        raise ValueError(f"未知的 Provider: {name}")
+
+
+def _make_provider(cfg: Config, name: str) -> Provider:
+    """M3：薄壳——先把 .env 配置转成临时 LLMProfile，再走统一工厂。"""
+    return make_provider_from_profile(
+        _env_to_profile(cfg, name), max_tokens=cfg.max_tokens,
+    )
+
+
+def _build_llm_profile_seeds(cfg: Config) -> list:
+    """从 .env 的 5 个 provider 配置派生初始 LLMProfile 列表（跳过 api_key 为空的）。
+
+    只在首次启动（世界树 llm_profiles 表为空）时种入。.env 变更不影响已种数据。
+    M3：复用 _env_to_profile 单一来源。
+    """
+    candidates = [
+        ("claude-xiaomi", cfg.claude_xiaomi_api_key),
+        ("claude-official", cfg.claude_official_api_key),
+        ("openai", cfg.openai_api_key),
+        ("deepseek-pro", cfg.deepseek_api_key),
+        ("deepseek-flash", cfg.deepseek_api_key),
+    ]
+    return [
+        _env_to_profile(cfg, name)
+        for name, key in candidates if key
+    ]
 
 
 async def _seed_llm_profiles_if_empty(irminsul: Irminsul, cfg: Config) -> None:
@@ -203,13 +171,40 @@ async def create_app(cfg: Config) -> list[Channel]:
     gnosis.attach_irminsul(state.irminsul)   # M2：让 gnosis 能按 profile_id 读世界树
     state.gnosis = gnosis
 
-    primary_provider = _make_provider(cfg, cfg.llm_provider)
-    gnosis.register(cfg.llm_provider, primary_provider)
+    # M3：优先从默认 profile 启动；profile 表空 / 默认缺 key 时回落 .env。
+    # 启动后的 primary_provider 作为 Model._pick_provider 的最终 env 兜底——
+    # 当 gnosis.get_default_provider 也取不到时（极端场景）仍有 provider 能用。
+    default_profile = await state.irminsul.llm_profile_get_default()
+    if default_profile and default_profile.api_key:
+        primary_provider = make_provider_from_profile(
+            default_profile, max_tokens=cfg.max_tokens,
+        )
+        primary_name = default_profile.name
+        logger.info(
+            "[派蒙·启动] 从默认 profile 启动 name={} model={}",
+            default_profile.name, default_profile.model,
+        )
+    else:
+        primary_provider = _make_provider(cfg, cfg.llm_provider)
+        primary_name = cfg.llm_provider
+        logger.info(
+            "[派蒙·启动] 默认 profile 不可用，.env 回落 LLM_PROVIDER={}",
+            cfg.llm_provider,
+        )
+    gnosis.register(primary_name, primary_provider)
 
+    # deep pool 向后兼容（当前代码未真正使用，保留注册保持 gnosis.get_provider
+    # fallback 行为；失败不阻塞启动）
     deep_name = cfg.llm_deep_provider or cfg.llm_provider
-    if deep_name != cfg.llm_provider:
-        deep_provider = _make_provider(cfg, deep_name)
-        gnosis.register(deep_name, deep_provider)
+    if deep_name != primary_name:
+        try:
+            deep_provider = _make_provider(cfg, deep_name)
+            gnosis.register(deep_name, deep_provider)
+        except Exception as e:
+            logger.warning(
+                "[派蒙·启动] deep pool '{}' 注册失败（向后兼容路径）: {}",
+                deep_name, e,
+            )
 
     # M2：路由器加载（llm_routes 表；空表时全走默认 profile）
     from paimon.foundation.model_router import ModelRouter
