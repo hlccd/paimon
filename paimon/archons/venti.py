@@ -175,6 +175,39 @@ class VentiArchon(Archon):
             system += "\n\n## 前序子任务结果\n"
             for i, pr in enumerate(prior_results, 1):
                 system += f"\n### 子任务 {i}\n{pr[:2000]}\n"
+
+        # 预搜索：用 task.title 调 web-search skill 拿双引擎候选，注入 prompt。
+        # 订阅日报路径用 _run_web_search 跑了几周稳定，这里复用同款 subprocess。
+        # 失败不阻塞——LLM 仍可走 web_fetch 兜底（prompt 没禁止）。
+        # 这是为了解决"风神 LLM 不知道 web-search skill 存在 → 只用 web_fetch 命中
+        # baidu/google/zhihu 等搜索页全反爬"的历史 bug。
+        pre_search_query = (task.title or subtask.description[:30]).strip()
+        if pre_search_query:
+            try:
+                pre_results = await self._run_web_search(
+                    query=pre_search_query, limit=30, engine="",
+                )
+                logger.info(
+                    "[风神·预搜索] query={!r} 返回 {} 条",
+                    pre_search_query[:40], len(pre_results),
+                )
+                if pre_results:
+                    system += (
+                        "\n\n## 预搜索结果（web-search skill 双引擎候选，已为你跑过）\n"
+                        "你的工作流：先消化下面这 N 条候选，按需用 web_fetch 进具体 URL 抓正文，"
+                        "再整理成结构化报告。**不要再调用搜索引擎首页类 URL**（baidu/google/zhihu 搜索页几乎全反爬）。\n"
+                    )
+                    for i, r in enumerate(pre_results, 1):
+                        title = (r.get("title") or "").strip()[:100]
+                        url = (r.get("url") or "").strip()
+                        desc = (r.get("description") or "").strip()[:250]
+                        eng = (r.get("engine") or "").strip()
+                        system += f"\n{i}. **{title}** ({eng})\n   URL: {url}\n   摘要: {desc}\n"
+            except Exception as e:
+                logger.warning(
+                    "[风神·预搜索] 失败（不阻塞，LLM 回退 web_fetch tool loop）: {}", e,
+                )
+
         system += FINAL_OUTPUT_RULE
 
         temp_session = Session(id=f"venti-{task.id[:8]}", name="风神采集")
