@@ -200,12 +200,15 @@ xx 股票近期...
 └ [正文] 任务已取消（你拒绝了全部敏感操作）
 ```
 
-**QQ**（QQ 暂不支持 ask_user）：
+**QQ**（已支持 ask_user：发询问消息 + 等用户下条入站消息作答）：
 ```
 [seq 1] 收到任务：...
 [seq 2] 🔒 安全审查通过
-[seq 3] ⚠️ 授权受限，任务已取消（QQ 暂不支持交互授权）
+[seq 3] 🛡️ 权限询问：task 需要以下 3 个敏感操作...请回复「同意/放行」继续...
+（用户在 290s 窗口内回复"拒绝"）
+[seq 4] 任务已取消（你拒绝了全部敏感操作）
 ```
+若用户 30s 不回复 → 保守拒绝 + 取消任务（同步路径）。
 
 #### 2.3.5 执行中失败（七神阶段异常）
 
@@ -235,7 +238,7 @@ xx 股票近期...
 | `…还在忙…` watchdog | 有（25s，上限 3 条，同元素覆盖） | 无（seq 宝贵） |
 | 四影 `done_recap` 最终摘要 | 一定收到 | 仅 290s 窗口内收到；超出走 /task-list 查 |
 | 长任务跟进度 | /tasks 面板 + 📨 推送会话 | /task-list + /task-index |
-| 权限询问 `ask_user` | 支持（独立气泡 + 输入框） | 暂不支持（走保守拒绝） |
+| 权限询问 `ask_user` | 支持（独立气泡 + 输入框） | 支持（发询问消息 + 等下条入站消息作答；30s 超时保守拒绝） |
 
 ---
 
@@ -258,14 +261,27 @@ xx 股票近期...
 ```
 
 - 最多 20 条，按 `updated_at DESC`
+- 筛选：`creator startswith '派蒙'` + `lifecycle_stage != 'archived'` + 7 天内
 - 索引仅一次 list 后短暂有效（TTL 10 分钟），重新 list 自动重编号
+- 按 channel_key 隔离（不同会话各自的编号缓存互不影响）
 
 ### WebUI
 
-扩展现有 `/tasks` 面板，在定时任务旁新增"四影任务"视图：
-- 字段：短标题 / 状态 / 当前阶段 / 创建时间 / 摘要（折叠） / 跳转 📨 推送
-- 无 7 天限制，翻页查看历史全部
-- 点击单条 → 展示完整产物、审计轨迹、子任务 verdict 详情
+`/tasks` 面板双 tab："定时任务"（原有）/「四影任务」：
+- 字段：短标题 / 状态 / 创建时间 / 耗时 / 子任务计数（完成/总数/失败）
+- 数据源同 `/task-list`（最近 7 天，20 条上限）
+- 点击单卡片 → modal 显示 edict + subtasks 表格（assignee / 描述 / verdict / 结果摘录） + 摘要
+
+### 摘要 fallback 链（QQ / WebUI 共用）
+
+`/task-index` 与 WebUI 详情都走 [`paimon/shades/_task_summary.py`](../paimon/shades/_task_summary.py) 同款逻辑，
+按"信息密度"逐级回退：
+
+1. workspace `summary.md`（写代码任务专用，时执归档时生成）
+2. `push_archive` 里 `actor='四影'` 且 `extra.task_id` 匹配的最终消息（`_compose_final` 的产物，
+   含跨节点合成；管线终点 `_notify_progress` 写入）
+3. 拼接所有 `completed` subtask.result（逐节点兜底）
+4. 诊断兜底：区分"全部 archon 都返回空"（疑似 `_extract_result` 抓不到 LLM 终局消息）vs 普通空状态
 
 ---
 

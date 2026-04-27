@@ -97,6 +97,9 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/token_stats/timeline", self.token_stats_timeline)
         self.app.router.add_get("/tasks", self.tasks_page)
         self.app.router.add_get("/api/tasks", self.tasks_api)
+        # 四影任务可见性（docs/interaction.md §四 WebUI tab）
+        self.app.router.add_get("/api/tasks/complex", self.tasks_complex_list_api)
+        self.app.router.add_get("/api/tasks/complex/{task_id}", self.tasks_complex_detail_api)
         self.app.router.add_get("/plugins", self.plugins_page)
         self.app.router.add_get("/api/plugins/skills", self.plugins_skills_api)
         self.app.router.add_get("/api/plugins/authz", self.plugins_authz_api)
@@ -1657,6 +1660,121 @@ class WebUIChannel(Channel):
                 }
                 for t in tasks
             ]
+        })
+
+    async def tasks_complex_list_api(self, request: web.Request) -> web.Response:
+        """四影任务列表（docs/interaction.md §四 WebUI tab）。
+
+        筛选规则与 /task-list 指令一致：creator startswith '派蒙' +
+        lifecycle_stage != 'archived' + 7 天内 + 取 20 条（按 updated_at DESC）。
+        """
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"tasks": []})
+
+        import time as _time
+        edicts = await irminsul.task_list(limit=50)
+        now = _time.time()
+        cutoff = now - 7 * 86400
+
+        items = [
+            e for e in edicts
+            if (e.creator or "").startswith("派蒙")
+            and e.lifecycle_stage != "archived"
+            and (e.updated_at or e.created_at) >= cutoff
+        ][:20]
+
+        # 拉子任务计数（顺手汇总；任务数 ≤ 20，单 query 数量可控）
+        out = []
+        for e in items:
+            try:
+                subs = await irminsul.subtask_list(e.id)
+                sub_total = len(subs)
+                sub_done = sum(1 for s in subs if s.status == "completed")
+                sub_failed = sum(1 for s in subs if s.status == "failed")
+            except Exception as ex:
+                logger.debug("[四影面板] 子任务计数失败 task={}: {}", e.id[:8], ex)
+                sub_total = sub_done = sub_failed = 0
+            end_ts = e.archived_at or e.updated_at or 0
+            duration = (end_ts - e.created_at) if e.created_at and end_ts > e.created_at else 0
+            out.append({
+                "id": e.id,
+                "title": e.title,
+                "status": e.status,
+                "lifecycle_stage": e.lifecycle_stage,
+                "creator": e.creator,
+                "session_id": e.session_id,
+                "created_at": e.created_at,
+                "updated_at": e.updated_at,
+                "archived_at": e.archived_at,
+                "duration_seconds": int(duration),
+                "subtask_total": sub_total,
+                "subtask_completed": sub_done,
+                "subtask_failed": sub_failed,
+            })
+        return web.json_response({"tasks": out})
+
+    async def tasks_complex_detail_api(self, request: web.Request) -> web.Response:
+        """四影任务详情（用于面板 modal）。"""
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        task_id = request.match_info["task_id"]
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"error": "irminsul not ready"}, status=503)
+
+        edict = await irminsul.task_get(task_id)
+        if not edict:
+            return web.json_response({"error": "not found"}, status=404)
+
+        subtasks = await irminsul.subtask_list(task_id)
+        end_ts = edict.archived_at or edict.updated_at or 0
+        duration = (end_ts - edict.created_at) if edict.created_at and end_ts > edict.created_at else 0
+
+        # 摘要：复用 /task-index 同款 fallback 链（workspace summary.md →
+        # push_archive 终局消息 → subtask.result 拼接 → 诊断兜底）
+        from paimon.shades._task_summary import resolve_task_summary
+        summary_md = await resolve_task_summary(
+            irminsul, task_id, subtasks, max_chars=5000,
+        )
+
+        return web.json_response({
+            "task": {
+                "id": edict.id,
+                "title": edict.title,
+                "description": edict.description,
+                "status": edict.status,
+                "lifecycle_stage": edict.lifecycle_stage,
+                "creator": edict.creator,
+                "session_id": edict.session_id,
+                "created_at": edict.created_at,
+                "updated_at": edict.updated_at,
+                "archived_at": edict.archived_at,
+                "duration_seconds": int(duration),
+            },
+            "subtasks": [
+                {
+                    "id": s.id,
+                    "assignee": s.assignee,
+                    "description": s.description,
+                    "status": s.status,
+                    "verdict_status": s.verdict_status,
+                    "round": s.round,
+                    "result": (s.result or "")[:1500],
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
+                }
+                for s in subtasks
+            ],
+            "summary_md": summary_md,
         })
 
     def _get_login_html(self) -> str:

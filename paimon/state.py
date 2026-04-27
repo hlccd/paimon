@@ -56,6 +56,9 @@ class RuntimeState:
     zhongli: "ZhongliArchon | None" = None
     # 三月·自检服务（Quick 探针 + Deep 调度）
     selfcheck: "SelfCheckService | None" = None
+    # /task-list 编号缓存：channel_key -> (task_ids, expires_at)
+    # docs/interaction.md §四：列表后短暂有效（TTL 10 分钟），重新 list 自动重编号
+    task_list_index: dict[str, tuple[list[str], float]] = field(default_factory=dict)
 
 
 state = RuntimeState()

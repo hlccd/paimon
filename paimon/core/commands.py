@@ -1019,6 +1019,175 @@ async def cmd_task_summary(ctx: CommandContext) -> str:
     return summary.read_text(encoding="utf-8")[:5000]
 
 
+# --------------- /task-list & /task-index（四影任务可见性） ---------------
+# docs/interaction.md §2.3.2 / §四 / §五：QQ 290s 窗口外失去 done_recap 后的兜底主动查询路径
+
+
+_TASK_LIST_TTL_SECONDS = 600
+_TASK_LIST_LOOKBACK_SECONDS = 7 * 86400
+_TASK_LIST_MAX_ITEMS = 20
+
+
+_TASK_STATUS_LABEL = {
+    "pending": "待处理",
+    "running": "进行中",
+    "completed": "完成",
+    "failed": "失败",
+    "rejected": "已拒绝",
+    "skipped": "已跳过",
+}
+
+_SUBTASK_STATUS_ICON = {
+    "completed": "✅",
+    "failed": "❌",
+    "skipped": "⏭️",
+    "running": "🔄",
+    "pending": "⏳",
+    "superseded": "♻️",
+}
+
+
+def _fmt_relative_time(ts: float, now: float | None = None) -> str:
+    import time as _time
+    if not ts or ts <= 0:
+        return "-"
+    now = now if now is not None else _time.time()
+    diff = max(0, int(now - ts))
+    if diff < 60:
+        return f"{diff}秒前"
+    if diff < 3600:
+        return f"{diff // 60}分钟前"
+    if diff < 86400:
+        return f"{diff // 3600}小时前"
+    if diff < 7 * 86400:
+        return f"{diff // 86400}天前"
+    return _time.strftime("%m-%d %H:%M", _time.localtime(ts))
+
+
+def _fmt_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}秒"
+    if seconds < 3600:
+        return f"{seconds // 60}分 {seconds % 60}秒"
+    h, rem = divmod(seconds, 3600)
+    return f"{h}时 {rem // 60}分 {rem % 60}秒"
+
+
+@command("task-list")
+async def cmd_task_list(ctx: CommandContext) -> str:
+    """/task-list — 列最近 7 天的四影任务（按 updated_at DESC 取 20 条）。
+
+    docs/interaction.md §2.3.2 / §四：列表后写 channel 级编号缓存，TTL 10 分钟，
+    /task-index N 用同 channel_key 取回。
+    """
+    import time as _time
+
+    irminsul = state.irminsul
+    if not irminsul:
+        return "世界树未就绪"
+
+    edicts = await irminsul.task_list(limit=50)
+    now = _time.time()
+    cutoff = now - _TASK_LIST_LOOKBACK_SECONDS
+
+    items = [
+        e for e in edicts
+        if (e.creator or "").startswith("派蒙")
+        and e.lifecycle_stage != "archived"
+        and (e.updated_at or e.created_at) >= cutoff
+    ][:_TASK_LIST_MAX_ITEMS]
+
+    if not items:
+        return (
+            "📋 最近 7 天暂无四影任务\n"
+            "（用 /task <描述> 强制走四影管线；或自然语言里描述复杂任务派蒙会自动判定）"
+        )
+
+    channel_key = ctx.msg.channel_key
+    state.task_list_index[channel_key] = (
+        [e.id for e in items], now + _TASK_LIST_TTL_SECONDS,
+    )
+
+    lines = ["📋 最近 7 天任务："]
+    for idx, e in enumerate(items, start=1):
+        label = _TASK_STATUS_LABEL.get(e.status, e.status or "?")
+        when = _fmt_relative_time(e.updated_at or e.created_at, now=now)
+        title = (e.title or e.description or "").strip().replace("\n", " ")[:50] or "(无标题)"
+        lines.append(f"{idx}. [{label}] {when} · {title}")
+    lines.append("")
+    lines.append(f"发送 /task-index N 查看详情（{_TASK_LIST_TTL_SECONDS // 60} 分钟内有效）")
+    return "\n".join(lines)
+
+
+@command("task-index")
+async def cmd_task_index(ctx: CommandContext) -> str:
+    """/task-index N — 查看 /task-list 第 N 条任务详情。"""
+    import time as _time
+
+    arg = ctx.args.strip()
+    if not arg:
+        return "用法: /task-index <序号>\n请先发送 /task-list 获取序号"
+    try:
+        n = int(arg.split()[0])
+    except (ValueError, IndexError):
+        return f"序号格式错误: '{arg}'，需要正整数"
+    if n < 1:
+        return "序号需 ≥ 1"
+
+    channel_key = ctx.msg.channel_key
+    cached = state.task_list_index.get(channel_key)
+    now = _time.time()
+    if not cached or cached[1] < now:
+        return "编号已过期，请先发送 /task-list 重新编号"
+    ids, _expires = cached
+    if n > len(ids):
+        return f"序号超出范围（共 {len(ids)} 条），请检查 /task-list"
+    task_id = ids[n - 1]
+
+    irminsul = state.irminsul
+    if not irminsul:
+        return "世界树未就绪"
+
+    edict = await irminsul.task_get(task_id)
+    if not edict:
+        return f"任务已不存在或已被清理: {task_id[:8]}"
+
+    subtasks = await irminsul.subtask_list(task_id)
+
+    # 头部
+    label = _TASK_STATUS_LABEL.get(edict.status, edict.status or "?")
+    created_str = _time.strftime("%Y-%m-%d %H:%M", _time.localtime(edict.created_at)) if edict.created_at else "-"
+    end_ts = edict.archived_at or edict.updated_at or 0
+    duration = (end_ts - edict.created_at) if edict.created_at and end_ts > edict.created_at else 0
+    head_lines = [
+        f"📌 任务：{edict.title}",
+        f"状态：{label} · {created_str} · 耗时 {_fmt_duration(duration)}",
+    ]
+    if edict.creator:
+        head_lines.append(f"创建者：{edict.creator}")
+
+    # 子任务概览
+    body_lines: list[str] = ["", f"子任务（{len(subtasks)} 个）："]
+    if not subtasks:
+        body_lines.append("  (无)")
+    else:
+        for s in subtasks:
+            icon = _SUBTASK_STATUS_ICON.get(s.status, "·")
+            verdict = f" [{s.verdict_status}]" if s.verdict_status else ""
+            desc = (s.description or "").strip().replace("\n", " ")[:50] or "(无描述)"
+            body_lines.append(f"{icon} {s.assignee} · {desc}{verdict}")
+
+    # 摘要：workspace summary.md → push_archive 终局消息 → subtask.result 拼接 → 诊断兜底
+    body_lines.append("")
+    body_lines.append("摘要：")
+    from paimon.shades._task_summary import resolve_task_summary
+    summary_text = await resolve_task_summary(irminsul, task_id, subtasks)
+    body_lines.append(summary_text)
+
+    return "\n".join(head_lines + body_lines)
+
+
 @command("selfcheck")
 async def cmd_selfcheck(ctx: CommandContext) -> str:
     """三月·自检入口。/selfcheck [--deep] [--help]
@@ -1131,6 +1300,8 @@ async def cmd_help(ctx: CommandContext) -> str:
         "  /skills - 查看可用 Skill\n"
         "  /tasks - 查看定时任务\n"
         "  /task <描述> - 强制走四影处理复杂任务\n"
+        "  /task-list - 列最近 7 天的四影任务（带 1-基序号，10 分钟内有效）\n"
+        "  /task-index <N> - 查看 /task-list 第 N 条任务详情\n"
         "  /remember <内容> - 记住一段跨会话信息（偏好/规范/项目事实）\n"
         "  /subscribe <关键词> [| <cron>] [| <engine>] - 订阅话题定时推送\n"
         "  /subs list|rm|on|off|run <id> - 订阅管理\n"

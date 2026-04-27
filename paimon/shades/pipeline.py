@@ -131,6 +131,9 @@ class ShadesPipeline:
                     chat_id=self._chat_id,
                     source="四影",
                     message=text,
+                    # 关键：把 task_id 写进 push_archive.extra_json，
+                    # 让 /task-index 能反查这条任务的最终摘要（_compose_final 的产物）
+                    task_id=self.last_task_id or "",
                 )
         except Exception as e:
             logger.debug("[四影·progress] 推送失败: {}", e)

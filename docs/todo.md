@@ -10,6 +10,12 @@
 - [ ] 冰神 **AI 自举生成 skill** 的可行性验证
 - [ ] **推送具体策略**：推送时机 / 频率 / UX 形态 / 打断策略 / 积压处理 / 事件响铃优先级仲裁
 - [x] ~~**WebUI 推送通知**~~ —— 2026-04-23 实装 `send_text` / `send_file` + 固定「📨 推送」收件箱会话 + `/api/push` SSE 长连接 + PushHub 扇出。频道能力声明 `supports_push`（QQ 关闭）。
+- [x] ~~**四影任务可见性 · /task-list + /task-index + /tasks 面板四影 tab**~~ —— 2026-04-27 兑现 [docs/interaction.md §四](interaction.md) 承诺：
+  - **指令**：`/task-list`（最近 7 天，按 `updated_at DESC` 取 20 条；channel 级 1-基序号缓存写 `state.task_list_index`，TTL 10 分钟）+ `/task-index N`（按编号反查详情）。筛选：`creator startswith '派蒙'` + `lifecycle_stage != 'archived'`。
+  - **WebUI 面板**：[`tasks_html.py`](../paimon/channels/webui/tasks_html.py) 加 tab 切换（"定时任务"/"四影任务"）+ 详情 modal（subtasks 表格 + 摘要）。两个新 API：`GET /api/tasks/complex` / `GET /api/tasks/complex/{id}`。
+  - **摘要 fallback 链**：抽到 [`paimon/shades/_task_summary.py`](../paimon/shades/_task_summary.py) 共用：(1) workspace `summary.md` (2) push_archive 反查 task_id (3) 拼接 completed subtask.result (4) 区分"全空 / 暂无"诊断兜底。修复 `pipeline._notify_progress` 漏传 `task_id` 给 `ring_event`（导致 push_archive `extra.task_id` 一直是 None，反查失效）。
+  - **docs 同步**：interaction.md §三表格"QQ 不支持 ask_user" → "已支持"（实际 [`qq/channel.py:135`](../paimon/channels/qq/channel.py) 通过 pending_asks Future 已实装）；§四加摘要 fallback 链描述。
+  - **遗留**：archon `_extract_result()` 抓不到 LLM 终局消息导致 `subtask.result` / `progress.message` 为空 —— 上游执行流程 bug，单独排查。
 - [x] ~~**三月·事件响铃**~~ —— 2026-04-23 实装 `MarchService.ring_event(channel_name, chat_id, source, message/prompt, task_id)`。复用地脉 `march.ring` 订阅（派蒙侧 zero-change）；限流 60s/10 次；审计 `event_type="march_ring_event"`。收集者（风神/岩神）的实际接入在各神增强独立做。
 - [x] ~~**三月·自检系统（Quick）**~~ —— 2026-04-25 Quick 档位上线可用；Deep 档位暂缓（见下一项）：
   - **Quick**（`/selfcheck`）：秒级 9 组件探针（irminsul/leyline/gnosis/march/session_mgr/skill_registry/authz_cache/channels/paimon_home），零 LLM；overall 派生 + warnings 收集；结果存世界树**新域 12 `selfcheck_runs`** + 文件 `quick_snapshot.json`
