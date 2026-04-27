@@ -8,7 +8,12 @@ class Config(BaseSettings):
     debug: bool = False
 
     # ========== LLM Provider 选择 ==========
-    # 选项: "claude-xiaomi" | "claude-official" | "openai"
+    # 选项: "claude-xiaomi" | "claude-official" | "openai" |
+    #       "deepseek-pro" | "deepseek-flash"
+    # deepseek-pro / deepseek-flash 共享 DEEPSEEK_API_KEY + BASE_URL，
+    # 按模型 + thinking 开关分档。典型用法：
+    #   LLM_PROVIDER=deepseek-flash       # shallow 池（闲聊/压缩）
+    #   LLM_DEEP_PROVIDER=deepseek-pro    # deep 池（Agent/DAG）
     llm_provider: str = "openai"
     llm_deep_provider: str = ""
     gnosis_shallow_concurrency: int = 5
@@ -28,6 +33,19 @@ class Config(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4"
+
+    # ========== DeepSeek（OpenAI 兼容，分 pro / flash 双档）==========
+    # api_key + base_url 共享；model + thinking 各自独立配置。
+    # 文档：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_pro_model: str = "deepseek-v4-pro"       # 强推理 / deep pool
+    deepseek_pro_thinking: bool = True                # v4-pro 本就为推理设计
+    deepseek_flash_model: str = "deepseek-v4-flash"   # 轻量 / shallow pool
+    deepseek_flash_thinking: bool = False             # 简单任务默认不开思考
+    # thinking 开启时生效；DeepSeek 有效值仅 "high" / "max"
+    # （low/medium 会被映射到 high；xhigh → max）
+    deepseek_reasoning_effort: str = "high"
 
     # ========== MiMo (音视频理解) ==========
     mimo_key: str = ""
@@ -135,7 +153,7 @@ class Config(BaseSettings):
     def provider(self) -> str:
         if self.llm_provider in ("claude-xiaomi", "claude-official"):
             return "anthropic"
-        elif self.llm_provider == "openai":
+        elif self.llm_provider in ("openai", "deepseek-pro", "deepseek-flash"):
             return "openai"
         else:
             raise ValueError(f"未知的 LLM_PROVIDER: {self.llm_provider}")
@@ -148,6 +166,8 @@ class Config(BaseSettings):
             return self.claude_official_api_key
         elif self.llm_provider == "openai":
             return self.openai_api_key
+        elif self.llm_provider in ("deepseek-pro", "deepseek-flash"):
+            return self.deepseek_api_key
         else:
             raise ValueError(f"未知的 LLM_PROVIDER: {self.llm_provider}")
 
@@ -159,6 +179,8 @@ class Config(BaseSettings):
             return self.claude_official_base_url
         elif self.llm_provider == "openai":
             return self.openai_base_url
+        elif self.llm_provider in ("deepseek-pro", "deepseek-flash"):
+            return self.deepseek_base_url
         else:
             raise ValueError(f"未知的 LLM_PROVIDER: {self.llm_provider}")
 
@@ -170,6 +192,10 @@ class Config(BaseSettings):
             return self.claude_official_model
         elif self.llm_provider == "openai":
             return self.openai_model
+        elif self.llm_provider == "deepseek-pro":
+            return self.deepseek_pro_model
+        elif self.llm_provider == "deepseek-flash":
+            return self.deepseek_flash_model
         else:
             raise ValueError(f"未知的 LLM_PROVIDER: {self.llm_provider}")
 

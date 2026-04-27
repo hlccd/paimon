@@ -36,6 +36,34 @@ def _make_provider(cfg: Config, name: str) -> Provider:
             base_url=cfg.openai_base_url,
             model=cfg.openai_model,
         )
+    elif name == "deepseek-pro":
+        return OpenAIProvider.from_params(
+            api_key=cfg.deepseek_api_key,
+            base_url=cfg.deepseek_base_url,
+            model=cfg.deepseek_pro_model,
+            extra_body=(
+                {"thinking": {"type": "enabled"}}
+                if cfg.deepseek_pro_thinking else None
+            ),
+            reasoning_effort=(
+                cfg.deepseek_reasoning_effort
+                if cfg.deepseek_pro_thinking else None
+            ),
+        )
+    elif name == "deepseek-flash":
+        return OpenAIProvider.from_params(
+            api_key=cfg.deepseek_api_key,
+            base_url=cfg.deepseek_base_url,
+            model=cfg.deepseek_flash_model,
+            extra_body=(
+                {"thinking": {"type": "enabled"}}
+                if cfg.deepseek_flash_thinking else None
+            ),
+            reasoning_effort=(
+                cfg.deepseek_reasoning_effort
+                if cfg.deepseek_flash_thinking else None
+            ),
+        )
     else:
         raise ValueError(f"未知的 Provider: {name}")
 

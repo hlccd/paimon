@@ -214,6 +214,11 @@ class Model:
             # 但按 token 逐片打日志会刷屏 → 累积到"切产出 / 流结束"时一次性 flush。
             # 超长（>800 字）只留首尾，中间省略（多为重复推理步骤）。
             reasoning_buf = ""
+            # 整轮累积的 reasoning（供 tool_calls assistant 消息回传）
+            # DeepSeek thinking + tool_use 硬约束：工具调用轮的 assistant 消息
+            # 必须带 reasoning_content，否则下一轮 API 返回 400。OpenAI 忽略
+            # 未知字段，所以无条件塞入 tool_calls 消息里无副作用。
+            full_reasoning = ""
 
             def _flush_reasoning():
                 nonlocal reasoning_buf
@@ -238,6 +243,7 @@ class Model:
                         continue
                     if chunk.reasoning_content:
                         reasoning_buf += chunk.reasoning_content
+                        full_reasoning += chunk.reasoning_content
                     # 切到产出阶段（tool_call 或 content）→ flush 先前推理
                     if chunk.tool_calls or chunk.content:
                         _flush_reasoning()
@@ -272,6 +278,10 @@ class Model:
             assistant_msg: dict[str, Any] = {"role": "assistant", "tool_calls": tool_calls}
             if text_buf:
                 assistant_msg["content"] = text_buf
+            # DeepSeek thinking + tool_use 硬约束：必须回传 reasoning_content，
+            # 否则下一轮 400。OpenAI / Claude 对未知字段容忍，无副作用。
+            if full_reasoning:
+                assistant_msg["reasoning_content"] = full_reasoning
             session.messages.append(assistant_msg)
 
             if not tool_executor:

@@ -24,6 +24,11 @@ class ModelRate:
 
 
 # 费率表（USD per token）
+# DeepSeek 官网单价是 CNY/M tokens，按汇率 7.2 折算；cache_write 设 0 —— DeepSeek
+# 无"缓存创建"计费概念（openai.py 也固定 cache_creation_tokens=0）。
+# v4-pro 限时 2.5 折至 2026-05-05 23:59，到期后改回原价：
+#   原价 CNY/M：miss 12 / hit 0.1 / output 24
+#   折算 USD/token：0.417e-6 hit 1.67e-6 output 3.33e-6
 _RATES: dict[str, ModelRate] = {
     "claude-opus-4":   ModelRate(15e-6,  75e-6,  18.75e-6, 1.5e-6),
     "claude-sonnet-4": ModelRate(3e-6,   15e-6,  3.75e-6,  0.3e-6),
@@ -31,6 +36,13 @@ _RATES: dict[str, ModelRate] = {
     "gpt-4o":          ModelRate(2.5e-6, 10e-6,  2.5e-6,   1.25e-6),
     "gpt-4o-mini":     ModelRate(0.15e-6, 0.6e-6, 0.15e-6, 0.075e-6),
     "gpt-4":           ModelRate(30e-6,  60e-6,   30e-6,   15e-6),
+    # DeepSeek v4-pro（折扣价，CNY 3/6/hit 0.025 折算）
+    "deepseek-v4-pro":   ModelRate(0.417e-6,  0.833e-6,  0.0,  0.0035e-6),
+    # DeepSeek v4-flash（稳定价，CNY 1/2/hit 0.02 折算）
+    "deepseek-v4-flash": ModelRate(0.139e-6,  0.278e-6,  0.0,  0.00278e-6),
+    # 即将弃用（2026-07-24）；对应 v4-flash 非思考 / 思考模式同价
+    "deepseek-chat":     ModelRate(0.139e-6,  0.278e-6,  0.0,  0.00278e-6),
+    "deepseek-reasoner": ModelRate(0.139e-6,  0.278e-6,  0.0,  0.00278e-6),
     "mimo":            ModelRate(1e-6,   1e-6,    1e-6,    0.5e-6),
 }
 _DEFAULT_RATE = ModelRate(3e-6, 15e-6, 3.75e-6, 0.3e-6)
