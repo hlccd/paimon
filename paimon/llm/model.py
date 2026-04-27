@@ -56,6 +56,10 @@ class Model:
         self.gnosis = gnosis
         self.router = router              # M2：按 (component, purpose) 路由到 profile
         self.last_chat_cost_usd: float = 0.0
+        # 上一次 chat 实际用的 model_name / 路由来源（聊天气泡尾巴展示用）
+        # —— 按 _pick_provider(component, purpose) 的实际返回记录，不是默认 profile
+        self.last_chat_model_name: str = ""
+        self.last_chat_provider_source: str = ""
 
     async def _pick_provider(
         self, component: str, purpose: str,
@@ -64,17 +68,36 @@ class Model:
 
         优先级：router 精确命中 > 默认 profile > self.provider（.env 启动值）
         source_tag: "profile:{id}" / "default" / "env"
+        路由命中同时写入 router._hits 供面板展示（命中记录不为 default/env
+        path 查 profile_id，只记 model_name + source，节省 DB 查询）。
         """
         if self.router and self.gnosis:
             pid = self.router.resolve(component, purpose)
             if pid:
                 prov = await self.gnosis.get_provider_by_profile_id(pid)
                 if prov:
+                    self.router.record_hit(
+                        component, purpose,
+                        profile_id=pid, model_name=prov.model_name,
+                        provider_source=f"profile:{pid}",
+                    )
                     return prov, f"profile:{pid}"
         if self.gnosis:
             default = await self.gnosis.get_default_provider()
             if default is not None:
+                if self.router:
+                    self.router.record_hit(
+                        component, purpose,
+                        profile_id="", model_name=default.model_name,
+                        provider_source="default",
+                    )
                 return default, "default"
+        if self.router:
+            self.router.record_hit(
+                component, purpose,
+                profile_id="", model_name=self.provider.model_name,
+                provider_source="env",
+            )
         return self.provider, "env"
 
     @staticmethod
@@ -223,6 +246,8 @@ class Model:
         purpose: str = "闲聊",
     ) -> AsyncIterator[str]:
         self.last_chat_cost_usd = 0.0
+        self.last_chat_model_name = ""
+        self.last_chat_provider_source = ""
         total_usage = self._empty_usage()
         self._sanitize_session_messages(session.messages)
         session.messages.append({"role": "user", "content": user_input})
@@ -235,6 +260,8 @@ class Model:
             tc_acc = _ToolCallAccumulator()
 
             active_provider, provider_source = await self._pick_provider(component, purpose)
+            self.last_chat_model_name = active_provider.model_name
+            self.last_chat_provider_source = provider_source
             if round_idx == 0:
                 logger.debug(
                     "[神之心·路由] {} / {} → {} ({})",
@@ -263,6 +290,8 @@ class Model:
                         )
                         active_provider = fallback
                         provider_source = fallback_source
+                        self.last_chat_model_name = active_provider.model_name
+                        self.last_chat_provider_source = provider_source
                         try:
                             stream_iter = active_provider.chat_stream(runtime_messages, tools=tools)
                         except Exception as e2:

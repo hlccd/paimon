@@ -527,17 +527,18 @@ class WebUIChannel(Channel):
             logger.debug("[神之心·LLM 面板] publish route event 失败: {}", e)
 
     async def llm_routes_list_api(self, request: web.Request) -> web.Response:
-        """列路由表 + 已知调用点 + 默认 profile 名（面板展示用）。"""
+        """列路由表 + 已知调用点 + 默认 profile 名 + 最近命中快照（面板用）。"""
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
         irminsul = self.state.irminsul
         router = self.state.model_router
         if not irminsul or not router:
             return web.json_response({
-                "routes": {}, "callsites": [], "default": None,
+                "routes": {}, "callsites": [], "default": None, "hits": {},
             })
         # 已配路由快照（用 router 内存版，免打 DB）
         routes = router.snapshot()
+        hits = router.get_hits()  # {route_key: {profile_id, model_name, provider_source, timestamp}}
         from paimon.foundation.model_router import KNOWN_CALLSITES
         default = await irminsul.llm_profile_get_default()
         return web.json_response({
@@ -548,6 +549,7 @@ class WebUIChannel(Channel):
             "default": (
                 {"id": default.id, "name": default.name} if default else None
             ),
+            "hits": hits,
         })
 
     async def llm_route_set_api(self, request: web.Request) -> web.Response:

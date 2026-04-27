@@ -62,15 +62,20 @@ KNOWN_COMPONENTS: list[str] = sorted({c for c, _ in KNOWN_CALLSITES})
 
 
 class ModelRouter:
-    """路由内存索引 + 世界树持久化薄壳。
+    """路由内存索引 + 世界树持久化薄壳 + 命中记录。
 
     内存结构：_routes: dict[route_key, profile_id]。启动 `load()` 从世界树
     拉一次，之后靠 leyline `llm.route.updated` 事件 → `reload()` 同步。
+
+    _hits: 按 route_key（component 或 "component:purpose"）记录最近一次命中
+    的 profile_id / model_name / provider_source / timestamp，给面板"最近
+    命中"小挂件用。重启丢失（不落库，避免热路径开销）。
     """
 
     def __init__(self, irminsul: "Irminsul"):
         self._irminsul = irminsul
         self._routes: dict[str, str] = {}
+        self._hits: dict[str, dict] = {}
 
     async def load(self) -> None:
         rows = await self._irminsul.llm_route_list_all()
@@ -109,3 +114,27 @@ class ModelRouter:
     def snapshot(self) -> dict[str, str]:
         """返回当前路由表副本（面板展示用）。"""
         return dict(self._routes)
+
+    def record_hit(
+        self, component: str, purpose: str,
+        *, profile_id: str, model_name: str, provider_source: str,
+    ) -> None:
+        """记录一次路由命中。同时按 "component:purpose" 和 "component" 两个
+        key 记录，面板渲染 component 粗粒度 / component:purpose 细粒度两个
+        表时都能查到对应行的最近命中。"""
+        import time
+        ts = time.time()
+        entry = {
+            "profile_id": profile_id,
+            "model_name": model_name,
+            "provider_source": provider_source,
+            "timestamp": ts,
+        }
+        if component:
+            self._hits[component] = entry
+            if purpose:
+                self._hits[f"{component}:{purpose}"] = dict(entry)
+
+    def get_hits(self) -> dict[str, dict]:
+        """返回当前命中快照（面板展示用）。"""
+        return dict(self._hits)

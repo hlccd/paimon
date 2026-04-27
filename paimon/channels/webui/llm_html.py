@@ -149,6 +149,12 @@ LLM_CSS = """
         opacity: 0; transition: opacity .2s;
     }
     .route-save-flash.shown { opacity: 1; }
+    /* 最近命中小字 */
+    .hit-cell { font-size: 12px; color: var(--text-muted); }
+    .hit-cell .hit-model { color: var(--text-secondary); font-family: 'SF Mono', Monaco, Consolas, monospace; }
+    .hit-cell .hit-src { color: var(--text-muted); }
+    .hit-cell .hit-time { color: var(--text-muted); margin-left: 4px; }
+    .hit-cell .hit-none { color: var(--paimon-border); font-style: italic; }
 
     .default-hero {
         padding: 12px 16px; margin-bottom: 16px;
@@ -192,7 +198,7 @@ LLM_BODY = """
                 <h3>按 component（粗粒度）</h3>
                 <div class="section-hint">一条规则覆盖该 component 的所有 purpose；更细规则能单独配在下方。</div>
                 <table class="route-table">
-                    <thead><tr><th style="width:40%">component</th><th>路由到</th></tr></thead>
+                    <thead><tr><th style="width:30%">component</th><th style="width:40%">路由到</th><th>最近命中</th></tr></thead>
                     <tbody id="routeCoarseBody"></tbody>
                 </table>
             </div>
@@ -201,7 +207,7 @@ LLM_BODY = """
                 <h3>按 component:purpose（细粒度）</h3>
                 <div class="section-hint">细粒度优先于粗粒度；都没配则走全局默认 profile。</div>
                 <table class="route-table">
-                    <thead><tr><th style="width:20%">component</th><th style="width:25%">purpose</th><th>路由到</th></tr></thead>
+                    <thead><tr><th style="width:15%">component</th><th style="width:20%">purpose</th><th style="width:35%">路由到</th><th>最近命中</th></tr></thead>
                     <tbody id="routeFineBody"></tbody>
                 </table>
             </div>
@@ -303,6 +309,15 @@ LLM_SCRIPT = """
                 String(d.getDate()).padStart(2,'0')+' '+
                 String(d.getHours()).padStart(2,'0')+':'+
                 String(d.getMinutes()).padStart(2,'0');
+        }
+        function relTime(ts){
+            if(!ts||ts<=0) return '-';
+            var sec = Math.max(0, Math.floor(Date.now()/1000 - ts));
+            if(sec < 5) return '刚刚';
+            if(sec < 60) return sec+'秒前';
+            if(sec < 3600) return Math.floor(sec/60)+'分钟前';
+            if(sec < 86400) return Math.floor(sec/3600)+'小时前';
+            return Math.floor(sec/86400)+'天前';
         }
 
         var currentProfiles = [];
@@ -594,6 +609,20 @@ LLM_SCRIPT = """
                     return html;
                 }
 
+                var hits = routeResp.hits || {};
+
+                // 把 hit 渲染成一行小字："最近：xxx · 3 分钟前"
+                function hitCellHTML(key){
+                    var h = hits[key];
+                    if(!h) return '<span class="hit-none">— 未命中</span>';
+                    var ago = relTime(h.timestamp);
+                    var srcTag = '';
+                    if(h.provider_source === 'default') srcTag = ' <span class="hit-src">(默认)</span>';
+                    else if(h.provider_source === 'env') srcTag = ' <span class="hit-src">(env)</span>';
+                    return '<span class="hit-model">'+esc(h.model_name || '?')+'</span>'
+                         + srcTag + ' <span class="hit-time">· '+esc(ago)+'</span>';
+                }
+
                 // 粗粒度：由 callsites 去重 components
                 var componentsSet = {};
                 callsites.forEach(function(c){ componentsSet[c.component] = 1; });
@@ -609,6 +638,7 @@ LLM_SCRIPT = """
                         +   '</select>'
                         +   '<span class="route-save-flash" data-flash-for="'+esc(key)+'">已保存 ✓</span>'
                         + '</td>'
+                        + '<td class="hit-cell">' + hitCellHTML(key) + '</td>'
                         + '</tr>';
                 }).join('');
 
@@ -625,6 +655,7 @@ LLM_SCRIPT = """
                         +   '</select>'
                         +   '<span class="route-save-flash" data-flash-for="'+esc(key)+'">已保存 ✓</span>'
                         + '</td>'
+                        + '<td class="hit-cell">' + hitCellHTML(key) + '</td>'
                         + '</tr>';
                 }).join('');
             } catch(e){

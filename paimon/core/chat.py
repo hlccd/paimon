@@ -411,7 +411,8 @@ async def run_shades_pipeline(
                     await reply.send(prefix + result)
                 cost = model.last_chat_cost_usd
                 cost_str = f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}"
-                await reply.send(f"\n\n---\n~{cost_str}")
+                model_name = getattr(model, "last_chat_model_name", "") or "?"
+                await reply.send(f"\n\n---\n~{cost_str} · 🧠 {model_name}")
             except Exception as e:
                 logger.debug("[派蒙·四影] reply.send 失败（连接可能已断）: {}", e)
     finally:
@@ -635,7 +636,8 @@ async def handle_chat(
                     time_str = f"{minutes}分{seconds:.1f}秒"
                 cost = model.last_chat_cost_usd
                 cost_str = f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}"
-                await reply.send(f"\n\n---\n{time_str} | ~{cost_str}")
+                model_name = getattr(model, "last_chat_model_name", "") or "?"
+                await reply.send(f"\n\n---\n{time_str} | ~{cost_str} · 🧠 {model_name}")
             except Exception:
                 pass
         try:
