@@ -562,12 +562,25 @@ LLM_SCRIPT = """
                 var callsites = routeResp.callsites || [];
                 var def = routeResp.default;
 
-                // 默认 hero
-                if(def){
-                    heroEl.innerHTML = '全局默认 profile：<strong>'+esc(def.name)+'</strong>'
-                        + '<span class="route-default-hint" style="margin-left:12px">路由未命中时回落到此。改默认请到「模型管理」tab。</span>';
+                // 默认 hero：下拉直接切默认 profile（所有路由未命中的调用都走这条）
+                if(profiles.length){
+                    var defaultId = def ? def.id : '';
+                    var opts = profiles.map(function(p){
+                        var sel = (p.id === defaultId) ? ' selected' : '';
+                        return '<option value="'+esc(p.id)+'"'+sel+'>'+esc(p.name)+'</option>';
+                    }).join('');
+                    heroEl.innerHTML = '<span style="flex-shrink:0">🎯 全局默认 profile：</span>'
+                        + '<select class="route-select" id="defaultProfileSelect" onchange="setDefaultFromHero(this)" style="min-width:240px">'
+                        + opts
+                        + '</select>'
+                        + '<span class="route-save-flash" data-flash-for="__default__">已切换 ✓</span>'
+                        + '<span class="route-default-hint" style="margin-left:auto">路由未命中时回落到此。</span>';
+                    heroEl.style.display = 'flex';
+                    heroEl.style.gap = '10px';
+                    heroEl.style.alignItems = 'center';
                 } else {
-                    heroEl.innerHTML = '<span style="color:var(--status-error)">⚠ 还没有默认 profile，请到「模型管理」tab 设一个。</span>';
+                    heroEl.innerHTML = '<span style="color:var(--status-error)">⚠ 还没有 profile，请到「模型管理」tab 新增。</span>';
+                    heroEl.style.display = 'block';
                 }
 
                 // 构建选项
@@ -618,6 +631,29 @@ LLM_SCRIPT = """
                 heroEl.innerHTML = '<span style="color:var(--status-error)">加载失败: '+esc(String(e))+'</span>';
             }
         }
+
+        window.setDefaultFromHero = async function(selectEl){
+            var pid = selectEl.value;
+            if(!pid) return;
+            var flash = document.querySelector('.route-save-flash[data-flash-for="__default__"]');
+            try {
+                var r = await fetch('/api/llm/' + encodeURIComponent(pid) + '/set-default', {method: 'POST'});
+                var d = await r.json();
+                if(d.ok){
+                    if(flash){
+                        flash.classList.add('shown');
+                        setTimeout(function(){ flash.classList.remove('shown'); }, 1500);
+                    }
+                    // 重新渲染整个路由表（"[默认]" 标记要跟着移动；leyline 事件
+                    // 已让 gnosis 缓存失效，下一次 chat 自动用新默认）
+                    setTimeout(function(){ loadRoutes(); }, 200);
+                } else {
+                    alert('切换失败: ' + (d.error || 'unknown'));
+                }
+            } catch(e){
+                alert('请求失败: ' + e.message);
+            }
+        };
 
         window.saveRoute = async function(selectEl){
             var key = selectEl.getAttribute('data-key');
