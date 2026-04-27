@@ -580,6 +580,17 @@ async def create_subscription(
         sub_id, actor="派蒙", linked_task_id=task_id,
     )
 
+    # 首次采集：创建即跑一次，免等 cron（复用手动「运行」按钮链路）
+    # fire-and-forget：不阻塞 API 返回，失败落 last_error，空跑走占位公告
+    if state.venti and sub.enabled:
+        import asyncio as _asyncio
+        _asyncio.create_task(state.venti.collect_subscription(
+            sub_id,
+            irminsul=state.irminsul,
+            model=state.model,
+            march=state.march,
+        ))
+
     task = await state.irminsul.schedule_get(task_id)
     import time as _time
     next_str = (
@@ -588,7 +599,7 @@ async def create_subscription(
     )
     engine_label = engine or "双引擎"
     message = (
-        f"订阅已创建 #{sub_id[:8]}\n"
+        f"订阅已创建 #{sub_id[:8]}（已启动首次采集）\n"
         f"  关键词: {query}\n"
         f"  周期: {cron}\n"
         f"  引擎: {engine_label}\n"
