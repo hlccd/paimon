@@ -171,8 +171,25 @@ class Model:
             else:
                 break
 
+    @staticmethod
+    def _normalize_reasoning_passthrough(messages: list[dict[str, Any]]) -> None:
+        """DeepSeek thinking 硬约束：带 tool_calls 的 assistant 消息必须带
+        reasoning_content（可空），否则 400。
+
+        场景：用户在非 thinking provider（如 Claude）聊天触发过 tool 调用，
+        session.messages 留下了没 reasoning_content 的 assistant 消息，之后
+        切到 DeepSeek thinking 模式就炸。规范化补空串即可——OpenAI / Claude
+        对未知/空字段都容忍，只有 DeepSeek 强制此字段存在。
+        """
+        for msg in messages:
+            if (msg.get("role") == "assistant"
+                    and msg.get("tool_calls")
+                    and "reasoning_content" not in msg):
+                msg["reasoning_content"] = ""
+
     def _build_runtime_messages(self, session: Session) -> list[dict[str, Any]]:
         msgs = list(session.messages)
+        self._normalize_reasoning_passthrough(msgs)
         memory_prompt = self._build_memory_prompt(session)
         if not memory_prompt:
             return msgs
@@ -340,10 +357,11 @@ class Model:
             assistant_msg: dict[str, Any] = {"role": "assistant", "tool_calls": tool_calls}
             if text_buf:
                 assistant_msg["content"] = text_buf
-            # DeepSeek thinking + tool_use 硬约束：必须回传 reasoning_content，
-            # 否则下一轮 400。OpenAI / Claude 对未知字段容忍，无副作用。
-            if full_reasoning:
-                assistant_msg["reasoning_content"] = full_reasoning
+            # DeepSeek thinking + tool_use 硬约束：带 tool_calls 的 assistant
+            # 消息必须带 reasoning_content 字段（可空），否则下一轮 400。
+            # 非 thinking provider 下 full_reasoning 为空也要塞空串——避免
+            # 后续 session 切到 DeepSeek 时历史消息缺字段翻车。
+            assistant_msg["reasoning_content"] = full_reasoning
             session.messages.append(assistant_msg)
 
             if not tool_executor:
