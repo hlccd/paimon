@@ -1088,6 +1088,31 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}时 {rem // 60}分 {rem % 60}秒"
 
 
+async def _build_task_list_index(channel_key: str) -> list:
+    """筛选最近 7 天四影任务 + 写 channel 级编号缓存。返回 list[TaskEdict]。
+
+    /task-list 和 /task-index 共用：list 显式调，index 在缓存缺失/过期时静默调。
+    返回空列表表示暂无任务（调用方根据上下文给不同提示）。
+    """
+    import time as _time
+    irminsul = state.irminsul
+    if not irminsul:
+        return []
+    edicts = await irminsul.task_list(limit=50)
+    now = _time.time()
+    cutoff = now - _TASK_LIST_LOOKBACK_SECONDS
+    items = [
+        e for e in edicts
+        if (e.creator or "").startswith("派蒙")
+        and e.lifecycle_stage != "archived"
+        and (e.updated_at or e.created_at) >= cutoff
+    ][:_TASK_LIST_MAX_ITEMS]
+    state.task_list_index[channel_key] = (
+        [e.id for e in items], now + _TASK_LIST_TTL_SECONDS,
+    )
+    return items
+
+
 @command("task-list")
 async def cmd_task_list(ctx: CommandContext) -> str:
     """/task-list — 列最近 7 天的四影任务（按 updated_at DESC 取 20 条）。
@@ -1095,34 +1120,18 @@ async def cmd_task_list(ctx: CommandContext) -> str:
     docs/interaction.md §2.3.2 / §四：列表后写 channel 级编号缓存，TTL 10 分钟，
     /task-index N 用同 channel_key 取回。
     """
-    import time as _time
-
-    irminsul = state.irminsul
-    if not irminsul:
+    if not state.irminsul:
         return "世界树未就绪"
 
-    edicts = await irminsul.task_list(limit=50)
-    now = _time.time()
-    cutoff = now - _TASK_LIST_LOOKBACK_SECONDS
-
-    items = [
-        e for e in edicts
-        if (e.creator or "").startswith("派蒙")
-        and e.lifecycle_stage != "archived"
-        and (e.updated_at or e.created_at) >= cutoff
-    ][:_TASK_LIST_MAX_ITEMS]
-
+    items = await _build_task_list_index(ctx.msg.channel_key)
     if not items:
         return (
             "📋 最近 7 天暂无四影任务\n"
             "（用 /task <描述> 强制走四影管线；或自然语言里描述复杂任务派蒙会自动判定）"
         )
 
-    channel_key = ctx.msg.channel_key
-    state.task_list_index[channel_key] = (
-        [e.id for e in items], now + _TASK_LIST_TTL_SECONDS,
-    )
-
+    import time as _time
+    now = _time.time()
     lines = ["📋 最近 7 天任务："]
     for idx, e in enumerate(items, start=1):
         label = _TASK_STATUS_LABEL.get(e.status, e.status or "?")
@@ -1136,27 +1145,39 @@ async def cmd_task_list(ctx: CommandContext) -> str:
 
 @command("task-index")
 async def cmd_task_index(ctx: CommandContext) -> str:
-    """/task-index N — 查看 /task-list 第 N 条任务详情。"""
+    """/task-index [N] — 查看四影任务详情。
+
+    无参 → 取最近一条（N=1）。缓存缺失或过期时自动重建索引（不再要求先 /task-list）。
+    """
     import time as _time
 
     arg = ctx.args.strip()
     if not arg:
-        return "用法: /task-index <序号>\n请先发送 /task-list 获取序号"
-    try:
-        n = int(arg.split()[0])
-    except (ValueError, IndexError):
-        return f"序号格式错误: '{arg}'，需要正整数"
-    if n < 1:
-        return "序号需 ≥ 1"
+        n = 1
+    else:
+        try:
+            n = int(arg.split()[0])
+        except (ValueError, IndexError):
+            return f"序号格式错误: '{arg}'，需要正整数"
+        if n < 1:
+            return "序号需 ≥ 1"
 
     channel_key = ctx.msg.channel_key
     cached = state.task_list_index.get(channel_key)
     now = _time.time()
-    if not cached or cached[1] < now:
-        return "编号已过期，请先发送 /task-list 重新编号"
-    ids, _expires = cached
+    if cached and cached[1] >= now:
+        ids = cached[0]
+    else:
+        # 自动重建：用户直接 /task-index 不需要先 /task-list
+        items = await _build_task_list_index(channel_key)
+        if not state.irminsul:
+            return "世界树未就绪"
+        if not items:
+            return "📋 最近 7 天暂无四影任务"
+        ids = [e.id for e in items]
+
     if n > len(ids):
-        return f"序号超出范围（共 {len(ids)} 条），请检查 /task-list"
+        return f"序号超出范围（共 {len(ids)} 条）"
     task_id = ids[n - 1]
 
     irminsul = state.irminsul
@@ -1315,7 +1336,7 @@ async def cmd_help(ctx: CommandContext) -> str:
         "  /tasks - 查看定时任务\n"
         "  /task <描述> - 强制走四影处理复杂任务\n"
         "  /task-list - 列最近 7 天的四影任务（带 1-基序号，10 分钟内有效）\n"
-        "  /task-index <N> - 查看 /task-list 第 N 条任务详情\n"
+        "  /task-index [N] - 查看任务详情（无参=最近一条；自动按需重建索引）\n"
         "  /remember <内容> - 记住一段跨会话信息（偏好/规范/项目事实）\n"
         "  /subscribe <关键词> [| <cron>] [| <engine>] - 订阅话题定时推送\n"
         "  /subs list|rm|on|off|run <id> - 订阅管理\n"
