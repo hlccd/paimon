@@ -166,19 +166,12 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
     intent = await classify_intent(model, session, msg.text, state.skill_registry)
 
     if intent.kind == "complex":
+        # ack 由 pipeline.prepare 内部发（那时已有 LLM 短标题，更可读）
         reply = await channel.make_reply(msg)
-        # ack：让用户知道任务已收到、正在准备
-        # 短标题 M1 用 user_input 截断；M2 换 LLM 生成的 10-20 字概括
-        short = msg.text.strip()
-        if len(short) > 40:
-            short = short[:40] + "..."
-        try:
-            await reply.notice(f"收到任务：{short}，正在准备（安全审查 + 编排）…", kind="ack")
-        except Exception:
-            pass
         hint = await enter_shades_pipeline_background(msg, channel, session)
         try:
             await reply.send(hint)
+            await reply.flush()   # QQ 批次渠道需要 flush 才发；Web 的 flush 是 no-op
         except Exception:
             pass
     elif intent.kind == "skill":
@@ -255,11 +248,11 @@ async def enter_shades_pipeline_background(
             logger.warning("[派蒙·四影 bg] 推 summary 失败: {}", e)
 
     asyncio.create_task(_bg())
+    # hint 瘦身：notice 的 🚀 milestone 已经列了全部子任务 + 查询提示，
+    # 这里只留 task id 识别符 + 一句补充说明，避免信息重复。
     hint = (
-        f"✅ task={task_id[:8]} 已授权，进入四影管线后台执行（简单 3-10 分钟，复杂更长）\n"
-        f"- DAG: {len(plan.subtasks)} 节点\n"
-        "- 进度/结果推到「📨 推送」会话\n"
-        "- 跟踪: /tasks 看状态，/task-summary 看产物"
+        f"✅ task={task_id[:8]} 后台执行中\n"
+        "完成后「📨 推送」会收到摘要。"
     )
     await _persist_turn(msg.channel_key, text, hint)
     return hint

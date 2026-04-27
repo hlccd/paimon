@@ -77,6 +77,9 @@ class ShadesPipeline:
         self._user_id = user_id
         self._batch_ask_timeout = batch_ask_timeout
         self._reply = reply
+        # _batch_authorize 失败时的具体原因（给 prepare / execute 用作 msg）
+        # 区分三种情况：用户真的拒绝 / 渠道不支持交互授权 / 授权超时
+        self._last_batch_authz_failure = ""
 
     async def _notice(self, text: str, *, kind: str = "milestone") -> None:
         """向当前 reply 推一条中间状态（渠道自决是否发；失败静默）。
@@ -95,17 +98,18 @@ class ShadesPipeline:
 
     @staticmethod
     def _format_dispatch_msg(plan: "Plan") -> str:
-        """把 plan 的子任务列表格式化成面向用户的派发消息。"""
+        """把 plan 的子任务列表格式化成面向用户的派发消息。
+
+        子任务描述**完整不截断**（用户明确要求，即使很长也全列；QQ 单条消息上限
+        约 2000 字，通常远够装下 DAG）。只去掉 `[STAGE:xxx]` 内部标记前缀。
+        """
         lines = [f"🚀 已派发 {len(plan.subtasks)} 个子任务执行："]
         for i, sub in enumerate(plan.subtasks, start=1):
             desc = (sub.description or "").strip()
-            # 去掉 `[STAGE:review_spec]` 之类的内部标记前缀
             if desc.startswith("["):
                 rb = desc.find("]")
                 if 0 < rb < 40:
                     desc = desc[rb + 1:].strip()
-            if len(desc) > 40:
-                desc = desc[:40].rstrip() + "…"
             lines.append(f"  {i}. {sub.assignee} · {desc}")
         lines.append(
             "如超过几分钟未完成，可随时去 /tasks 面板或 /task-list 查看进度。"
@@ -149,6 +153,14 @@ class ShadesPipeline:
             logger.info("[四影·prepare] 魔女会转入 task={} reason={}", task.id, escalation_reason)
         logger.info("[四影·prepare] task={} title={}", task.id, task.title[:60])
 
+        # ack：任务已登录 + 短标题已生成，此刻推最即时的回执。
+        # QQ 渠道会暂存 ack 到首条 milestone 再一起发（节省 seq 预算；
+        # prepare 直接失败时 ack 永远不发）。Web 立刻推浅灰小字。
+        await self._notice(
+            f"收到任务：{task.title} (task={task.id[:8]})，正在准备（安全审查 + 编排）…",
+            kind="ack",
+        )
+
         try:
             safe, reason = await jonova.review(task, self._model, self._irminsul)
             if not safe:
@@ -175,13 +187,15 @@ class ShadesPipeline:
             # 批量授权（此刻 SSE 活跃 → ask_user 能问到用户）
             scan_ok = await self._batch_authorize(task, plan, session_id)
             if not scan_ok:
+                # 区分"用户真拒绝" vs "渠道不支持交互授权" vs "超时"
+                reason = self._last_batch_authz_failure or "用户拒绝了全部敏感操作"
                 await istaroth.archive(
                     task, self._irminsul,
-                    failure_reason="用户拒绝了全部敏感操作", rounds=1,
+                    failure_reason=reason, rounds=1,
                 )
                 return PrepareResult(
                     task=task, plan=plan, ok=False,
-                    msg="任务已取消（你拒绝了全部敏感操作）。",
+                    msg=f"⚠️ 任务已取消\n{reason}",
                 )
             # prepare 末尾一条 milestone，含全部子任务列表。
             # 不在 execute 里发派发 milestone —— 异步路径下 SSE 在 hint 后就关闭，
@@ -242,15 +256,16 @@ class ShadesPipeline:
                     )
                     scan_ok = await self._batch_authorize(task, plan, session_id)
                     if not scan_ok:
+                        reason = self._last_batch_authz_failure or "用户拒绝了全部敏感操作"
                         await istaroth.archive(
                             task, self._irminsul,
-                            failure_reason="revise 轮用户拒绝了全部敏感操作",
+                            failure_reason=f"revise 轮：{reason}",
                             rounds=round_idx,
                         )
                         await self._notify_progress(
-                            f"❌ task={task.id[:8]} round {round_idx} 全部敏感节点被拒/无法授权"
+                            f"❌ task={task.id[:8]} round {round_idx} {reason[:80]}"
                         )
-                        return "任务已取消（revise 轮敏感操作全拒）。"
+                        return f"⚠️ 任务已取消（round {round_idx}）\n{reason}"
 
                 # 注意：派发 milestone 已在 prepare 末尾发过，这里不再重复。
                 # 异步 bg 路径下 SSE 已关；同步路径下也不需要再提醒用户一次。
@@ -408,18 +423,27 @@ class ShadesPipeline:
                 "[四影·batch_ask] 频道 {} 未支持 ask_user，保守拒绝全部",
                 getattr(self._channel, "name", "?"),
             )
-            # 后台异步跑管线时 SSE 已关闭 → ask_user 无活跃通道
-            # 用户看到"任务失败"但不知原因，此处显式推送解释
+            items_hint = "\n".join(
+                f"  - {item.assignee} · {item.description[:40]}"
+                for item in scan.items_to_ask[:10]
+            )
+            self._last_batch_authz_failure = (
+                f"当前频道（{getattr(self._channel, 'name', '?')}）暂不支持交互授权。\n"
+                f"此任务涉及 {len(scan.items_to_ask)} 个敏感操作节点：\n{items_hint}\n"
+                "请换到 Web 端重试，或用 `/grant <神名>` 预授权相关能力后再试。"
+            )
             await self._notify_progress(
-                f"🚫 task={task.id[:8]} 需要授权但 SSE 已关闭\n"
-                f"  涉及 {len(scan.items_to_ask)} 个敏感节点，保守全拒\n"
-                f"  建议：在 /task 命令前用 /grant <神名> 预授权，或拆解任务避免敏感操作"
+                f"🚫 task={task.id[:8]} 渠道未支持交互授权\n"
+                f"  涉及 {len(scan.items_to_ask)} 个敏感节点，保守全拒"
             )
             return await self._reject_all_sensitive(plan, scan.items_to_ask, task)
         except asyncio.TimeoutError:
             logger.info(
                 "[四影·batch_ask] 询问超时 ({}s)，保守拒绝",
                 self._batch_ask_timeout,
+            )
+            self._last_batch_authz_failure = (
+                f"授权询问超时（{self._batch_ask_timeout:.0f} 秒无答复），保守取消。"
             )
             await self._notify_progress(
                 f"⏰ task={task.id[:8]} 授权询问超时（{self._batch_ask_timeout:.0f}s）→ 保守全拒"
@@ -732,7 +756,18 @@ class ShadesPipeline:
         session_id: str,
         escalation_reason: str | None = None,
     ) -> TaskEdict:
-        title = user_input[:100].strip()
+        # LLM 生成短标题供 ack / notice / task-list 显示。
+        # 失败降级为 user_input 截断；慢任务多这一次 LLM 调用不影响整体耗时。
+        title = ""
+        try:
+            t = await self._model.generate_title(user_input, session_id=session_id)
+            if t:
+                title = t.strip().replace("\n", " ")[:30]
+        except Exception as e:
+            logger.debug("[四影·create_task] 短标题生成失败: {}", e)
+        if not title:
+            title = user_input.strip().replace("\n", " ")[:60]
+
         if escalation_reason:
             description = (
                 f"{user_input}\n"

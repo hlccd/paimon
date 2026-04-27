@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,10 +31,32 @@ class QQChannel(Channel):
             "msg_type": msg_type,
             "last_msg_id": msg_id,
             "msg_seq": 1,
+            "created_at": time.time(),   # passive window 起点 —— 多 reply 实例共享
         }
 
     def _get_context(self, chat_id: str) -> dict[str, Any] | None:
         return self._chat_contexts.get(chat_id)
+
+    def take_seq(self, chat_id: str) -> int:
+        """返回当前可用 msg_seq，并把 ctx 里的 seq 自增。
+
+        所有发往 QQ 的消息（send_text / reply.send 后 flush / reply.notice）
+        都应经此取 seq，避免多个 QQChannelReply 实例各自从 1 开始冲突。
+        """
+        ctx = self._chat_contexts.get(chat_id)
+        if ctx is None:
+            return 1
+        seq = int(ctx.get("msg_seq", 1) or 1)
+        ctx["msg_seq"] = seq + 1
+        return seq
+
+    def seq_window_open(self, chat_id: str, margin: float = 5.0) -> bool:
+        """被动回复窗口是否还开着（留 5s 余量以防卡在边界）。"""
+        ctx = self._chat_contexts.get(chat_id)
+        if ctx is None:
+            return False
+        created = float(ctx.get("created_at", 0.0))
+        return (time.time() - created) < (290.0 - margin)
 
     async def _send_message(
         self,
@@ -47,15 +70,18 @@ class QQChannel(Channel):
             return
         api = self._client.api
 
+        ctx = self._get_context(chat_id)
         if msg_type is None:
-            ctx = self._get_context(chat_id)
             if ctx:
                 msg_type = ctx["msg_type"]
-                if msg_id is None:
-                    msg_id = ctx.get("last_msg_id")
             else:
                 logger.warning("[派蒙·QQ频道] 未找到聊天上下文 chat_id={}", chat_id)
                 return
+        # msg_id 总从 ctx fallback（不管 msg_type 是否传入）——
+        # 之前只在 msg_type is None 时 fallback，send_text 显式传 msg_type 导致
+        # msg_id 永远是 None 被腾讯 API 拒绝（被动回复必须有 msg_id）。
+        if msg_id is None and ctx:
+            msg_id = ctx.get("last_msg_id")
 
         try:
             if msg_type == "group":
@@ -84,20 +110,16 @@ class QQChannel(Channel):
             return
         ctx = self._get_context(chat_id)
         msg_type = ctx["msg_type"] if ctx else None
-        msg_seq = ctx.get("msg_seq", 1) if ctx else 1
 
         chunks = _chunk_text(text, QQ_MAX_MESSAGE_LENGTH)
         for chunk in chunks:
+            seq = self.take_seq(chat_id)
             await self._send_message(
                 chat_id=chat_id,
                 text=chunk,
                 msg_type=msg_type,
-                msg_seq=msg_seq,
+                msg_seq=seq,
             )
-            msg_seq += 1
-
-        if ctx:
-            ctx["msg_seq"] = msg_seq
 
     async def send_file(self, chat_id: str, path: Path, caption: str = "") -> None:
         if caption:
@@ -109,6 +131,46 @@ class QQChannel(Channel):
         msg_type = ctx["msg_type"] if ctx else "group"
         msg_id = ctx.get("last_msg_id", "") if ctx else ""
         return QQChannelReply(self, msg.chat_id, msg_id, msg_type)
+
+    async def ask_user(
+        self, chat_id: str, prompt: str, *, timeout: float = 30.0,
+    ) -> str:
+        """QQ 授权询问：发询问消息 + 挂 Future 等用户下条入站消息作答。
+
+        和 WebUI 的 ask_user 共用 state.pending_asks 字典——用户的下条消息
+        会被 core.chat.on_channel_message 最前面的 pending 消化逻辑截获，
+        直接 set_result 到这里的 Future，不走正常 chat 流程。
+
+        超时抛 asyncio.TimeoutError；并发重入抛 NotImplementedError（由
+        pipeline._batch_authorize 兜底，降级为保守拒绝）。
+        """
+        from paimon.state import state as _state
+
+        channel_key = f"{self.name}:{chat_id}"
+        if channel_key in _state.pending_asks:
+            raise NotImplementedError("已有挂起的权限询问，拒绝并发")
+
+        # 先挂 Future 再发询问消息 —— 避免 race：
+        # 如果先 send_text 再挂 Future，用户秒回的答复消息到 on_channel_message 时
+        # pending_asks 还没 Future，答复会走普通 intent 流程而不是 set_result。
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        _state.pending_asks[channel_key] = fut
+        try:
+            try:
+                await self.send_text(
+                    chat_id,
+                    "🛡️ 权限询问\n\n" + prompt +
+                    "\n\n请回复「同意 / 放行」继续，回复「拒绝 / 算了」终止。",
+                )
+            except Exception as e:
+                logger.warning("[派蒙·QQ频道·ask_user] 发询问消息失败: {}", e)
+                # 发送失败时直接抛 NotImplementedError 让 pipeline 走保守拒绝路径，
+                # 免得用户看不到询问还在那傻等 60s 超时
+                raise NotImplementedError(f"询问消息发送失败: {e}") from e
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            _state.pending_asks.pop(channel_key, None)
 
     async def start(self) -> None:
         from paimon.channels.qq.handlers import PaimonQQClient
