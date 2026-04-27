@@ -168,12 +168,14 @@ class VentiArchon(Archon):
     ) -> str:
         logger.info("[风神] 执行子任务: {}", subtask.description[:80])
 
+        from paimon.archons.base import FINAL_OUTPUT_RULE
         system = _SYSTEM_PROMPT
         system += f"\n\n## 当前任务\n{task.title}\n\n## 你的子任务\n{subtask.description}"
         if prior_results:
             system += "\n\n## 前序子任务结果\n"
             for i, pr in enumerate(prior_results, 1):
                 system += f"\n### 子任务 {i}\n{pr[:2000]}\n"
+        system += FINAL_OUTPUT_RULE
 
         temp_session = Session(id=f"venti-{task.id[:8]}", name="风神采集")
         temp_session.messages.append({"role": "system", "content": system})

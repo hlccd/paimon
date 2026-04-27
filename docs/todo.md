@@ -16,6 +16,11 @@
   - **摘要 fallback 链**：抽到 [`paimon/shades/_task_summary.py`](../paimon/shades/_task_summary.py) 共用：(1) workspace `summary.md` (2) push_archive 反查 task_id (3) 拼接 completed subtask.result (4) 区分"全空 / 暂无"诊断兜底。修复 `pipeline._notify_progress` 漏传 `task_id` 给 `ring_event`（导致 push_archive `extra.task_id` 一直是 None，反查失效）。
   - **docs 同步**：interaction.md §三表格"QQ 不支持 ask_user" → "已支持"（实际 [`qq/channel.py:135`](../paimon/channels/qq/channel.py) 通过 pending_asks Future 已实装）；§四加摘要 fallback 链描述。
   - **遗留**：archon `_extract_result()` 抓不到 LLM 终局消息导致 `subtask.result` / `progress.message` 为空 —— 上游执行流程 bug，单独排查。
+- [x] ~~**archon 终局消息抓取鲁棒化（接续四影任务可见性的遗留）**~~ —— 2026-04-27：
+  - **症状**：archon execute 末轮 LLM 偶发只返回 tool_calls 不生成 final content（或把答案写在 reasoning_content / 工具结果里），`_extract_result` 严格匹配 `assistant + content + !tool_calls` 直接返回空 → `subtask.result` 全空 → /task-index 摘要拿不到内容。
+  - **修复·检测层**：[`paimon/archons/base.py:_extract_result`](../paimon/archons/base.py) 加分级 fallback —— L1 clean final → L2 assistant 含 tool_calls 同消息的 content → L3 reasoning_content（前缀标"思考流"）→ L4 末条 tool message content（前缀标"工具调用结果"）→ L5 全空诊断日志（含 msg roles 序列）。命中 L2/L3/L4 时打 WARNING 便于事后定位 LLM 在哪层断流。
+  - **修复·预防层**：新增 `paimon/archons/base.py:FINAL_OUTPUT_RULE` 常量，所有 7 个 archon (venti/nahida/furina/mavuika/raiden/tsaritsa/zhongli) 在 system prompt 末尾追加输出契约——"无论是否调用工具，最后一轮必须输出一段中文文字作为子任务的最终回答；不能只留 tool_calls 就停止；上层会从最末 assistant 文本消息抓 result"。
+  - **遗留**：暂不主动追问。如果 fallback 都落空（极端情况），仍返回 ""，archon 会写空 result。后续观测 WARNING 频率，必要时再加 execute 自动追问 LLM 一轮（成本：偶发多一次 LLM 调用）。
 - [x] ~~**三月·事件响铃**~~ —— 2026-04-23 实装 `MarchService.ring_event(channel_name, chat_id, source, message/prompt, task_id)`。复用地脉 `march.ring` 订阅（派蒙侧 zero-change）；限流 60s/10 次；审计 `event_type="march_ring_event"`。收集者（风神/岩神）的实际接入在各神增强独立做。
 - [x] ~~**三月·自检系统（Quick）**~~ —— 2026-04-25 Quick 档位上线可用；Deep 档位暂缓（见下一项）：
   - **Quick**（`/selfcheck`）：秒级 9 组件探针（irminsul/leyline/gnosis/march/session_mgr/skill_registry/authz_cache/channels/paimon_home），零 LLM；overall 派生 + warnings 收集；结果存世界树**新域 12 `selfcheck_runs`** + 文件 `quick_snapshot.json`

@@ -115,12 +115,14 @@ class FurinaArchon(Archon):
             )
             return result
 
+        from paimon.archons.base import FINAL_OUTPUT_RULE
         system = _SYSTEM_PROMPT
         system += f"\n\n## 当前任务\n{task.title}\n\n## 你的子任务\n{subtask.description}"
         if prior_results:
             system += "\n\n## 需要评审的内容\n"
             for i, pr in enumerate(prior_results, 1):
                 system += f"\n### 子任务 {i} 产物\n{pr[:3000]}\n"
+        system += FINAL_OUTPUT_RULE
 
         temp_session = Session(id=f"furina-{task.id[:8]}", name="水神评审")
         temp_session.messages.append({"role": "system", "content": system})
