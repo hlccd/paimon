@@ -282,6 +282,7 @@ class WebUIChannel(Channel):
         if not irminsul:
             return web.json_response({"subs": []})
         subs = await irminsul.subscription_list()
+        venti = self.state.venti
         out = []
         for s in subs:
             item_count = await irminsul.feed_items_count(sub_id=s.id)
@@ -300,6 +301,7 @@ class WebUIChannel(Channel):
                 "created_at": s.created_at,
                 "item_count": item_count,
                 "event_count": event_count,
+                "running": bool(venti and venti.is_running(s.id)),
             })
         return web.json_response({"subs": out})
 

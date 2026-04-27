@@ -234,6 +234,39 @@ NAV_LINKS_CSS = """
         text-align: center; color: var(--text-muted);
         padding: 24px; font-size: 13px;
     }
+    .digest-running-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 14px; margin-bottom: 12px;
+        background: rgba(255,180,80,.08);
+        border: 1px solid rgba(255,180,80,.28);
+        border-radius: 8px;
+        color: var(--gold);
+        font-size: 12.5px;
+    }
+    .digest-running-bar .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--gold);
+        animation: paimon-pulse 1.1s ease-in-out infinite;
+        flex-shrink: 0;
+    }
+    .digest-bulletin .db-running {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 2px 8px; font-size: 11px;
+        color: var(--gold);
+        background: rgba(255,180,80,.12);
+        border: 1px solid rgba(255,180,80,.35);
+        border-radius: 10px;
+        margin-left: 6px;
+    }
+    .digest-bulletin .db-running::before {
+        content: ''; width: 7px; height: 7px; border-radius: 50%;
+        background: var(--gold);
+        animation: paimon-pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes paimon-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: .35; transform: scale(.65); }
+    }
     .digest-history-toggle {
         text-align: center;
         padding: 8px;

@@ -152,6 +152,14 @@ class VentiArchon(Archon):
     description = "新闻采集、舆情分析、推送整理"
     allowed_tools = {"web_fetch", "exec"}
 
+    def __init__(self) -> None:
+        # 订阅采集 in-flight 集合：进入 collect_subscription 加入、finally 移除
+        # 用途：① 前端卡片显示「采集中」角标 ② 防并发重入（cron + 手动按钮重叠）
+        self._inflight: set[str] = set()
+
+    def is_running(self, sub_id: str) -> bool:
+        return sub_id in self._inflight
+
     # ---------- 四影管线入口（原有能力）----------
 
     async def execute(
@@ -205,6 +213,23 @@ class VentiArchon(Archon):
         6. 交三月 ring_event 推送
         7. 标记 feed_items pushed + 更新订阅 last_run_at
         """
+        if sub_id in self._inflight:
+            logger.info("[风神·订阅] 已在采集中，跳过重复触发 sub={}", sub_id)
+            return
+        self._inflight.add(sub_id)
+        try:
+            await self._collect_subscription_impl(
+                sub_id, irminsul=irminsul, model=model, march=march,
+            )
+        finally:
+            self._inflight.discard(sub_id)
+
+    async def _collect_subscription_impl(
+        self, sub_id: str, *,
+        irminsul: Irminsul,
+        model: Model,
+        march: MarchService,
+    ) -> None:
         logger.info("[风神·订阅] 开始采集 sub_id={}", sub_id)
 
         sub = await irminsul.subscription_get(sub_id)

@@ -117,6 +117,21 @@ FEED_CSS = """
     .badge-engine-other { background: var(--paimon-panel-light); color: var(--text-secondary); }
     .badge-enabled { background: rgba(16,185,129,.15); color: var(--status-success); }
     .badge-disabled { background: rgba(239,68,68,.15); color: var(--status-error); }
+    .badge-running {
+        background: rgba(255,180,80,.12); color: var(--gold);
+        border: 1px solid rgba(255,180,80,.35);
+        display: inline-flex; align-items: center; gap: 5px;
+    }
+    .badge-running::before {
+        content: ''; width: 7px; height: 7px; border-radius: 50%;
+        background: var(--gold);
+        animation: paimon-pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes paimon-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: .35; transform: scale(.65); }
+    }
+    .btn-action:disabled { opacity: .6; cursor: wait; }
 """
 
 
@@ -255,11 +270,15 @@ FEED_SCRIPT = """
                 el.innerHTML=subs.map(function(s){
                     var cls='sub-card'+(s.enabled?'':' disabled');
                     var badge=s.enabled?'<span class="badge badge-enabled">启用</span>':'<span class="badge badge-disabled">停用</span>';
+                    var runBadge=s.running?'<span class="badge badge-running">采集中</span>':'';
                     var err=s.last_error?'<div class="sub-err">错: '+esc(s.last_error.substring(0,120))+'</div>':'';
                     var engine=s.engine||'双引擎';
+                    var runBtn=s.running
+                        ? '<button class="btn-action" disabled>采集中…</button>'
+                        : '<button class="btn-action" onclick="runSub(\\''+s.id+'\\')">运行</button>';
                     return '<div class="'+cls+'">'
                         + '<div class="sub-info">'
-                        +   '<div class="sub-query">'+esc(s.query)+' '+badge+'</div>'
+                        +   '<div class="sub-query">'+esc(s.query)+' '+badge+' '+runBadge+'</div>'
                         +   '<div class="sub-meta">'
                         +     '<span>ID: '+esc(s.id.substring(0,8))+'</span>'
                         +     '<span>cron: '+esc(s.schedule_cron)+'</span>'
@@ -271,7 +290,7 @@ FEED_SCRIPT = """
                         +   err
                         + '</div>'
                         + '<div class="sub-actions">'
-                        +   '<button class="btn-action" onclick="runSub(\\''+s.id+'\\')">运行</button>'
+                        +   runBtn
                         +   (s.enabled
                               ? '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',false)">停用</button>'
                               : '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',true)">启用</button>')
@@ -279,8 +298,14 @@ FEED_SCRIPT = """
                         + '</div>'
                         + '</div>';
                 }).join('');
+                // 有采集中的订阅 → 2s 后自动再刷一次，直到全部完成
+                if(subs.some(function(s){return s.running;})){
+                    if(_subsPollTimer) clearTimeout(_subsPollTimer);
+                    _subsPollTimer=setTimeout(loadSubs, 2000);
+                }
             }catch(e){ el.innerHTML='<div class="empty-state">加载失败: '+esc(String(e))+'</div>'; }
         }
+        var _subsPollTimer=null;
 
         // 触发频率模式切换 → 显示对应输入控件
         window.onCronModeChange=function(){
@@ -354,7 +379,10 @@ FEED_SCRIPT = """
             try{
                 var r=await fetch('/api/feed/subs/'+encodeURIComponent(id)+'/run',{method:'POST'});
                 var d=await r.json();
-                if(d.ok){ alert('已触发采集，稍后查看推送'); setTimeout(refreshAll,3000); }
+                if(d.ok){
+                    // 卡片切「采集中」角标 + 按钮禁用；loadSubs 检测 running 会自动轮询
+                    loadSubs();
+                }
                 else alert('触发失败: '+(d.error||'unknown'));
             }catch(e){alert('失败: '+e);}
         };

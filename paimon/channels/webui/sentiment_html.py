@@ -259,6 +259,7 @@ SENTIMENT_BODY = """
                 </div>
             </div>
             <div class="digest-scroll">
+                <div id="ventiRunningBar" style="display:none"></div>
                 <div id="ventiBulletins">
                     <div class="digest-bulletins-empty">加载中...</div>
                 </div>
@@ -693,9 +694,11 @@ SENTIMENT_SCRIPT = r"""
             return (inp && inp.value) || _todayStr();
         }
 
+        var _ventiBulletinsPollTimer = null;
         async function loadVentiBulletins(){
             // 公告区：渲染当前选中日期的所有 digest（一日多篇也展开）
             var el = document.getElementById('ventiBulletins');
+            var runBar = document.getElementById('ventiRunningBar');
             if(!el) return;
             var dateStr = _currentDate();
             var b = _dayBounds(dateStr);
@@ -703,45 +706,84 @@ SENTIMENT_SCRIPT = r"""
                 el.innerHTML = '<div class="digest-bulletins-empty">日期格式错误</div>';
                 return;
             }
+            var isToday = dateStr === _todayStr();
             try{
                 var qs = 'actor=' + encodeURIComponent('风神')
                     + '&since=' + b.since + '&until=' + b.until + '&limit=50';
-                var r = await fetch('/api/push_archive/list?' + qs);
-                var d = await r.json();
+                // 并行拉公告 + 订阅 running 状态（只在查看今天时 running 有意义）
+                var reqs = [fetch('/api/push_archive/list?' + qs).then(function(r){return r.json();})];
+                if(isToday){
+                    reqs.push(fetch('/api/feed/subs').then(function(r){return r.json();}).catch(function(){return {subs:[]};}));
+                }
+                var results = await Promise.all(reqs);
+                var d = results[0];
+                var subsResp = results[1] || {subs:[]};
                 var records = d.records || [];
+                var runningSubs = (subsResp.subs || []).filter(function(s){return s.running;});
+                var runningIds = {};
+                runningSubs.forEach(function(s){ runningIds[s.id] = s.query; });
+
+                // 渲染顶部采集状态条
+                if(runBar){
+                    if(runningSubs.length){
+                        var names = runningSubs.map(function(s){return esc(s.query);}).join('、');
+                        runBar.innerHTML = '<span class="dot"></span>'
+                            + '<span>正在采集：' + names + '（'+runningSubs.length+' 个订阅）</span>';
+                        runBar.style.display = '';
+                    }else{
+                        runBar.style.display = 'none';
+                        runBar.innerHTML = '';
+                    }
+                }
+
                 var hint = document.getElementById('ventiBulletinHint');
-                var isToday = dateStr === _todayStr();
                 if(!records.length){
-                    var tip = isToday
-                        ? '今天还没有日报<br><small>每日 07:00 cron 会自动生成，也可在订阅卡片点「运行」</small>'
-                        : '该日无日报<br><small>用 ← / → 切换其它日期</small>';
+                    var tip;
+                    if(runningSubs.length){
+                        // 有正在跑的订阅：跑完自然会出现公告，不用再提示「没日报」
+                        tip = '采集中，请稍候…<br><small>完成后这里会自动展开当日日报</small>';
+                    }else{
+                        tip = isToday
+                            ? '今天还没有日报<br><small>每日 07:00 cron 会自动生成，也可在订阅卡片点「运行」</small>'
+                            : '该日无日报<br><small>用 ← / → 切换其它日期</small>';
+                    }
                     el.innerHTML = '<div class="digest-bulletins-empty">'+tip+'</div>';
                     if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'');
-                    return;
+                }else{
+                    var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
+                    if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'')
+                        + ' · ' + records.length + ' 篇'
+                        + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
+                    el.innerHTML = records.map(function(rec){
+                        var unread = rec.read_at == null;
+                        var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
+                        var dot = unread ? '<span class="db-unread-dot" title="未读"></span>' : '';
+                        var markBtn = unread
+                            ? '<button class="db-mark-read" onclick="event.stopPropagation();window.markVentiBulletinRead(\'' + esc(rec.id) + '\')">标记已读</button>'
+                            : '';
+                        var subId = rec.extra && rec.extra.sub_id;
+                        var running = subId && runningIds[subId]
+                            ? '<span class="db-running">采集中</span>' : '';
+                        return '<div class="' + cls + '" data-id="' + esc(rec.id) + '">'
+                            + '<div class="db-head">'
+                            + '<div class="db-head-left">'
+                            + dot
+                            + '<span class="db-source">' + esc(rec.source) + '</span>'
+                            + running
+                            + '<span class="db-time">' + fmtTime(rec.created_at) + '</span>'
+                            + '</div>'
+                            + markBtn
+                            + '</div>'
+                            + '<div class="db-body md-body">' + (window.renderMarkdown ? window.renderMarkdown(rec.message_md || '') : esc(rec.message_md || '')) + '</div>'
+                            + '</div>';
+                    }).join('');
                 }
-                var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
-                if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'')
-                    + ' · ' + records.length + ' 篇'
-                    + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
-                el.innerHTML = records.map(function(rec){
-                    var unread = rec.read_at == null;
-                    var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
-                    var dot = unread ? '<span class="db-unread-dot" title="未读"></span>' : '';
-                    var markBtn = unread
-                        ? '<button class="db-mark-read" onclick="event.stopPropagation();window.markVentiBulletinRead(\'' + esc(rec.id) + '\')">标记已读</button>'
-                        : '';
-                    return '<div class="' + cls + '" data-id="' + esc(rec.id) + '">'
-                        + '<div class="db-head">'
-                        + '<div class="db-head-left">'
-                        + dot
-                        + '<span class="db-source">' + esc(rec.source) + '</span>'
-                        + '<span class="db-time">' + fmtTime(rec.created_at) + '</span>'
-                        + '</div>'
-                        + markBtn
-                        + '</div>'
-                        + '<div class="db-body md-body">' + (window.renderMarkdown ? window.renderMarkdown(rec.message_md || '') : esc(rec.message_md || '')) + '</div>'
-                        + '</div>';
-                }).join('');
+
+                // 有正在采集的订阅 → 2s 后自动再刷一次
+                if(_ventiBulletinsPollTimer){ clearTimeout(_ventiBulletinsPollTimer); _ventiBulletinsPollTimer = null; }
+                if(runningSubs.length){
+                    _ventiBulletinsPollTimer = setTimeout(loadVentiBulletins, 2000);
+                }
             }catch(e){
                 el.innerHTML = '<div class="digest-bulletins-empty">加载失败: ' + esc(String(e)) + '</div>';
             }
