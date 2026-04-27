@@ -497,6 +497,26 @@ async def _plan_revise(
         preserved.append(s)
         preserved_ids.add(s.id)
 
+    # 把 round N-1 已 completed 的保留节点注入新节点 deps 头部，
+    # 让 asmoday.collect_prior_results 能拿到上轮产物作为 prior_results 喂给 archon。
+    # 否则 LLM 在 deps 里写真实 id 会被 _items_to_subtasks 过滤掉（line 558 只
+    # 识别本轮 LLM 临时 id），新节点拿不到上下文，从头重做——这就是 issue_log 里
+    # round 2 草神看不到 round 1 风神 4299 字采集结果，反而从头开始搜索的根因。
+    preserved_completed_ids = [
+        s.id for s in preserved if s.status == "completed"
+    ]
+    if preserved_completed_ids:
+        for ns in new_subs:
+            existing = list(ns.deps or [])
+            # 去重 + 顺序：先放上轮依赖保证上下文优先，再放 LLM 内部 deps
+            ns.deps = preserved_completed_ids + [
+                d for d in existing if d not in preserved_completed_ids
+            ]
+        logger.info(
+            "[生执·revise] round {} 自动注入 {} 个 round {} 完成节点为 {} 个新节点的 deps",
+            round, len(preserved_completed_ids), previous_plan.round, len(new_subs),
+        )
+
     # 避免 id 冲突（理论上不会，新 plan 用新 uuid）
     return preserved + new_subs, preserved_ids
 
