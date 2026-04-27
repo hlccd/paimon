@@ -47,8 +47,22 @@ async def dispatch_command(msg: IncomingMessage, channel: Channel) -> str | None
         return None
 
     parts = text.split(maxsplit=1)
-    cmd_name = parts[0][1:].split("@")[0].lower()
-    args = parts[1].strip() if len(parts) > 1 else ""
+    raw = parts[0][1:].split("@")[0].lower()
+    cmd_name = raw
+    extra_args = ""
+
+    # 容错：用户在 QQ/聊天框常忘记命令和参数之间的空格
+    # 例：/task-index1 → cmd=task-index, args="1"；/task-list2 → cmd=task-list, args="2"
+    # 触发条件：raw 不是已注册命令 且 尾部含数字 且 切出的前缀是已注册命令
+    if cmd_name not in _commands:
+        m = re.match(r"^([a-zA-Z][a-zA-Z_-]*?)(\d.*)$", raw)
+        if m and m.group(1) in _commands:
+            cmd_name = m.group(1)
+            extra_args = m.group(2)
+
+    args = extra_args
+    if len(parts) > 1:
+        args = (args + " " + parts[1]).strip() if args else parts[1].strip()
 
     handler = _commands.get(cmd_name)
     if handler is not None:
