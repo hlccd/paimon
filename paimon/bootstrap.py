@@ -253,6 +253,36 @@ async def create_app(cfg: Config) -> list[Channel]:
         state.authz_cache, state.irminsul, state.skill_registry,
     )
 
+    # 启动时自动放行：单用户自用场景下，已加载的 builtin skill + 7 个 archon
+    # 视为可信（git review 已把过关；真破坏命令由 pre_filter 拦）。运行时通过
+    # watcher 加载的 plugin / AI 生成 skill 不在此白名单，仍走死执 review。
+    # 仅跳过用户已显式 permanent_deny 的，避免覆盖严格意图。
+    # 详见 docs/todo.md「权限体系 v2 重新设计」。
+    try:
+        snapshot = await state.irminsul.authz_snapshot()
+        from paimon.shades.asmoday import _ARCHON_REGISTRY
+        targets: list[tuple[str, str]] = []
+        targets.extend(("skill", s.name) for s in state.skill_registry.list_all())
+        targets.extend(("shades_node", n) for n in _ARCHON_REGISTRY.keys())
+        auto_count = 0
+        for subj_type, subj_id in targets:
+            existing = snapshot.get((subj_type, subj_id))
+            if existing == "permanent_deny":
+                continue   # 用户明确禁止过，不覆盖
+            if existing == "permanent_allow":
+                continue   # 已经放行，不重复写
+            await state.irminsul.authz_set(
+                subj_type, subj_id, "permanent_allow",
+                actor="启动·自动放行",
+                reason="启动时已加载，单用户自用场景默认放行",
+            )
+            auto_count += 1
+        if auto_count:
+            await state.authz_cache.load(state.irminsul)  # 让本次写入立刻生效
+            logger.info("[派蒙·授权] 启动时自动放行 {} 项（skill + archon）", auto_count)
+    except Exception as e:
+        logger.warning("[派蒙·授权] 启动时自动放行失败（不阻塞）: {}", e)
+
     # 三月·自检服务（docs/foundation/march.md §自检体系）
     if cfg.selfcheck_enabled:
         from paimon.foundation.selfcheck import SelfCheckService
