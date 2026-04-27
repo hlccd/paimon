@@ -206,7 +206,6 @@ class Model:
         """
         for msg in messages:
             if (msg.get("role") == "assistant"
-                    and msg.get("tool_calls")
                     and "reasoning_content" not in msg):
                 msg["reasoning_content"] = ""
 
@@ -362,7 +361,11 @@ class Model:
                 _flush_reasoning()  # 异常也不要丢推理日志
                 logger.error("[神之心·模型] 流式传输异常: {}", e)
                 if text_buf:
-                    session.messages.append({"role": "assistant", "content": text_buf})
+                    # DeepSeek thinking 硬约束：所有 assistant 消息都需带 reasoning_content
+                    session.messages.append({
+                        "role": "assistant", "content": text_buf,
+                        "reasoning_content": full_reasoning,
+                    })
                 elif round_idx == 0:
                     session.messages.pop()
                 yield f"\n\n> [错误] {e}"
@@ -380,7 +383,13 @@ class Model:
             tool_calls = tc_acc.get_tool_calls()
 
             if not tool_calls:
-                session.messages.append({"role": "assistant", "content": text_buf})
+                # DeepSeek thinking 硬约束：assistant 消息必须带 reasoning_content
+                # （非 thinking provider 忽略未知字段；空串不会触发问题）。
+                # 末轮无 tool_calls 也要带，否则下一轮以本会话历史发请求时会 400。
+                session.messages.append({
+                    "role": "assistant", "content": text_buf,
+                    "reasoning_content": full_reasoning,
+                })
                 break
 
             assistant_msg: dict[str, Any] = {"role": "assistant", "tool_calls": tool_calls}
