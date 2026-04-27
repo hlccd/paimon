@@ -25,12 +25,34 @@ PUSH_CHAT_ID = f"webui-{PUSH_SESSION_ID}"  # "webui-push"
 
 
 class WebUIChannelReply(ChannelReply):
+    streaming = True
+
     def __init__(self, reply_callback):
         self._reply = reply_callback
 
     async def send(self, text: str) -> None:
         if self._reply:
             await self._reply(text)
+
+    async def notice(self, text: str, *, kind: str = "milestone") -> None:
+        """推一条中间状态 SSE 事件（前端渲染为浅灰小字）。
+
+        连接已关（SSE 断 / bg 任务晚于 SSE 生命周期）时静默丢弃——
+        这正是 docs/interaction.md §1.1 说的 "送不了就丢" 的 degrade 语义。
+        """
+        if not self._reply or not text:
+            return
+        try:
+            await self._reply(text, msg_type="notice", kind=kind)
+        except (ConnectionResetError, ConnectionError):
+            # SSE 已关（常见于 execute 后台阶段），按设计静默
+            pass
+        except TypeError:
+            # reply 闭包不支持 kind（旧测试/mock 兜底），忽略
+            pass
+        except Exception as e:
+            logger.debug("[派蒙·WebUI·notice] 发送失败 kind={}: {}", kind, e)
+        # CancelledError 故意不捕获：让上游正常的 task cancel 语义能传播
 
 
 class WebUIChannel(Channel):
@@ -1863,12 +1885,25 @@ class WebUIChannel(Channel):
         await response.prepare(request)
 
         connection_closed = False
+        # watchdog：静默超 WATCHDOG_INTERVAL 秒且未达上限，推一条 thinking
+        # 上限到 WATCHDOG_MAX 条后静默（避免刷屏）
+        WATCHDOG_INTERVAL = 25.0
+        WATCHDOG_MAX = 3
+        last_activity_ts = time.time()
+        thinking_count = 0
 
-        async def reply(text: str, msg_type: str = "message") -> None:
-            nonlocal connection_closed
+        async def reply(text: str, msg_type: str = "message", *, kind: str = "") -> None:
+            nonlocal connection_closed, last_activity_ts, thinking_count
             try:
-                sse_data = json.dumps({"type": msg_type, "content": text})
+                payload: dict = {"type": msg_type, "content": text}
+                if kind:
+                    payload["kind"] = kind
+                sse_data = json.dumps(payload)
                 await response.write(f"data: {sse_data}\n\n".encode())
+                # 发送成功才更新活动时间戳；非 thinking 的送达表示真有动作，重置计数
+                last_activity_ts = time.time()
+                if kind != "thinking":
+                    thinking_count = 0
             except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
                 connection_closed = True
                 logger.info("[派蒙·WebUI] SSE连接断开 session={}", session_id[:8])
@@ -1876,6 +1911,28 @@ class WebUIChannel(Channel):
             except Exception as e:
                 logger.error("[派蒙·WebUI] SSE发送失败: {}", e)
                 raise
+
+        async def _watchdog() -> None:
+            """每秒扫描，静默超 25s 且未达上限就推一条 thinking。"""
+            nonlocal thinking_count
+            while True:
+                try:
+                    await asyncio.sleep(1.0)
+                except asyncio.CancelledError:
+                    return
+                if connection_closed:
+                    return
+                elapsed = time.time() - last_activity_ts
+                if elapsed >= WATCHDOG_INTERVAL and thinking_count < WATCHDOG_MAX:
+                    try:
+                        await reply(
+                            f"…派蒙还在忙，已工作 {int(elapsed)}s…",
+                            msg_type="notice",
+                            kind="thinking",
+                        )
+                        thinking_count += 1
+                    except Exception:
+                        return
 
         # 注册活跃回调，供 ask_user 推送询问
         self._active_replies[chat_id] = reply
@@ -1887,6 +1944,7 @@ class WebUIChannel(Channel):
             _reply=reply,
         )
 
+        watchdog_task = asyncio.create_task(_watchdog())
         try:
             try:
                 await response.write(
@@ -1931,8 +1989,13 @@ class WebUIChannel(Channel):
 
             return response
         finally:
-            # 无论上面走哪条分支（含早退 return / 异常），都清理活跃回调
+            # 无论上面走哪条分支（含早退 return / 异常），都清理活跃回调 + 停 watchdog
             self._active_replies.pop(chat_id, None)
+            watchdog_task.cancel()
+            try:
+                await watchdog_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     async def get_sessions(self, request: web.Request) -> web.Response:
         if self.require_auth:

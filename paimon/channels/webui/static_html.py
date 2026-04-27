@@ -170,6 +170,21 @@ CHAT_HTML = (
         .message-content a { color: var(--star-light); text-decoration: none; }
         .message-content a:hover { text-decoration: underline; }
 
+        /* notice：中间状态提示，无头像、浅灰小字、窄气泡，视觉上和正文气泡分开 */
+        .notice {
+            margin: 4px 0 4px 40px;
+            padding: 6px 12px;
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.5;
+            border-left: 2px solid var(--paimon-border);
+            background: transparent;
+            white-space: pre-wrap;
+            opacity: 0.85;
+            animation: fadeIn .2s ease-in;
+        }
+        .notice.thinking { font-style: italic; }
+
         .input-area {
             padding: 20px 24px;
             background: var(--paimon-panel);
@@ -485,6 +500,8 @@ CHAT_HTML = (
             let typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
             // 权限询问后需要另起气泡：true 时下一条 message 会新建 typingMsg + 重置 fullResponse
             let needNewBubble = false;
+            // watchdog thinking 只用一个元素，后来的覆盖前面的（avoid "还在忙/还在忙/还在忙" 堆积）
+            let lastThinkingEl = null;
 
             try {
                 const response = await fetch('/api/chat', {
@@ -518,9 +535,30 @@ CHAT_HTML = (
                                         typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
                                         fullResponse = '';
                                         needNewBubble = false;
+                                        lastThinkingEl = null;
                                     }
                                     fullResponse += (data.content || '');
                                     typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
+                                    scrollToBottom();
+                                } else if (data.type === 'notice') {
+                                    // 中间状态提示（ack/milestone/tool/thinking/done_recap）
+                                    // 渲染为浅灰小字独立元素，插到 typing 占位气泡之前
+                                    const kind = data.kind || 'milestone';
+                                    const content = data.content || '';
+                                    if (kind === 'thinking' && lastThinkingEl) {
+                                        lastThinkingEl.textContent = content;
+                                    } else {
+                                        const noticeEl = document.createElement('div');
+                                        noticeEl.className = 'notice' + (kind === 'thinking' ? ' thinking' : '');
+                                        noticeEl.textContent = content;
+                                        const container = document.getElementById('messagesContainer');
+                                        if (typingMsg && typingMsg.parentNode === container) {
+                                            container.insertBefore(noticeEl, typingMsg);
+                                        } else {
+                                            container.appendChild(noticeEl);
+                                        }
+                                        if (kind === 'thinking') lastThinkingEl = noticeEl;
+                                    }
                                     scrollToBottom();
                                 } else if (data.type === 'question') {
                                     // 权限/魔女会询问作为独立气泡。
@@ -532,6 +570,7 @@ CHAT_HTML = (
                                         // 封存已有内容的气泡，新建一个独立气泡放询问
                                         typingMsg = appendMessage('assistant', '');
                                         fullResponse = '';
+                                        lastThinkingEl = null;
                                     }
                                     typingMsg.querySelector('.message-content').innerHTML = marked.parse(q);
                                     pendingAuthzAsk = true;

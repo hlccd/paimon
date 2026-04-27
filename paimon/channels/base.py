@@ -24,8 +24,23 @@ class IncomingMessage:
 
 
 class ChannelReply(ABC):
+    # 是否是"逐 chunk 即时送达"的流式渠道。
+    # WebUI SSE=True（每 chunk 立刻推）；QQ / TG=False（累加到 buffer，flush 才发）。
+    # 业务层不用这个判断，只给想优化节奏的地方（比如 watchdog 只在流式渠道开）。
+    streaming: bool = False
+
     @abstractmethod
     async def send(self, text: str) -> None: ...
+
+    async def notice(self, text: str, *, kind: str = "milestone") -> None:
+        """中间状态提示（非正文）。
+
+        kind 取值：ack / milestone / tool / thinking / done_recap。
+        语义见 docs/interaction.md §1.2。
+
+        默认 no-op——渠道按能力各自实现（丢弃 / 立即发 / 节流 / 延迟等）。
+        调用方只负责打标签，不关心渠道怎么处理。
+        """
 
     async def flush(self) -> None:
         pass

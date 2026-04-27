@@ -167,12 +167,28 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
 
     if intent.kind == "complex":
         reply = await channel.make_reply(msg)
+        # ack：让用户知道任务已收到、正在准备
+        # 短标题 M1 用 user_input 截断；M2 换 LLM 生成的 10-20 字概括
+        short = msg.text.strip()
+        if len(short) > 40:
+            short = short[:40] + "..."
+        try:
+            await reply.notice(f"收到任务：{short}，正在准备（安全审查 + 编排）…", kind="ack")
+        except Exception:
+            pass
         hint = await enter_shades_pipeline_background(msg, channel, session)
         try:
             await reply.send(hint)
         except Exception:
             pass
     elif intent.kind == "skill":
+        reply = await channel.make_reply(msg)
+        sk = state.skill_registry.get(intent.skill_name) if state.skill_registry else None
+        desc = (sk.description if sk else intent.skill_name) or intent.skill_name
+        try:
+            await reply.notice(f"🎯 走 {intent.skill_name} —— {desc[:60]}", kind="ack")
+        except Exception:
+            pass
         await run_session_chat(msg, channel, session, skill_name=intent.skill_name)
     else:
         await run_session_chat(msg, channel, session)
@@ -192,11 +208,16 @@ async def enter_shades_pipeline_background(
     chat_id = msg.chat_id
     text = msg.text
 
+    # 给 pipeline 传 reply，使 prepare/execute 的关键阶段能在原会话推 notice
+    # （execute 后台跑时 SSE 可能已断，notice 会失败静默 —— 符合 degrade 语义）
+    reply_for_notice = await channel.make_reply(msg)
+
     from paimon.shades.pipeline import ShadesPipeline
     pipeline = ShadesPipeline(
         state.model, state.irminsul,
         channel=channel, chat_id=chat_id,
         authz_cache=state.authz_cache,
+        reply=reply_for_notice,
     )
 
     # 前台：入口审 + plan + 批量授权（SSE 必须活跃）
@@ -386,6 +407,7 @@ async def run_shades_pipeline(
                 channel=channel,
                 chat_id=msg.chat_id,
                 authz_cache=state.authz_cache,
+                reply=reply,
             )
 
             result = await pipeline.run(
@@ -515,8 +537,17 @@ async def handle_chat(
             session=session,
         )
 
+        _SLOW_TOOLS = {"web_fetch", "video_process", "audio_process", "subscribe"}
+
         async def _execute_tool(name: str, arguments: str) -> str:
             nonlocal angel_tool_timeouts
+            # 慢工具在调用前推一条 tool notice，避免静默超过 watchdog 阈值
+            # QQ 上此类 notice 会被渠道层丢弃（seq 不值当），Web 上渲染为浅灰小字
+            if name in _SLOW_TOOLS:
+                try:
+                    await reply.notice(f"🔧 正在调用 {name}…", kind="tool")
+                except Exception:
+                    pass
             if tool_timeout is None:
                 return await state.tool_registry.execute(name, arguments, tool_ctx)
 

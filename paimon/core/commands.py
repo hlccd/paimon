@@ -327,11 +327,12 @@ async def cmd_task(ctx: CommandContext) -> str:
         session_mgr.switch(ctx.msg.channel_key, session.id)
 
     # 四影管线耗时长，不能 await 阻塞 SSE；复用 chat.enter_shades_pipeline_background
+    # _reply 必须透传：pipeline 要用 make_reply(task_msg) 拿 reply 推 notice（docs/interaction.md）
     task_msg = IncomingMessage(
         channel_name=ctx.msg.channel_name,
         chat_id=ctx.msg.chat_id,
         text=ctx.args,
-        _reply=None,
+        _reply=ctx.msg._reply,
     )
     from paimon.core.chat import enter_shades_pipeline_background
     return await enter_shades_pipeline_background(task_msg, ctx.channel, session)

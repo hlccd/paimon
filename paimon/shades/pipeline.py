@@ -67,6 +67,7 @@ class ShadesPipeline:
         authz_cache: AuthzCache | None = None,
         user_id: str = "default",
         batch_ask_timeout: float = 60.0,  # 批量询问略宽松
+        reply=None,            # paimon.channels.base.ChannelReply | None —— 推中间 notice
     ):
         self._model = model
         self._irminsul = irminsul
@@ -75,6 +76,41 @@ class ShadesPipeline:
         self._authz_cache = authz_cache
         self._user_id = user_id
         self._batch_ask_timeout = batch_ask_timeout
+        self._reply = reply
+
+    async def _notice(self, text: str, *, kind: str = "milestone") -> None:
+        """向当前 reply 推一条中间状态（渠道自决是否发；失败静默）。
+
+        execute 阶段 SSE/被动窗口可能已关闭，此时 notice 直接丢。
+        和 `_notify_progress`（📨 推送）是两条独立路径：
+          - _notice  = 原会话里的 notice 气泡（会话级）
+          - _notify_progress = 推送会话 + 任务审计（跨会话）
+        """
+        if self._reply is None:
+            return
+        try:
+            await self._reply.notice(text, kind=kind)
+        except Exception as e:
+            logger.debug("[四影·notice] 推送失败: {}", e)
+
+    @staticmethod
+    def _format_dispatch_msg(plan: "Plan") -> str:
+        """把 plan 的子任务列表格式化成面向用户的派发消息。"""
+        lines = [f"🚀 已派发 {len(plan.subtasks)} 个子任务执行："]
+        for i, sub in enumerate(plan.subtasks, start=1):
+            desc = (sub.description or "").strip()
+            # 去掉 `[STAGE:review_spec]` 之类的内部标记前缀
+            if desc.startswith("["):
+                rb = desc.find("]")
+                if 0 < rb < 40:
+                    desc = desc[rb + 1:].strip()
+            if len(desc) > 40:
+                desc = desc[:40].rstrip() + "…"
+            lines.append(f"  {i}. {sub.assignee} · {desc}")
+        lines.append(
+            "如超过几分钟未完成，可随时去 /tasks 面板或 /task-list 查看进度。"
+        )
+        return "\n".join(lines)
 
     async def _notify_progress(self, text: str) -> None:
         """向用户推一条关键进度消息（走 march.ring_event → 派蒙独占出口 → 推送会话）。
@@ -126,6 +162,8 @@ class ShadesPipeline:
                     msg=f"请求未通过安全审查: {reason}",
                 )
 
+            await self._notice("🔒 安全审查通过")
+
             plan = await naberius.plan(
                 task, self._model, self._irminsul,
                 previous_plan=None, verdict=None, round=1,
@@ -145,6 +183,10 @@ class ShadesPipeline:
                     task=task, plan=plan, ok=False,
                     msg="任务已取消（你拒绝了全部敏感操作）。",
                 )
+            # prepare 末尾一条 milestone，含全部子任务列表。
+            # 不在 execute 里发派发 milestone —— 异步路径下 SSE 在 hint 后就关闭，
+            # execute 阶段的 notice 推不到原会话。prepare 末尾是最后能推的时机。
+            await self._notice(self._format_dispatch_msg(plan))
             return PrepareResult(task=task, plan=plan, ok=True, msg="")
         except Exception as e:
             logger.exception("[四影·prepare] 异常 task={}: {}", task.id, e)
@@ -210,6 +252,10 @@ class ShadesPipeline:
                         )
                         return "任务已取消（revise 轮敏感操作全拒）。"
 
+                # 注意：派发 milestone 已在 prepare 末尾发过，这里不再重复。
+                # 异步 bg 路径下 SSE 已关；同步路径下也不需要再提醒用户一次。
+                # revise 轮的进度继续走 _notify_progress (📨 推送 + /tasks 面板)。
+
                 last_results = await asmoday.dispatch(
                     task, plan, self._model, self._irminsul,
                 )
@@ -273,6 +319,11 @@ class ShadesPipeline:
             await self._notify_progress(
                 f"{head} task={task.id[:8]} 完成（rounds={round_idx}）\n\n{final[:3500]}"
             )
+            # done_recap：原会话 notice 气泡（渠道自决：Web SSE 若活跃则收到；QQ 窗口外丢）
+            await self._notice(
+                f"{head} 完成（共 {round_idx} 轮）\n\n{final[:3500]}",
+                kind="done_recap",
+            )
             return final
 
         except Exception as e:
@@ -298,6 +349,10 @@ class ShadesPipeline:
                 logger.error("[四影] 失败归档本身异常: {}", arc_err)
             await self._notify_progress(
                 f"💥 task={task.id[:8]} 管线异常: {str(e)[:200]}"
+            )
+            await self._notice(
+                f"💥 失败：{str(e)[:500]}",
+                kind="done_recap",
             )
             return f"任务执行失败: {e}"
 
