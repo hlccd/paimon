@@ -84,6 +84,23 @@ class QQChannel(Channel):
         ctx["msg_seq"] = seq + 1
         return seq
 
+    def set_pending_ack(self, chat_id: str, text: str) -> None:
+        """ack 暂存到 channel 级 ctx（按 chat_id），跨 reply 实例共享。
+
+        天使路径下 core/chat.py 在 ack 后又 make_reply 起新实例进 run_session_chat，
+        若 _pending_ack 是实例级会跟着 reply 一起丢；提升到 ctx 后任何 reply
+        实例 flush 时都能取到。
+        """
+        ctx = self._chat_contexts.get(chat_id)
+        if ctx is not None:
+            ctx["pending_ack"] = text
+
+    def pop_pending_ack(self, chat_id: str) -> str | None:
+        ctx = self._chat_contexts.get(chat_id)
+        if ctx is None:
+            return None
+        return ctx.pop("pending_ack", None)
+
     def seq_window_open(self, chat_id: str, margin: float = 5.0) -> bool:
         """被动回复窗口是否还开着（留 5s 余量以防卡在边界）。"""
         ctx = self._chat_contexts.get(chat_id)

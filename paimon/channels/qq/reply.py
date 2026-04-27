@@ -46,9 +46,8 @@ class QQChannelReply(ChannelReply):
         self._msg_id = msg_id
         self._msg_type = msg_type
         self._buffer = ""
-        # ack 暂存：等 prepare 过死执后首条 milestone 触发时才真实送出。
-        # prepare 直接失败（死执拒/异常）时 ack 永远不发，省一条 seq。
-        self._pending_ack: str | None = None
+        # ack 暂存现已提升到 channel 级 ctx（按 chat_id），跨 reply 实例共享。
+        # 见 QQChannel.set_pending_ack / pop_pending_ack。
 
     async def send(self, text: str) -> None:
         if not text:
@@ -79,7 +78,7 @@ class QQChannelReply(ChannelReply):
             return
 
         if kind == "ack":
-            self._pending_ack = text
+            self._channel.set_pending_ack(self._chat_id, text)
             return
 
         # milestone / done_recap：先冲掉 pending ack，再发自己
@@ -91,10 +90,9 @@ class QQChannelReply(ChannelReply):
         await self._send_chunks(text)
 
     async def _flush_pending_ack(self) -> None:
-        if self._pending_ack is None:
+        text = self._channel.pop_pending_ack(self._chat_id)
+        if text is None:
             return
-        text = self._pending_ack
-        self._pending_ack = None
         if self._channel.seq_window_open(self._chat_id):
             await self._send_chunks(text)
 
