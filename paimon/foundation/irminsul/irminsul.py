@@ -18,6 +18,7 @@ from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
 from .skills import SkillDecl, SkillRepo
 from .feed_event import FeedEvent, FeedEventRepo
+from .llm_profile import LLMProfile, LLMProfileRepo
 from .push_archive import PushArchiveRecord, PushArchiveRepo
 from .selfcheck import SelfcheckRepo, SelfcheckRun
 from .subscription import FeedItem, Subscription, SubscriptionRepo
@@ -56,6 +57,7 @@ class Irminsul:
         self._feed_event: FeedEventRepo | None = None
         self._push_archive: PushArchiveRepo | None = None
         self._selfcheck: SelfcheckRepo | None = None
+        self._llm_profile: LLMProfileRepo | None = None
 
     async def initialize(self) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
@@ -80,6 +82,7 @@ class Irminsul:
         self._feed_event = FeedEventRepo(self._db)
         self._push_archive = PushArchiveRepo(self._db)
         self._selfcheck = SelfcheckRepo(self._db, self._selfcheck_root)
+        self._llm_profile = LLMProfileRepo(self._db)
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
 
@@ -717,3 +720,42 @@ class Irminsul:
         return await self._push_archive.sweep_old(
             retention_seconds=retention_seconds, actor=actor,
         )
+
+    # ============ 域 14: LLM Profile ============
+    async def llm_profile_create(
+        self, profile: LLMProfile, *, actor: str,
+    ) -> str:
+        return await self._llm_profile.create(profile, actor=actor)
+
+    async def llm_profile_update(
+        self, profile_id: str, *, actor: str, **fields,
+    ) -> bool:
+        return await self._llm_profile.update(profile_id, actor=actor, **fields)
+
+    async def llm_profile_delete(
+        self, profile_id: str, *, actor: str,
+    ) -> bool:
+        return await self._llm_profile.delete(profile_id, actor=actor)
+
+    async def llm_profile_set_default(
+        self, profile_id: str, *, actor: str,
+    ) -> bool:
+        return await self._llm_profile.set_default(profile_id, actor=actor)
+
+    async def llm_profile_set_default_by_name(
+        self, name: str, *, actor: str,
+    ) -> bool:
+        return await self._llm_profile.set_default_by_name(name, actor=actor)
+
+    async def llm_profile_get(
+        self, profile_id: str, *, include_key: bool = True,
+    ) -> LLMProfile | None:
+        return await self._llm_profile.get(profile_id, include_key=include_key)
+
+    async def llm_profile_list(
+        self, *, include_keys: bool = False,
+    ) -> list[LLMProfile]:
+        return await self._llm_profile.list(include_keys=include_keys)
+
+    async def llm_profile_get_default(self) -> LLMProfile | None:
+        return await self._llm_profile.get_default()

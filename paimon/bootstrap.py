@@ -68,6 +68,111 @@ def _make_provider(cfg: Config, name: str) -> Provider:
         raise ValueError(f"未知的 Provider: {name}")
 
 
+def _build_llm_profile_seeds(cfg: Config) -> list:
+    """从 .env 的 5 个 provider 配置派生初始 LLMProfile 列表（跳过 api_key 为空的）。
+
+    M1：只在首次启动（世界树 llm_profiles 表为空）时种入，用户后续通过面板
+    管理。.env 变更不影响已种数据。
+    """
+    from paimon.foundation.irminsul.llm_profile import LLMProfile
+
+    seeds: list = []
+    # Anthropic 系
+    if cfg.claude_xiaomi_api_key:
+        seeds.append(LLMProfile(
+            name="claude-xiaomi",
+            provider_kind="anthropic",
+            api_key=cfg.claude_xiaomi_api_key,
+            base_url=cfg.claude_xiaomi_base_url,
+            model=cfg.claude_xiaomi_model,
+            max_tokens=cfg.max_tokens,
+            notes="小米内网代理 Claude",
+        ))
+    if cfg.claude_official_api_key:
+        seeds.append(LLMProfile(
+            name="claude-official",
+            provider_kind="anthropic",
+            api_key=cfg.claude_official_api_key,
+            base_url=cfg.claude_official_base_url,
+            model=cfg.claude_official_model,
+            max_tokens=cfg.max_tokens,
+            notes="Claude 官方 API",
+        ))
+    # OpenAI 兼容系
+    if cfg.openai_api_key:
+        seeds.append(LLMProfile(
+            name="openai",
+            provider_kind="openai",
+            api_key=cfg.openai_api_key,
+            base_url=cfg.openai_base_url,
+            model=cfg.openai_model,
+            notes="OpenAI 兼容入口",
+        ))
+    # DeepSeek 双档（api_key 共享）
+    if cfg.deepseek_api_key:
+        ds_extra_pro = (
+            {"thinking": {"type": "enabled"}}
+            if cfg.deepseek_pro_thinking else {}
+        )
+        ds_effort_pro = cfg.deepseek_reasoning_effort if cfg.deepseek_pro_thinking else ""
+        seeds.append(LLMProfile(
+            name="deepseek-pro",
+            provider_kind="openai",
+            api_key=cfg.deepseek_api_key,
+            base_url=cfg.deepseek_base_url,
+            model=cfg.deepseek_pro_model,
+            reasoning_effort=ds_effort_pro,
+            extra_body=ds_extra_pro,
+            notes="DeepSeek v4-pro（强推理）",
+        ))
+        ds_extra_flash = (
+            {"thinking": {"type": "enabled"}}
+            if cfg.deepseek_flash_thinking else {}
+        )
+        ds_effort_flash = cfg.deepseek_reasoning_effort if cfg.deepseek_flash_thinking else ""
+        seeds.append(LLMProfile(
+            name="deepseek-flash",
+            provider_kind="openai",
+            api_key=cfg.deepseek_api_key,
+            base_url=cfg.deepseek_base_url,
+            model=cfg.deepseek_flash_model,
+            reasoning_effort=ds_effort_flash,
+            extra_body=ds_extra_flash,
+            notes="DeepSeek v4-flash（轻量）",
+        ))
+    return seeds
+
+
+async def _seed_llm_profiles_if_empty(irminsul: Irminsul, cfg: Config) -> None:
+    """首次启动种初始 profile。llm_profiles 表非空时跳过（幂等）。"""
+    existing = await irminsul.llm_profile_list()
+    if existing:
+        return
+    seeds = _build_llm_profile_seeds(cfg)
+    if not seeds:
+        logger.info("[派蒙·启动] LLM Profile seed 跳过（.env 无任何 api_key）")
+        return
+    created_names: list[str] = []
+    for profile in seeds:
+        try:
+            await irminsul.llm_profile_create(profile, actor="seed")
+            created_names.append(profile.name)
+        except Exception as e:
+            logger.warning("[派蒙·启动] seed profile '{}' 失败: {}", profile.name, e)
+    # 把 .env 当前 LLM_PROVIDER 对应那条标为默认
+    if cfg.llm_provider in created_names:
+        try:
+            await irminsul.llm_profile_set_default_by_name(
+                cfg.llm_provider, actor="seed",
+            )
+        except Exception as e:
+            logger.warning("[派蒙·启动] seed 设默认 '{}' 失败: {}", cfg.llm_provider, e)
+    logger.info(
+        "[派蒙·启动] LLM Profile seed 完成 共 {} 条 default={}",
+        len(created_names), cfg.llm_provider,
+    )
+
+
 async def create_app(cfg: Config) -> list[Channel]:
     state.cfg = cfg
     state.session_tasks.clear()
@@ -78,6 +183,9 @@ async def create_app(cfg: Config) -> list[Channel]:
     # 世界树最早初始化（全系统唯一存储层）
     state.irminsul = Irminsul(cfg.paimon_home)
     await state.irminsul.initialize()
+
+    # 首次启动从 .env 种 LLM Profile（M1：面板管理，不影响启动 provider 选择）
+    await _seed_llm_profiles_if_empty(state.irminsul, cfg)
 
     # 会话管理器从世界树恢复
     state.session_mgr = await SessionManager.load(state.irminsul)

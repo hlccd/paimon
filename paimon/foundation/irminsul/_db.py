@@ -345,6 +345,27 @@ CREATE TABLE IF NOT EXISTS push_archive (
 CREATE INDEX IF NOT EXISTS idx_push_archive_created ON push_archive(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_push_archive_actor   ON push_archive(actor);
 CREATE INDEX IF NOT EXISTS idx_push_archive_unread  ON push_archive(read_at);
+
+-- ============ 域 14: LLM Profile（2026-04-27 新增）============
+-- 用户可管理的"模型条目"第一类实体。同一 API 端点下的不同 model、不同
+-- thinking 配置都能独立成条；扩展新 provider 无需改代码。
+-- docs/todo.md §"日报面板采集中反馈复用" 上面一项（LLM 分层）
+CREATE TABLE IF NOT EXISTS llm_profiles (
+    id               TEXT PRIMARY KEY,            -- 12 位 hex
+    name             TEXT NOT NULL UNIQUE,        -- 展示名
+    provider_kind    TEXT NOT NULL,               -- 'anthropic' | 'openai'
+    api_key          TEXT NOT NULL DEFAULT '',
+    base_url         TEXT NOT NULL DEFAULT '',
+    model            TEXT NOT NULL DEFAULT '',
+    max_tokens       INTEGER NOT NULL DEFAULT 64000,    -- 仅 anthropic 生效
+    reasoning_effort TEXT NOT NULL DEFAULT '',          -- '' | 'high' | 'max'
+    extra_body_json  TEXT NOT NULL DEFAULT '{}',        -- 如 thinking 开关
+    is_default       INTEGER NOT NULL DEFAULT 0,        -- 全表仅一行为 1
+    notes            TEXT NOT NULL DEFAULT '',
+    created_at       REAL NOT NULL,
+    updated_at       REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_profiles_default ON llm_profiles(is_default DESC);
 """
 
 
