@@ -667,6 +667,18 @@ class Irminsul:
             level=level, extra=extra,
         )
 
+    async def push_archive_touch_daily(
+        self, *,
+        source: str,
+        actor: str,
+        day_start: float,
+        day_end: float,
+    ) -> tuple[bool, str]:
+        return await self._push_archive.touch_daily(
+            source=source, actor=actor,
+            day_start=day_start, day_end=day_end,
+        )
+
     async def push_archive_get(self, rec_id: str) -> PushArchiveRecord | None:
         return await self._push_archive.get(rec_id)
 

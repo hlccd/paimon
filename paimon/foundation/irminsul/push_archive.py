@@ -87,10 +87,15 @@ class PushArchiveRepo:
     ) -> tuple[str, str]:
         """日级幂等写入：(actor, source, [day_start, day_end)) 唯一。
 
-        - 命中且 message_md 一致 → 不动，返回 ("unchanged", id)（保留已读状态）
-        - 命中但 message_md 变 → 更新文本/extra/level，reset read_at=NULL，
-          保留 created_at（位置不漂），返回 ("updated", id)
+        - 命中且 message_md 一致 → 只 bump created_at=now，read_at 保留，
+          返回 ("unchanged", id)
+        - 命中但 message_md 变 → 更新文本/extra/level，bump created_at=now，
+          reset read_at=NULL，返回 ("updated", id)
         - 未命中 → 新建一条，返回 ("created", id)
+
+        卡片主时间戳即「最后聚合时间」：cron + 手动刷新 / 有数据→有新数据
+        的场景统一把卡片推到公告区顶部。unchanged 刷新不动红点（用户既已
+        读、内容也没变）；updated 重置红点（内容变了值得再看一眼）。
 
         典型用途：每日订阅日报 / 红利股变化等「一天一篇」型推送，避免
         cron + 手动刷新两次推送在同一天产生两条公告。
@@ -128,18 +133,26 @@ class PushArchiveRepo:
             return ("created", rec_id)
 
         rec_id = row[0]
+        now = time.time()
         if (row[1] or "") == (message_md or ""):
+            # 内容未变：只 bump created_at（卡片置顶=最后刷新），保留 read_at
+            await self._db.execute(
+                "UPDATE push_archive SET created_at = ? WHERE id = ?",
+                (now, rec_id),
+            )
+            await self._db.commit()
             logger.debug(
-                "[世界树·推送归档] daily-upsert 内容未变 {} actor={} source={}（已读状态保留）",
+                "[世界树·推送归档] daily-upsert 内容未变 {} actor={} source={}"
+                "（已读状态保留，时间戳刷新）",
                 rec_id, actor, source,
             )
             return ("unchanged", rec_id)
 
         await self._db.execute(
             "UPDATE push_archive SET message_md = ?, extra_json = ?, "
-            "level = ?, read_at = NULL "
+            "level = ?, read_at = NULL, created_at = ? "
             "WHERE id = ?",
-            (message_md, extra_json, level, rec_id),
+            (message_md, extra_json, level, now, rec_id),
         )
         await self._db.commit()
         logger.info(
@@ -147,6 +160,44 @@ class PushArchiveRepo:
             rec_id, actor, source, len(message_md),
         )
         return ("updated", rec_id)
+
+    async def touch_daily(
+        self,
+        *,
+        source: str,
+        actor: str,
+        day_start: float,
+        day_end: float,
+    ) -> tuple[bool, str]:
+        """刷新「(actor, source, 当地日期)」命中行的 created_at 为 now。
+
+        用途：订阅空跑（搜到 0 条 / 全被去重过滤）但当天已有 digest 时，
+        只更新「最后聚合时间」——卡片时间戳前移，read_at 保持（不红点）。
+
+        返回 (found, rec_id)。未命中时 found=False。
+        """
+        async with self._db.execute(
+            "SELECT id FROM push_archive "
+            "WHERE actor = ? AND source = ? "
+            "AND created_at >= ? AND created_at < ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (actor, source, day_start, day_end),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return (False, "")
+        rec_id = row[0]
+        now = time.time()
+        await self._db.execute(
+            "UPDATE push_archive SET created_at = ? WHERE id = ?",
+            (now, rec_id),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树·推送归档] daily-touch 刷新时间戳 {} actor={} source={}（read_at 不动）",
+            rec_id, actor, source,
+        )
+        return (True, rec_id)
 
     # ---------- 查询 ----------
 

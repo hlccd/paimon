@@ -215,6 +215,8 @@ class VentiArchon(Archon):
             logger.info("[风神·订阅] 订阅已禁用 sub_id={}", sub_id)
             return
 
+        source_label = f"风神·订阅·{(sub.query or '未命名')[:20]}"
+
         # Step 2: 搜索
         try:
             results = await self._run_web_search(sub.query, sub.max_items, sub.engine)
@@ -227,6 +229,10 @@ class VentiArchon(Archon):
 
         if not results:
             logger.info("[风神·订阅] 搜索无结果 sub={} query='{}'", sub_id, sub.query)
+            await self._write_empty_run_marker(
+                sub, source_label=source_label,
+                irminsul=irminsul, march=march, reason="search_empty",
+            )
             await irminsul.subscription_update(
                 sub_id, actor="风神",
                 last_run_at=time.time(), last_error="",
@@ -239,11 +245,8 @@ class VentiArchon(Archon):
         new_items = [r for r in results if (r.get("url") or "") not in existing]
 
         # Step 3.5: 没新条目时是否能直接退出？
-        # 旧逻辑：直接 return → 但当天若无 digest（cron 失败 / 首次失败补跑）
-        # 用户怎么手动跑都不会有公告。新逻辑：先看当天有无已发的同源 digest。
-        # - 已有 → skip：digest 不会更细，再走一遍只是浪费 LLM
-        # - 没有 → 继续往下，用今天累计的 events/items 兜底合成
-        source_label = f"风神·订阅·{(sub.query or '未命名')[:20]}"
+        # 当天已有同源 digest → touch 刷时间戳（不重 LLM / 不重置红点）
+        # 当天没有 digest → 尝试用今日累计兜底合成
         day_start, day_end = today_local_bounds()
         if not new_items:
             existing_today = await irminsul.push_archive_list(
@@ -252,8 +255,13 @@ class VentiArchon(Archon):
             has_today_digest = any(r.source == source_label for r in existing_today)
             if has_today_digest:
                 logger.info(
-                    "[风神·订阅] 无新条目且当天已有 digest sub={} total={}（skip）",
+                    "[风神·订阅] 无新条目且当天已有 digest sub={} total={}（touch）",
                     sub_id, len(results),
+                )
+                await self._write_empty_run_marker(
+                    sub, source_label=source_label,
+                    irminsul=irminsul, march=march,
+                    reason="filtered_out_has_digest",
                 )
                 await irminsul.subscription_update(
                     sub_id, actor="风神",
@@ -333,7 +341,11 @@ class VentiArchon(Archon):
 
         if not today_events and not today_items:
             logger.info(
-                "[风神·订阅] 当天累计为空，不合成 digest sub={}", sub_id,
+                "[风神·订阅] 当天累计为空，写空跑占位 sub={}", sub_id,
+            )
+            await self._write_empty_run_marker(
+                sub, source_label=source_label,
+                irminsul=irminsul, march=march, reason="accumulated_empty",
             )
             await irminsul.subscription_update(
                 sub_id, actor="风神",
@@ -378,8 +390,9 @@ class VentiArchon(Archon):
         digest_id = uuid4().hex[:12]
         try:
             # 日级幂等：cron 7am 跑过 + 用户中午手动「运行」会触两次响铃；
-            # dedup_per_day=True → 同 source 当天 upsert，message 没变就 no-op，
-            # 变了就原地更新并 reset 未读，避免一天同订阅出现两条公告
+            # dedup_per_day=True → 同 source 当天 upsert，message 没变只 bump
+            # 时间戳（保留 read_at），变了就原地更新 + reset 未读，避免一天
+            # 同订阅出现两条公告
             ok = await march.ring_event(
                 channel_name=sub.channel_name,
                 chat_id=sub.chat_id,
@@ -414,6 +427,69 @@ class VentiArchon(Archon):
             "[风神·订阅] 采集完成 sub={} 新增={} digest={}",
             sub_id, len(inserted_ids), digest_id,
         )
+
+    async def _write_empty_run_marker(
+        self,
+        sub,
+        *,
+        source_label: str,
+        irminsul: Irminsul,
+        march: MarchService,
+        reason: str,
+    ) -> None:
+        """空跑公告：当天无真数据时写一条占位 / 更新时间戳。
+
+        - 当天已有同 source 公告（真日报或上次占位）→ 只刷新时间戳，read_at 不动
+        - 当天无同 source 公告 → 写一条占位文案，首次空跑也能见反馈
+
+        `reason` 供日志区分（search_empty / filtered_out / accumulated_empty）。
+        """
+        day_start, day_end = today_local_bounds()
+        try:
+            found, rec_id = await irminsul.push_archive_touch_daily(
+                source=source_label, actor="风神",
+                day_start=day_start, day_end=day_end,
+            )
+        except Exception as e:
+            logger.warning(
+                "[风神·订阅] 空跑 touch_daily 异常 sub={} reason={}: {}",
+                sub.id, reason, e,
+            )
+            found, rec_id = (False, "")
+
+        if found:
+            logger.info(
+                "[风神·订阅] 空跑刷新时间戳 sub={} reason={} rec={}",
+                sub.id, reason, rec_id,
+            )
+            return
+
+        placeholder = (
+            f"📭 「{sub.query or '未命名'}」本周期暂无新增资讯。\n\n"
+            f"本次已聚合但未发现符合条件的新内容，可稍后再刷新。"
+        )
+        try:
+            await march.ring_event(
+                channel_name=sub.channel_name,
+                chat_id=sub.chat_id,
+                source=source_label,
+                message=placeholder,
+                extra={
+                    "sub_id": sub.id,
+                    "query": sub.query,
+                    "empty_run": True,
+                    "reason": reason,
+                },
+                dedup_per_day=True,
+            )
+            logger.info(
+                "[风神·订阅] 空跑占位公告已落 sub={} reason={}", sub.id, reason,
+            )
+        except Exception as e:
+            logger.warning(
+                "[风神·订阅] 空跑占位响铃失败 sub={} reason={}: {}",
+                sub.id, reason, e,
+            )
 
     async def _run_web_search(
         self, query: str, limit: int, engine: str,
