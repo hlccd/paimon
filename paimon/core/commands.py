@@ -440,7 +440,7 @@ async def _classify_memory(content: str, model) -> tuple:
         {"role": "user", "content": f"内容：\n{content}"},
     ]
     try:
-        raw, usage = await model._stream_text(messages)
+        raw, usage = await model._stream_text(messages, component="remember", purpose="记忆分类")
         await model._record_primogem(
             "", "remember", usage, purpose="记忆分类",
         )

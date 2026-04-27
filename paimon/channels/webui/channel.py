@@ -91,6 +91,10 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/llm/{profile_id}/delete", self.llm_delete_api)
         self.app.router.add_post("/api/llm/{profile_id}/set-default", self.llm_set_default_api)
         self.app.router.add_post("/api/llm/{profile_id}/test", self.llm_test_existing_api)
+        # M2：路由表
+        self.app.router.add_get("/api/llm/routes", self.llm_routes_list_api)
+        self.app.router.add_post("/api/llm/routes/set", self.llm_route_set_api)
+        self.app.router.add_post("/api/llm/routes/delete", self.llm_route_delete_api)
         # 风神·信息流面板
         self.app.router.add_get("/feed", self.feed_page)
         self.app.router.add_get("/api/feed/stats", self.feed_stats_api)
@@ -285,6 +289,7 @@ class WebUIChannel(Channel):
                     {"ok": False, "error": "name / model / base_url 必填"}, status=400,
                 )
             profile_id = await irminsul.llm_profile_create(profile, actor="WebUI")
+            await self._llm_publish_profile_event(profile_id, "create")
             return web.json_response({"ok": True, "id": profile_id})
         except Exception as e:
             logger.error("[神之心·LLM 面板] 创建 profile 异常: {}", e)
@@ -301,6 +306,8 @@ class WebUIChannel(Channel):
             data = await request.json()
             fields = self._llm_json_to_update_fields(data)
             ok = await irminsul.llm_profile_update(profile_id, actor="WebUI", **fields)
+            if ok:
+                await self._llm_publish_profile_event(profile_id, "update")
             return web.json_response({"ok": ok})
         except Exception as e:
             logger.error("[神之心·LLM 面板] 更新 {} 异常: {}", profile_id, e)
@@ -315,6 +322,8 @@ class WebUIChannel(Channel):
         profile_id = request.match_info["profile_id"]
         try:
             ok = await irminsul.llm_profile_delete(profile_id, actor="WebUI")
+            if ok:
+                await self._llm_publish_profile_event(profile_id, "delete")
             return web.json_response({"ok": ok})
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
@@ -331,6 +340,8 @@ class WebUIChannel(Channel):
         profile_id = request.match_info["profile_id"]
         try:
             ok = await irminsul.llm_profile_set_default(profile_id, actor="WebUI")
+            if ok:
+                await self._llm_publish_profile_event(profile_id, "set_default")
             return web.json_response({"ok": ok})
         except Exception as e:
             logger.error("[神之心·LLM 面板] 设默认 {} 异常: {}", profile_id, e)
@@ -487,6 +498,115 @@ class WebUIChannel(Channel):
             eb = data.get("extra_body") or {}
             fields["extra_body"] = eb if isinstance(eb, dict) else {}
         return fields
+
+    async def _llm_publish_profile_event(
+        self, profile_id: str, action: str,
+    ) -> None:
+        """Profile 写入后 publish leyline，供 Gnosis 失效缓存。"""
+        if not self.state.leyline:
+            return
+        try:
+            await self.state.leyline.publish(
+                "llm.profile.updated",
+                {"profile_id": profile_id, "action": action},
+                source="WebUI·LLM面板",
+            )
+        except Exception as e:
+            logger.debug("[神之心·LLM 面板] publish profile event 失败: {}", e)
+
+    async def _llm_publish_route_event(self, route_key: str) -> None:
+        if not self.state.leyline:
+            return
+        try:
+            await self.state.leyline.publish(
+                "llm.route.updated",
+                {"route_key": route_key},
+                source="WebUI·LLM面板",
+            )
+        except Exception as e:
+            logger.debug("[神之心·LLM 面板] publish route event 失败: {}", e)
+
+    async def llm_routes_list_api(self, request: web.Request) -> web.Response:
+        """列路由表 + 已知调用点 + 默认 profile 名（面板展示用）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        router = self.state.model_router
+        if not irminsul or not router:
+            return web.json_response({
+                "routes": {}, "callsites": [], "default": None,
+            })
+        # 已配路由快照（用 router 内存版，免打 DB）
+        routes = router.snapshot()
+        from paimon.foundation.model_router import KNOWN_CALLSITES
+        default = await irminsul.llm_profile_get_default()
+        return web.json_response({
+            "routes": routes,
+            "callsites": [
+                {"component": c, "purpose": p} for c, p in KNOWN_CALLSITES
+            ],
+            "default": (
+                {"id": default.id, "name": default.name} if default else None
+            ),
+        })
+
+    async def llm_route_set_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+        if not self.state.model_router or not self.state.irminsul:
+            return web.json_response(
+                {"ok": False, "error": "路由器/世界树未就绪"}, status=500,
+            )
+        try:
+            data = await request.json()
+            route_key = (data.get("route_key") or "").strip()
+            profile_id = (data.get("profile_id") or "").strip()
+            if not route_key or not profile_id:
+                return web.json_response(
+                    {"ok": False, "error": "route_key / profile_id 必填"},
+                    status=400,
+                )
+            # 校验 profile_id 存在，避免写入悬挂引用
+            profile = await self.state.irminsul.llm_profile_get(
+                profile_id, include_key=False,
+            )
+            if profile is None:
+                return web.json_response(
+                    {"ok": False, "error": f"profile 不存在: {profile_id}"},
+                    status=400,
+                )
+            await self.state.model_router.set_route(
+                route_key, profile_id, actor="WebUI",
+            )
+            await self._llm_publish_route_event(route_key)
+            return web.json_response({"ok": True})
+        except Exception as e:
+            logger.error("[神之心·LLM 面板] 设路由异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def llm_route_delete_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+        if not self.state.model_router:
+            return web.json_response(
+                {"ok": False, "error": "路由器未就绪"}, status=500,
+            )
+        try:
+            data = await request.json()
+            route_key = (data.get("route_key") or "").strip()
+            if not route_key:
+                return web.json_response(
+                    {"ok": False, "error": "route_key 必填"}, status=400,
+                )
+            ok = await self.state.model_router.delete_route(
+                route_key, actor="WebUI",
+            )
+            if ok:
+                await self._llm_publish_route_event(route_key)
+            return web.json_response({"ok": ok})
+        except Exception as e:
+            logger.error("[神之心·LLM 面板] 删路由异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     # ---------- 风神 · 信息流面板 ----------
 

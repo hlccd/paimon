@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from paimon.foundation.irminsul import Irminsul
     from paimon.foundation.leyline import Leyline
     from paimon.foundation.march import MarchService
+    from paimon.foundation.model_router import ModelRouter
     from paimon.foundation.primogem import Primogem
     from paimon.foundation.selfcheck import SelfCheckService
     from paimon.llm import Model
@@ -31,6 +32,8 @@ class RuntimeState:
     session_mgr: SessionManager | None = None
     model: Model | None = None
     gnosis: Gnosis | None = None
+    # M2：LLM 路由器（按 (component, purpose) 选 profile）
+    model_router: "ModelRouter | None" = None
     leyline: Leyline | None = None
     march: MarchService | None = None
     primogem: Primogem | None = None

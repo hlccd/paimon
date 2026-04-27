@@ -144,17 +144,22 @@ class LLMProfileRepo:
         return True
 
     async def set_default(self, profile_id: str, *, actor: str) -> bool:
-        """设为全局默认；原默认自动清零（事务内保证唯一）。"""
+        """设为全局默认；原默认自动清零。单 SQL CASE 原子完成，并发安全。"""
         async with self._db.execute(
             "SELECT id FROM llm_profiles WHERE id = ?", (profile_id,),
         ) as cur:
             row = await cur.fetchone()
         if row is None:
             return False
-        await self._db.execute("UPDATE llm_profiles SET is_default = 0 WHERE is_default = 1")
+        # 单 SQL 原子：目标行置 1，其他 is_default=1 的行同时清零；
+        # updated_at 只动目标行
+        now = time.time()
         await self._db.execute(
-            "UPDATE llm_profiles SET is_default = 1, updated_at = ? WHERE id = ?",
-            (time.time(), profile_id),
+            "UPDATE llm_profiles SET "
+            "is_default = CASE WHEN id = ? THEN 1 ELSE 0 END, "
+            "updated_at = CASE WHEN id = ? THEN ? ELSE updated_at END "
+            "WHERE is_default = 1 OR id = ?",
+            (profile_id, profile_id, now, profile_id),
         )
         await self._db.commit()
         logger.info("[世界树·LLM Profile] 设默认 {} actor={}", profile_id, actor)

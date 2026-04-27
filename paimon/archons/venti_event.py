@@ -377,7 +377,7 @@ class EventClusterer:
             {"role": "user", "content": user_msg},
         ]
         try:
-            raw, usage = await self._model._stream_text(messages)
+            raw, usage = await self._model._stream_text(messages, component="风神", purpose="事件聚类")
             await self._model._record_primogem(
                 "", "风神", usage, purpose="事件聚类",
             )
@@ -463,7 +463,7 @@ class EventClusterer:
             {"role": "system", "content": _ANALYZE_SYSTEM},
             {"role": "user", "content": user_msg},
         ]
-        raw, usage = await self._model._stream_text(messages)
+        raw, usage = await self._model._stream_text(messages, component="风神", purpose="事件分析")
         await self._model._record_primogem(
             "", "风神", usage, purpose="事件分析",
         )

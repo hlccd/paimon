@@ -599,7 +599,7 @@ class VentiArchon(Archon):
             {"role": "user", "content": json.dumps(trimmed, ensure_ascii=False)},
         ]
         try:
-            raw, usage = await model._stream_text(messages)
+            raw, usage = await model._stream_text(messages, component="风神", purpose="订阅早报")
             await model._record_primogem(
                 "", "风神", usage, purpose="订阅早报",
             )
@@ -694,7 +694,7 @@ class VentiArchon(Archon):
         last_err: Exception | str | None = None
         for attempt in range(total_attempts):
             try:
-                raw, usage = await model._stream_text(messages)
+                raw, usage = await model._stream_text(messages, component="风神", purpose="事件日报")
                 await model._record_primogem(
                     "", "风神", usage, purpose="事件日报",
                 )

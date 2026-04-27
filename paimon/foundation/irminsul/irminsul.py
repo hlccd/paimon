@@ -19,6 +19,7 @@ from .session import SessionMeta, SessionRecord, SessionRepo
 from .skills import SkillDecl, SkillRepo
 from .feed_event import FeedEvent, FeedEventRepo
 from .llm_profile import LLMProfile, LLMProfileRepo
+from .llm_route import LLMRoute, LLMRouteRepo
 from .push_archive import PushArchiveRecord, PushArchiveRepo
 from .selfcheck import SelfcheckRepo, SelfcheckRun
 from .subscription import FeedItem, Subscription, SubscriptionRepo
@@ -58,6 +59,7 @@ class Irminsul:
         self._push_archive: PushArchiveRepo | None = None
         self._selfcheck: SelfcheckRepo | None = None
         self._llm_profile: LLMProfileRepo | None = None
+        self._llm_route: LLMRouteRepo | None = None
 
     async def initialize(self) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
@@ -83,6 +85,7 @@ class Irminsul:
         self._push_archive = PushArchiveRepo(self._db)
         self._selfcheck = SelfcheckRepo(self._db, self._selfcheck_root)
         self._llm_profile = LLMProfileRepo(self._db)
+        self._llm_route = LLMRouteRepo(self._db)
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
 
@@ -759,3 +762,23 @@ class Irminsul:
 
     async def llm_profile_get_default(self) -> LLMProfile | None:
         return await self._llm_profile.get_default()
+
+    # ============ 域 15: LLM 路由 ============
+    async def llm_route_upsert(
+        self, route_key: str, profile_id: str, *, actor: str,
+    ) -> None:
+        await self._llm_route.upsert(route_key, profile_id, actor=actor)
+
+    async def llm_route_delete(self, route_key: str, *, actor: str) -> bool:
+        return await self._llm_route.delete(route_key, actor=actor)
+
+    async def llm_route_get(self, route_key: str) -> LLMRoute | None:
+        return await self._llm_route.get(route_key)
+
+    async def llm_route_list_all(self) -> list[LLMRoute]:
+        return await self._llm_route.list_all()
+
+    async def llm_route_clear_for_profile(
+        self, profile_id: str, *, actor: str,
+    ) -> int:
+        return await self._llm_route.clear_for_profile(profile_id, actor=actor)

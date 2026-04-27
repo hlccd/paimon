@@ -200,6 +200,7 @@ async def create_app(cfg: Config) -> list[Channel]:
     state.primogem = Primogem(state.irminsul)
 
     gnosis = Gnosis(cfg)
+    gnosis.attach_irminsul(state.irminsul)   # M2：让 gnosis 能按 profile_id 读世界树
     state.gnosis = gnosis
 
     primary_provider = _make_provider(cfg, cfg.llm_provider)
@@ -210,7 +211,13 @@ async def create_app(cfg: Config) -> list[Channel]:
         deep_provider = _make_provider(cfg, deep_name)
         gnosis.register(deep_name, deep_provider)
 
-    state.model = Model(primary_provider, gnosis)
+    # M2：路由器加载（llm_routes 表；空表时全走默认 profile）
+    from paimon.foundation.model_router import ModelRouter
+    router = ModelRouter(state.irminsul)
+    await router.load()
+    state.model_router = router
+
+    state.model = Model(primary_provider, gnosis, router=router)
 
     from pathlib import Path
     from paimon.tools.registry import ToolRegistry
@@ -414,6 +421,26 @@ async def create_app(cfg: Config) -> list[Channel]:
     state.leyline.subscribe("skill.loaded", _on_skill_loaded)
     # 热卸载 / orphan 场景：撤销后也失效 authz 缓存（避免 dangling 授权被消费）
     state.leyline.subscribe("skill.revoked", _on_skill_loaded)
+
+    # M2：profile / route 热切换（面板保存后触发对应缓存失效）
+    async def _on_llm_profile_updated(event: Event) -> None:
+        payload = event.payload or {}
+        pid = payload.get("profile_id", "")
+        action = payload.get("action", "")
+        if pid and state.gnosis:
+            state.gnosis.invalidate_profile(pid)
+        # 删除 profile 时 DB FK CASCADE 已清 llm_routes 的对应行，但
+        # ModelRouter 内存缓存还持有旧映射；reload 同步之。set_default
+        # 不影响路由表，无需 reload。
+        if action == "delete" and state.model_router:
+            await state.model_router.reload()
+
+    async def _on_llm_route_updated(event: Event) -> None:
+        if state.model_router:
+            await state.model_router.reload()
+
+    state.leyline.subscribe("llm.profile.updated", _on_llm_profile_updated)
+    state.leyline.subscribe("llm.route.updated", _on_llm_route_updated)
 
     logger.info(
         "[派蒙·启动] 系统就绪 (模型={}, 频道={})",

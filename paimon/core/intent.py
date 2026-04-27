@@ -159,7 +159,7 @@ async def classify_intent(
     ]
 
     try:
-        raw, usage = await model._stream_text(messages)
+        raw, usage = await model._stream_text(messages, component="paimon", purpose="意图分类")
         await model._record_primogem(session.id, "paimon", usage, purpose="意图分类")
         label = raw.strip().lower()
         # 有些模型喜欢加句号、引号、markdown 包装——宽容解析

@@ -1,7 +1,8 @@
-"""神之心 · LLM Profile 管理面板
+"""神之心 · LLM Profile 管理面板 + 路由配置
 
-M1 范围：profile 存储 + 面板（增删改 + 测连接 + 设默认）。
-M2 将加路由表让 Model.chat 按 component+purpose 取 profile。
+M1：profile 存储 + 面板（增删改 + 测连接 + 设默认）
+M2：新增路由 tab —— 按 (component, purpose) 把调用路由到 profile；点击保
+存即 publish leyline 事件，Gnosis 感知后热切换 provider 缓存。
 
 docs/todo.md §LLM 分层调度
 """
@@ -108,6 +109,53 @@ LLM_CSS = """
     .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 14px; }
+
+    /* Tab 切换（模型管理 / 路由配置）*/
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--paimon-border); }
+    .tab-btn {
+        padding: 10px 20px; background: transparent; border: none; color: var(--text-muted);
+        cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent;
+    }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* 路由表格 */
+    .route-section { margin-bottom: 28px; }
+    .route-section h3 {
+        font-size: 14px; color: var(--text-primary); font-weight: 600;
+        margin-bottom: 10px;
+    }
+    .route-section .section-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+    .route-table { width: 100%; border-collapse: collapse; }
+    .route-table th, .route-table td {
+        padding: 10px 12px; border-bottom: 1px solid var(--paimon-border);
+        font-size: 13px; text-align: left; vertical-align: middle;
+    }
+    .route-table th { color: var(--gold); font-weight: 600; font-size: 12px; }
+    .route-table tbody tr:hover td { background: var(--paimon-panel); }
+    .route-key { font-family: 'SF Mono', Monaco, Consolas, monospace; color: var(--text-primary); }
+    .route-default-hint { color: var(--text-muted); font-style: italic; font-size: 12px; }
+    .route-select {
+        padding: 5px 8px; background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border); border-radius: 4px;
+        color: var(--text-primary); font-size: 12px; min-width: 200px;
+    }
+    .route-save-flash {
+        display: inline-block; margin-left: 8px; padding: 2px 8px;
+        border-radius: 10px; font-size: 11px;
+        background: rgba(16,185,129,.12); color: var(--status-success);
+        opacity: 0; transition: opacity .2s;
+    }
+    .route-save-flash.shown { opacity: 1; }
+
+    .default-hero {
+        padding: 12px 16px; margin-bottom: 16px;
+        background: rgba(255,180,80,.08); border: 1px solid rgba(255,180,80,.28);
+        border-radius: 8px; font-size: 13px; color: var(--text-primary);
+    }
+    .default-hero strong { color: var(--gold); }
 """
 
 
@@ -115,17 +163,48 @@ LLM_BODY = """
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>🧠 神之心 · 模型管理</h1>
-                <div class="sub">LLM Profile 列表 · 每条代表一个可用模型配置（API key + model + 思考开关等）</div>
+                <h1>🧠 神之心 · 模型与路由</h1>
+                <div class="sub">模型条目 + 按 (component, purpose) 调度到不同模型</div>
             </div>
             <div class="header-actions">
-                <button class="btn" onclick="loadProfiles()">刷新</button>
-                <button class="btn btn-primary" onclick="openCreate()">+ 新增 Profile</button>
+                <button class="btn" onclick="refreshActiveTab()">刷新</button>
             </div>
         </div>
 
-        <div id="profileList" class="profile-list">
-            <div class="empty-state">加载中...</div>
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="profiles" onclick="switchTab('profiles', this)">📋 模型管理</button>
+            <button class="tab-btn" data-tab="routes" onclick="switchTab('routes', this)">🗺️ 路由配置</button>
+        </div>
+
+        <div id="profiles" class="tab-panel active">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+                <button class="btn btn-primary" onclick="openCreate()">+ 新增 Profile</button>
+            </div>
+            <div id="profileList" class="profile-list">
+                <div class="empty-state">加载中...</div>
+            </div>
+        </div>
+
+        <div id="routes" class="tab-panel">
+            <div id="routeDefaultHero" class="default-hero">加载中...</div>
+
+            <div class="route-section">
+                <h3>按 component（粗粒度）</h3>
+                <div class="section-hint">一条规则覆盖该 component 的所有 purpose；更细规则能单独配在下方。</div>
+                <table class="route-table">
+                    <thead><tr><th style="width:40%">component</th><th>路由到</th></tr></thead>
+                    <tbody id="routeCoarseBody"></tbody>
+                </table>
+            </div>
+
+            <div class="route-section">
+                <h3>按 component:purpose（细粒度）</h3>
+                <div class="section-hint">细粒度优先于粗粒度；都没配则走全局默认 profile。</div>
+                <table class="route-table">
+                    <thead><tr><th style="width:20%">component</th><th style="width:25%">purpose</th><th>路由到</th></tr></thead>
+                    <tbody id="routeFineBody"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -445,6 +524,128 @@ LLM_SCRIPT = """
                 if(m && m.classList.contains('active')) m.classList.remove('active');
             }
         });
+
+        // ============ Tab 切换 ============
+        window.switchTab = function(id, btn){
+            document.querySelectorAll('.tab-btn').forEach(function(t){t.classList.remove('active');});
+            document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+            if(btn) btn.classList.add('active');
+            var el = document.getElementById(id);
+            if(el) el.classList.add('active');
+            if(id === 'routes') loadRoutes();
+        };
+
+        window.refreshActiveTab = function(){
+            var active = document.querySelector('.tab-btn.active');
+            var id = active ? active.getAttribute('data-tab') : 'profiles';
+            if(id === 'routes') loadRoutes();
+            else loadProfiles();
+        };
+
+        // ============ 路由配置 Tab ============
+        async function loadRoutes(){
+            var heroEl = document.getElementById('routeDefaultHero');
+            var coarseEl = document.getElementById('routeCoarseBody');
+            var fineEl = document.getElementById('routeFineBody');
+            if(!heroEl || !coarseEl || !fineEl) return;
+            heroEl.textContent = '加载中...';
+            coarseEl.innerHTML = fineEl.innerHTML = '<tr><td colspan="3">加载中...</td></tr>';
+            try {
+                // 并行拉 profiles + routes
+                var [profResp, routeResp] = await Promise.all([
+                    fetch('/api/llm/list').then(function(r){return r.json();}),
+                    fetch('/api/llm/routes').then(function(r){return r.json();}),
+                ]);
+                var profiles = profResp.profiles || [];
+                currentProfiles = profiles;
+                var routes = routeResp.routes || {};
+                var callsites = routeResp.callsites || [];
+                var def = routeResp.default;
+
+                // 默认 hero
+                if(def){
+                    heroEl.innerHTML = '全局默认 profile：<strong>'+esc(def.name)+'</strong>'
+                        + '<span class="route-default-hint" style="margin-left:12px">路由未命中时回落到此。改默认请到「模型管理」tab。</span>';
+                } else {
+                    heroEl.innerHTML = '<span style="color:var(--status-error)">⚠ 还没有默认 profile，请到「模型管理」tab 设一个。</span>';
+                }
+
+                // 构建选项
+                function profileOptionsHTML(selected){
+                    var html = '<option value="">（走默认）</option>';
+                    profiles.forEach(function(p){
+                        var sel = (selected === p.id) ? ' selected' : '';
+                        var label = p.name + (p.is_default?' · [默认]':'');
+                        html += '<option value="'+esc(p.id)+'"'+sel+'>'+esc(label)+'</option>';
+                    });
+                    return html;
+                }
+
+                // 粗粒度：由 callsites 去重 components
+                var componentsSet = {};
+                callsites.forEach(function(c){ componentsSet[c.component] = 1; });
+                var components = Object.keys(componentsSet).sort();
+                coarseEl.innerHTML = components.map(function(c){
+                    var key = c;
+                    var cur = routes[key] || '';
+                    return '<tr>'
+                        + '<td><span class="route-key">'+esc(c)+'</span></td>'
+                        + '<td>'
+                        +   '<select class="route-select" data-key="'+esc(key)+'" onchange="saveRoute(this)">'
+                        +     profileOptionsHTML(cur)
+                        +   '</select>'
+                        +   '<span class="route-save-flash" data-flash-for="'+esc(key)+'">已保存 ✓</span>'
+                        + '</td>'
+                        + '</tr>';
+                }).join('');
+
+                // 细粒度
+                fineEl.innerHTML = callsites.map(function(c){
+                    var key = c.component + ':' + c.purpose;
+                    var cur = routes[key] || '';
+                    return '<tr>'
+                        + '<td><span class="route-key">'+esc(c.component)+'</span></td>'
+                        + '<td><span class="route-key">'+esc(c.purpose)+'</span></td>'
+                        + '<td>'
+                        +   '<select class="route-select" data-key="'+esc(key)+'" onchange="saveRoute(this)">'
+                        +     profileOptionsHTML(cur)
+                        +   '</select>'
+                        +   '<span class="route-save-flash" data-flash-for="'+esc(key)+'">已保存 ✓</span>'
+                        + '</td>'
+                        + '</tr>';
+                }).join('');
+            } catch(e){
+                heroEl.innerHTML = '<span style="color:var(--status-error)">加载失败: '+esc(String(e))+'</span>';
+            }
+        }
+
+        window.saveRoute = async function(selectEl){
+            var key = selectEl.getAttribute('data-key');
+            var pid = selectEl.value;
+            var flash = document.querySelector('.route-save-flash[data-flash-for="'+CSS.escape(key)+'"]');
+            try {
+                var url = pid
+                    ? '/api/llm/routes/set'
+                    : '/api/llm/routes/delete';
+                var body = pid ? {route_key: key, profile_id: pid} : {route_key: key};
+                var r = await fetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(body),
+                });
+                var d = await r.json();
+                if(d.ok){
+                    if(flash){
+                        flash.classList.add('shown');
+                        setTimeout(function(){ flash.classList.remove('shown'); }, 1500);
+                    }
+                } else {
+                    alert('保存失败: '+(d.error || 'unknown'));
+                }
+            } catch(e){
+                alert('请求失败: '+e.message);
+            }
+        };
 
         window.loadProfiles = loadProfiles;
         window.onload = function(){ loadProfiles(); };

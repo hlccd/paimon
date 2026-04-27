@@ -509,7 +509,7 @@ async def _call_llm_for_plan(
     purpose: str,
 ) -> list[dict]:
     try:
-        raw, usage = await model._stream_text(messages)
+        raw, usage = await model._stream_text(messages, component="生执", purpose=purpose)
         await model._record_primogem(task.session_id, "生执", usage, purpose=purpose)
     except Exception as e:
         logger.warning("[生执] LLM 调用异常，回退单节点草神: {}", e)

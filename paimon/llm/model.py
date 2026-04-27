@@ -12,6 +12,7 @@ from paimon.session import Session
 
 if TYPE_CHECKING:
     from paimon.foundation.gnosis import Gnosis
+    from paimon.foundation.model_router import ModelRouter
 
 from paimon.llm.base import ToolCallFragment
 
@@ -46,10 +47,35 @@ class _ToolCallAccumulator:
 
 
 class Model:
-    def __init__(self, provider: Provider, gnosis: Gnosis | None = None):
-        self.provider = provider
+    def __init__(
+        self, provider: Provider,
+        gnosis: Gnosis | None = None,
+        router: "ModelRouter | None" = None,
+    ):
+        self.provider = provider          # .env 启动路径的兜底 provider
         self.gnosis = gnosis
+        self.router = router              # M2：按 (component, purpose) 路由到 profile
         self.last_chat_cost_usd: float = 0.0
+
+    async def _pick_provider(
+        self, component: str, purpose: str,
+    ) -> tuple[Provider, str]:
+        """按路由选 provider；返回 (provider, source_tag) 供日志 / 故障上报用。
+
+        优先级：router 精确命中 > 默认 profile > self.provider（.env 启动值）
+        source_tag: "profile:{id}" / "default" / "env"
+        """
+        if self.router and self.gnosis:
+            pid = self.router.resolve(component, purpose)
+            if pid:
+                prov = await self.gnosis.get_provider_by_profile_id(pid)
+                if prov:
+                    return prov, f"profile:{pid}"
+        if self.gnosis:
+            default = await self.gnosis.get_default_provider()
+            if default is not None:
+                return default, "default"
+        return self.provider, "env"
 
     @staticmethod
     def _estimate_obj_tokens(obj: Any) -> int:
@@ -88,11 +114,23 @@ class Model:
             target[key] = target.get(key, 0) + (source.get(key, 0) or 0)
 
     async def _stream_text(
-        self, messages: list[dict[str, Any]]
+        self, messages: list[dict[str, Any]],
+        *,
+        component: str = "",
+        purpose: str = "",
     ) -> tuple[str, dict[str, int]]:
+        """提供 component/purpose 即走 router；不提供则用 self.provider（兜底兼容）。
+
+        四影 / istaroth / intent / venti 等调用点应传入它们在 primogem.record
+        里记的同一对值，以确保路由一致性。
+        """
+        if component or purpose:
+            provider, _src = await self._pick_provider(component, purpose)
+        else:
+            provider = self.provider
         text = ""
         usage = self._empty_usage()
-        async for chunk in self.provider.chat_stream(messages):
+        async for chunk in provider.chat_stream(messages):
             if chunk.usage:
                 self._merge_usage(usage, chunk.usage)
                 continue
@@ -179,7 +217,12 @@ class Model:
             usage = self._empty_usage()
             tc_acc = _ToolCallAccumulator()
 
-            active_provider = self.provider
+            active_provider, provider_source = await self._pick_provider(component, purpose)
+            if round_idx == 0:
+                logger.debug(
+                    "[神之心·路由] {} / {} → {} ({})",
+                    component, purpose, active_provider.model_name, provider_source,
+                )
             try:
                 stream_iter = active_provider.chat_stream(runtime_messages, tools=tools)
             except Exception as e:
@@ -376,7 +419,7 @@ class Model:
         )
         msgs = [{"role": "user", "content": prompt}]
         try:
-            title, usage = await self._stream_text(msgs)
+            title, usage = await self._stream_text(msgs, component="title", purpose="标题生成")
             await self._record_primogem(session_id, "title", usage, purpose="标题生成")
             return title.strip().strip('"').strip("'")
         except Exception as e:

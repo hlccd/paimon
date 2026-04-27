@@ -366,6 +366,18 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
     updated_at       REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_default ON llm_profiles(is_default DESC);
+
+-- ============ 域 15: LLM 路由（2026-04-27 M2 新增）============
+-- (component[:purpose]) → profile_id 映射。由 ModelRouter 在 Model.chat
+-- 入口按 (component, purpose) resolve。FK CASCADE：profile 被删时该 profile
+-- 涉及的路由自动清理，避免悬挂引用。
+CREATE TABLE IF NOT EXISTS llm_routes (
+    route_key   TEXT PRIMARY KEY,        -- "风神" 或 "风神:事件聚类"
+    profile_id  TEXT NOT NULL,
+    updated_at  REAL NOT NULL,
+    FOREIGN KEY (profile_id) REFERENCES llm_profiles(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_llm_routes_profile ON llm_routes(profile_id);
 """
 
 

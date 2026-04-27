@@ -388,7 +388,7 @@ async def _build_memory_block(
     last_error = "unknown"
     for attempt in range(1, 4):
         try:
-            raw, usage = await model._stream_text(messages)
+            raw, usage = await model._stream_text(messages, component="compress", purpose="上下文压缩")
         except Exception as e:
             last_error = f"模型调用失败: {e}"
             logger.warning(
@@ -470,7 +470,7 @@ async def extract_experience(
     ]
 
     try:
-        raw, usage = await model._stream_text(messages)
+        raw, usage = await model._stream_text(messages, component="extract", purpose="L1 记忆提取")
         await model._record_primogem(
             session.id, "extract", usage, purpose="L1 记忆提取",
         )

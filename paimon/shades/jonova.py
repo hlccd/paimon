@@ -53,7 +53,7 @@ async def review(
     ]
 
     try:
-        raw, usage = await model._stream_text(messages)
+        raw, usage = await model._stream_text(messages, component="死执", purpose="安全审查")
         await model._record_primogem(task.session_id, "死执", usage, purpose="安全审查")
 
         raw = raw.strip()
@@ -130,7 +130,7 @@ async def review_skill_declaration(
     ]
 
     try:
-        raw, usage = await model._stream_text(messages)
+        raw, usage = await model._stream_text(messages, component="死执", purpose="skill 声明审查")
         await model._record_primogem("", "死执", usage, purpose="skill 声明审查")
     except Exception as e:
         logger.warning("[死执·skill 审查] LLM 调用失败，保守拒绝: {}", e)
