@@ -248,6 +248,12 @@ class Irminsul:
     async def subtask_update_status(self, subtask_id: str, status: str, result: str = "", *, actor: str) -> None:
         await self._task.subtask_update_status(subtask_id, status, result, actor=actor)
 
+    async def subtask_update_verdict(
+        self, subtask_id: str, verdict_status: str, *, actor: str,
+    ) -> None:
+        """水神裁决后为单个子任务打标 verdict（passed / needs_revise / needs_redo）。"""
+        await self._task.subtask_update_verdict(subtask_id, verdict_status, actor=actor)
+
     async def subtask_list(self, task_id: str) -> list[Subtask]:
         return await self._task.subtask_list(task_id)
 
