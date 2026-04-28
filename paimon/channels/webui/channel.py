@@ -145,6 +145,7 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/wealth/stock/{code}", self.wealth_stock_api)
         self.app.router.add_post("/api/wealth/trigger", self.wealth_trigger_api)
         self.app.router.add_get("/api/wealth/running", self.wealth_running_api)
+        self.app.router.add_get("/api/wealth/scan_scope", self.wealth_scan_scope_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 三月·自检面板
         self.app.router.add_get("/selfcheck", self.selfcheck_page)
@@ -1254,6 +1255,34 @@ class WebUIChannel(Channel):
             "cron_enabled": cron_on,
         })
 
+    async def wealth_scan_scope_api(self, request: web.Request) -> web.Response:
+        """各扫描模式的实际范围数量（给前端按钮下方文案用）。
+
+        candidates_size: 候选池股票数（最近一次全扫描产出，日更扫描的范围）
+        watchlist_size:  推荐池股票数（行业均衡选出，公告聚焦对象）
+        full_market_size: 全市场参考数（A 股 ~5500，写死方便前端展示）
+        """
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({
+                "candidates_size": 0, "watchlist_size": 0,
+                "full_market_size": 5500,
+            })
+        # 候选池 = 最近一次全扫描产出的 codes（用 watchlist.last_refresh 当基准）
+        last_full_date = await irminsul.watchlist_last_refresh()
+        candidates = (
+            await irminsul.snapshot_codes_at_date(last_full_date)
+            if last_full_date else []
+        )
+        watchlist = await irminsul.watchlist_get()
+        return web.json_response({
+            "candidates_size": len(candidates),
+            "watchlist_size": len(watchlist),
+            "full_market_size": 5500,
+        })
+
     async def wealth_running_api(self, request: web.Request) -> web.Response:
         """岩神采集是否在跑（供 /wealth 公告区"采集中"状态条 + 轮询）。
 
@@ -1262,13 +1291,21 @@ class WebUIChannel(Channel):
         - stage ∈ init / board / board_codes / dividend / financial /
           scoring_dividend / scoring_financial / scoring_rescore
         - 前端按 stage 拼"行情扫描 X/Y"等文案
+
+        last_error 字段（10 分钟内的最近一次失败，超出窗口为 null）：
+        ``{ts, mode, message, age_seconds}`` —— 前端红色横幅显示
         """
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
         zhongli = self.state.zhongli
         running = bool(zhongli and zhongli.is_scanning())
         progress = zhongli.get_progress() if (zhongli and running) else None
-        return web.json_response({"running": running, "progress": progress})
+        last_error = zhongli.get_last_error() if zhongli else None
+        return web.json_response({
+            "running": running,
+            "progress": progress,
+            "last_error": last_error,
+        })
 
     async def wealth_recommended_api(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):

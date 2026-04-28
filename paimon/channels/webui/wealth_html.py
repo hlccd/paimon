@@ -21,7 +21,12 @@ WEALTH_CSS = """
     .page-header h1 { font-size: 24px; color: var(--text-primary); font-weight: 600; }
     .page-header .sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
 
-    .actions-bar { display: flex; gap: 8px; align-items: center; }
+    .actions-bar { display: flex; gap: 8px; align-items: flex-start; }
+    .btn-scan-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .btn-scan-hint {
+        font-size: 11px; color: var(--text-muted); line-height: 1.2;
+        white-space: nowrap; min-height: 14px;
+    }
     .btn-scan {
         padding: 8px 14px; background: var(--paimon-panel-light); color: var(--text-secondary);
         border: 1px solid var(--paimon-border); border-radius: 6px; cursor: pointer; font-size: 13px;
@@ -163,10 +168,22 @@ WEALTH_BODY = """
                 <div class="sub">A 股红利股追踪（评分 + 行业均衡 + 变化检测）</div>
             </div>
             <div class="actions-bar">
-                <button class="btn-scan" id="btnRescore" onclick="triggerScan('rescore')">重评分</button>
-                <button class="btn-scan" id="btnDaily" onclick="triggerScan('daily')">日更</button>
-                <button class="btn-scan primary" id="btnFull" onclick="triggerScan('full')">全扫描</button>
-                <button class="btn-scan" onclick="refreshAll()">刷新</button>
+                <div class="btn-scan-cell">
+                    <button class="btn-scan" id="btnRescore" onclick="triggerScan('rescore')">重评分</button>
+                    <span class="btn-scan-hint">&nbsp;</span>
+                </div>
+                <div class="btn-scan-cell">
+                    <button class="btn-scan" id="btnDaily" onclick="triggerScan('daily')">日更</button>
+                    <span class="btn-scan-hint" id="dailyHint">候选池 -</span>
+                </div>
+                <div class="btn-scan-cell">
+                    <button class="btn-scan primary" id="btnFull" onclick="triggerScan('full')">全扫描</button>
+                    <span class="btn-scan-hint" id="fullHint">全市场 ~5500</span>
+                </div>
+                <div class="btn-scan-cell">
+                    <button class="btn-scan" onclick="refreshAll()">刷新</button>
+                    <span class="btn-scan-hint">&nbsp;</span>
+                </div>
             </div>
         </div>
 
@@ -183,6 +200,7 @@ WEALTH_BODY = """
             </div>
             <div class="digest-scroll">
                 <div id="zhongliRunningBar" style="display:none"></div>
+                <div id="zhongliErrorBar" style="display:none"></div>
                 <div id="zhongliBulletins">
                     <div class="digest-bulletins-empty">加载中...</div>
                 </div>
@@ -345,6 +363,13 @@ WEALTH_SCRIPT = """
         }
 
         var _zhongliBulletinsPollTimer = null;
+        // 已被用户点关的 error.ts 集合（避免再次轮询又弹）
+        var _zhongliDismissedErrors = {};
+        window.dismissZhongliError = function(ts){
+            _zhongliDismissedErrors[ts] = 1;
+            var bar = document.getElementById('zhongliErrorBar');
+            if(bar){ bar.style.display = 'none'; bar.innerHTML = ''; }
+        };
         async function loadZhongliBulletins(){
             // 公告区：渲染当前选中日期的所有日报（对齐风神 sentiment 形态）
             var el = document.getElementById('zhongliBulletins');
@@ -371,6 +396,7 @@ WEALTH_SCRIPT = """
                 var records = d.records || [];
                 var running = !!runResp.running;
                 var progress = runResp.progress || null;
+                var lastError = runResp.last_error || null;
 
                 // 顶部采集状态条
                 if(runBar){
@@ -382,6 +408,27 @@ WEALTH_SCRIPT = """
                     }else{
                         runBar.style.display = 'none';
                         runBar.innerHTML = '';
+                    }
+                }
+
+                // 错误横幅（10 分钟内，未被用户关闭过）
+                var errBar = document.getElementById('zhongliErrorBar');
+                if(errBar){
+                    var shouldShow = lastError && !_zhongliDismissedErrors[lastError.ts];
+                    if(shouldShow){
+                        var ageStr = lastError.age_seconds < 60
+                            ? lastError.age_seconds + ' 秒前'
+                            : Math.floor(lastError.age_seconds / 60) + ' 分钟前';
+                        errBar.innerHTML =
+                            '<span class="err-msg">❌ <strong>' + _esc(lastError.mode) + '</strong> 扫描失败（'
+                            + ageStr + '）：' + _esc(lastError.message) + '</span>'
+                            + '<button class="err-close" title="关闭" onclick="window.dismissZhongliError('
+                            + lastError.ts + ')">✕</button>';
+                        errBar.className = 'digest-error-bar';
+                        errBar.style.display = '';
+                    }else{
+                        errBar.style.display = 'none';
+                        errBar.innerHTML = '';
                     }
                 }
 
@@ -417,7 +464,7 @@ WEALTH_SCRIPT = """
                             + dot
                             + '<span class="db-source">' + _esc(rec.source) + '</span>'
                             + runningChip
-                            + '<span class="db-time">' + _fmtTime(rec.created_at) + '</span>'
+                            + '<span class="db-time" title="同日多次扫描会刷新此时间">最后更新 ' + _fmtTime(rec.created_at) + '</span>'
                             + '</div>'
                             + markBtn
                             + '</div>'
@@ -540,9 +587,27 @@ WEALTH_SCRIPT = """
 
         window.refreshAll=function(){
             loadStats(); loadRecommended(); loadRanking(); loadChanges();
-            loadZhongliBulletins();
+            loadZhongliBulletins(); loadScanScope();
             // 历史折叠区按需加载（用户点「查看更多」时才 loadZhongliDigests）
         };
+
+        // 加载日更/全扫描按钮下方的范围文案（候选池 N 只 / 全市场 ~5500）
+        async function loadScanScope(){
+            try{
+                var r = await fetch('/api/wealth/scan_scope');
+                var d = await r.json();
+                var dailyHint = document.getElementById('dailyHint');
+                var fullHint  = document.getElementById('fullHint');
+                if(dailyHint){
+                    var n = d.candidates_size || 0;
+                    dailyHint.textContent = n > 0 ? ('候选池 ' + n + ' 只') : '候选池 -';
+                }
+                if(fullHint){
+                    var f = d.full_market_size || 5500;
+                    fullHint.textContent = '全市场 ~' + f;
+                }
+            }catch(e){ /* 静默：失败就显示初始 placeholder */ }
+        }
 
         async function loadStats(){
             try{

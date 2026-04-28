@@ -132,9 +132,10 @@ NAV_LINKS_CSS = """
         border-radius: 10px;
         padding: 16px;
         margin-top: 24px;
-        /* 公告区固定 max-height，内容多时内部滚动；保持页面整体节奏不被拉长 */
+        /* 公告区固定 max-height，内容多时内部滚动；保持页面整体节奏不被拉长。
+           35vh ≈ 概览 + 行业趋势 Top5 + 1-2 行 buffer；P0/P1/新入选滚动可见 */
         display: flex; flex-direction: column;
-        max-height: 50vh;
+        max-height: 35vh;
     }
     /* 公告区滚动主体：head 不动，列表 + 历史区在这里滚 */
     .digest-section > .digest-scroll {
@@ -249,6 +250,21 @@ NAV_LINKS_CSS = """
         animation: paimon-pulse 1.1s ease-in-out infinite;
         flex-shrink: 0;
     }
+    .digest-error-bar {
+        display: flex; align-items: flex-start; gap: 8px;
+        padding: 10px 14px; margin-bottom: 12px;
+        background: rgba(255,80,80,.10);
+        border: 1px solid rgba(255,80,80,.35);
+        border-radius: 8px;
+        color: #e88;
+        font-size: 12.5px;
+    }
+    .digest-error-bar .err-msg { flex: 1; line-height: 1.5; word-break: break-all; }
+    .digest-error-bar .err-close {
+        background: transparent; border: none; color: #e88;
+        cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1;
+    }
+    .digest-error-bar .err-close:hover { color: #faa; }
     .digest-bulletin .db-running {
         display: inline-flex; align-items: center; gap: 5px;
         padding: 2px 8px; font-size: 11px;

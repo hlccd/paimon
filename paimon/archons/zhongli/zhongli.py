@@ -435,6 +435,9 @@ class ZhongliArchon(Archon):
     description = "理财、红利股、资产管理"
     allowed_tools = {"exec"}
 
+    # 上次扫描失败保留窗口：超过此窗口的旧错误不再返回给前端
+    _LAST_ERROR_WINDOW_SECONDS = 10 * 60
+
     def __init__(self):
         self._scan_lock = asyncio.Lock()
         # 当前扫描进度（供 /api/wealth/running 暴露给前端状态条）。
@@ -442,6 +445,9 @@ class ZhongliArchon(Archon):
         # 各阶段（board/board_codes/dividend/financial/scoring）可附带额外字段如
         # valid/success/mode 等。
         self._progress: dict | None = None
+        # 最近一次扫描失败信息（供前端红色横幅展示）。
+        # 成功完成会清空；超过 _LAST_ERROR_WINDOW_SECONDS 不再返回。
+        self._last_error: dict | None = None
 
     def is_scanning(self) -> bool:
         """是否正在跑扫描（supply 给 WebUI/tool 做并发保护）。"""
@@ -450,6 +456,15 @@ class ZhongliArchon(Archon):
     def get_progress(self) -> dict | None:
         """当前扫描进度快照（None 表示未在跑）。"""
         return self._progress
+
+    def get_last_error(self) -> dict | None:
+        """最近窗口内的扫描失败信息；超出窗口返回 None。"""
+        if not self._last_error:
+            return None
+        age = time.time() - self._last_error.get("ts", 0)
+        if age > self._LAST_ERROR_WINDOW_SECONDS:
+            return None
+        return {**self._last_error, "age_seconds": int(age)}
 
     def _set_progress(self, stage: str, cur: int, total: int, **extra) -> None:
         now = time.time()
@@ -462,6 +477,84 @@ class ZhongliArchon(Archon):
             "updated_at": now,
             **extra,
         }
+
+    # ---------- 事件持久化（供 _full_scan/_daily_update/_rescore 调）----------
+
+    async def _persist_events(
+        self, events: dict[str, list[dict]], current: list[dict],
+        scan_date: str, irminsul: Irminsul,
+    ) -> None:
+        """把 _aggregate_events 的产物 upsert 到世界树 dividend_events 域。
+
+        副作用：
+        - 命中事件：upsert（同 stock_code+event_type 7 天内 merge）
+        - current 中本轮该股没命中此 type 但表里有 active → mark resolved（自动闭环）
+
+        events 结构：{'p0':[...], 'p1':[...], 'p2':[...]}
+        每条 ev 含 {stock_code/stock_name/industry/severity/kind/reason/total_score/
+                    dividend_yield/prev_score}（来自 _aggregate_events）
+        """
+        # 收集本轮命中：code → {event_types}
+        active_now: dict[str, set[str]] = {}
+        ev_count = 0
+        for sev_list in events.values():
+            for ev in sev_list:
+                code = ev.get('stock_code', '')
+                etype = ev.get('kind', '')
+                if not code or not etype:
+                    continue
+                active_now.setdefault(code, set()).add(etype)
+
+                tl_entry = {
+                    "scan_date": scan_date,
+                    "severity": ev.get('severity', ''),
+                    "reason": ev.get('reason', ''),
+                    "total_score": ev.get('total_score', 0),
+                    "prev_score": ev.get('prev_score', 0),
+                    "dividend_yield": ev.get('dividend_yield', 0),
+                    "ts": time.time(),
+                }
+                detail = {
+                    "total_score": ev.get('total_score', 0),
+                    "prev_score": ev.get('prev_score', 0),
+                    "dividend_yield": ev.get('dividend_yield', 0),
+                }
+                title = f"{ev.get('stock_name', '')}（{code}）{etype}"
+                try:
+                    await irminsul.dividend_event_upsert(
+                        stock_code=code, event_type=etype,
+                        severity=ev.get('severity', 'p2'),
+                        stock_name=ev.get('stock_name', ''),
+                        industry=ev.get('industry', ''),
+                        title=title, summary=ev.get('reason', ''),
+                        timeline_entry=tl_entry, detail=detail,
+                        actor="岩神",
+                    )
+                    ev_count += 1
+                except Exception as e:
+                    logger.error("[岩神·事件] upsert 失败 {} {} {}", code, etype, e)
+
+        # 自动闭环：current 列表里本轮被扫的股票，把它们 active 中
+        # 不在本轮命中 types 集合的事件标 resolved
+        resolved_count = 0
+        for s in current:
+            sd = s.get('stock_data') or {}
+            code = sd.get('code', '')
+            if not code:
+                continue
+            types_now = active_now.get(code, set())
+            try:
+                n = await irminsul.dividend_event_mark_resolved(
+                    code, exclude_types=types_now, actor="岩神",
+                )
+                resolved_count += n
+            except Exception as e:
+                logger.error("[岩神·事件] resolve 失败 {} {}", code, e)
+
+        logger.info(
+            "[岩神·事件] 持久化 scan_date={} upsert={} resolved={}",
+            scan_date, ev_count, resolved_count,
+        )
 
     # ---------- 四影路径（保留）----------
 
@@ -515,6 +608,8 @@ class ZhongliArchon(Archon):
         async with self._scan_lock:
             logger.info("[岩神·采集] 开始 mode={}", mode)
             self._set_progress("init", 0, 0, mode=mode)
+            # 进入新扫描时清空上次失败记录（成功覆盖；失败再 set 也行）
+            self._last_error = None
             try:
                 try:
                     if mode == "full":
@@ -525,13 +620,20 @@ class ZhongliArchon(Archon):
                         result = await self._rescore(irminsul)
                 except Exception as e:
                     logger.exception("[岩神·采集] 失败 mode={}: {}", mode, e)
+                    self._last_error = {
+                        "ts": time.time(),
+                        "mode": mode,
+                        "message": str(e)[:500],
+                    }
                     return
 
                 if not result or not result.get('stocks'):
                     logger.info("[岩神·采集] 完成（无新数据） mode={}", mode)
                     return
 
-                # 推送日报（digest · markdown）—— source="岩神·理财日报" 与旧 snapshot 推送区分
+                # 推送日报（digest · markdown）—— source="岩神·理财日报"
+                # dedup_per_day=True：当日多次扫描（cron 19:00 + 手动日更/重评分）
+                # 复用同一条公告卡片，内容变就更新+置顶+重置未读，不变只 bump 时间戳。
                 # extra 塞 {p0_count, p1_count, ...} 供 /api/wealth/stats 查近 7 天统计
                 if channel_name and chat_id:
                     try:
@@ -540,7 +642,7 @@ class ZhongliArchon(Archon):
                         await march.ring_event(
                             channel_name=channel_name, chat_id=chat_id,
                             source="岩神·理财日报", message=digest_md,
-                            extra=meta,
+                            extra=meta, dedup_per_day=True,
                         )
                     except Exception as e:
                         logger.error("[岩神·推送] 失败: {}", e)
@@ -661,8 +763,9 @@ class ZhongliArchon(Archon):
         if changes:
             await irminsul.change_save(changes, actor="岩神")
 
-        # 10. 事件分级（供日报用）
+        # 10. 事件分级（供日报用）+ 持久化到 dividend_events 域
         events = _aggregate_events(results, prev)
+        await self._persist_events(events, results, scan_date, irminsul)
 
         # 11. 清 skill 过期缓存
         await self._skill_cleanup_cache()
@@ -678,23 +781,43 @@ class ZhongliArchon(Archon):
         }
 
     async def _daily_update(self, irminsul: Irminsul) -> dict:
-        """日常更新：只扫 watchlist 股票。"""
+        """日更：扫候选池（最近一次全扫描产出的 ~300 只）刷数据 + 评分。
+
+        candidates ⊇ watchlist：watchlist 内的票一定在候选池里，所以前端
+        「推荐选股」也跟着新鲜。watchlist 不在 daily 重选（保持月度稳定）。
+        事件检测仍基于 watchlist 子集（不在 watchlist 的票评分波动不发 P0/P1）。
+
+        候选池范围以 **watchlist.last_refresh（最近一次全扫描日）** 为准取
+        snapshot codes —— 不能用 latest_date，因为 latest_date 一般是今天
+        刚被 daily 写过的 21 只，会陷入"daily 只扫 21 → today 21 → 下次仍 21"。
+        """
         scan_date = date.today().isoformat()
 
-        watchlist = await irminsul.watchlist_get()
-        if not watchlist:
-            logger.info("[岩神·daily] watchlist 为空，自动改走 full_scan")
+        last_full_date = await irminsul.watchlist_last_refresh()
+        if not last_full_date:
+            logger.info("[岩神·daily] watchlist 没有 refresh 记录，跑 full_scan 建候选池")
             return await self._full_scan(irminsul)
 
-        codes = [e.stock_code for e in watchlist]
-        industry_map = {e.stock_code: e.industry for e in watchlist}
-        name_map = {e.stock_code: e.stock_name for e in watchlist}
-        logger.info("[岩神·daily] 追踪 {} 只", len(codes))
+        # 从最近一次全扫描的 snapshot 完整记录里同时拿 codes + name + industry
+        # 不能用 snapshot_latest_top —— 它取 latest_date=今天，今天只有 21 条
+        # （上次 daily 写的 watchlist），候选池里非 watchlist 的 ~330 只 name/industry
+        # 都拿不到，会让 entered/exited 列表无名 + 行业趋势出现 "未知 331 只"。
+        full_snaps = await irminsul.snapshot_at_date(last_full_date)
+        if not full_snaps:
+            logger.info("[岩神·daily] 候选池为空（{}），自动改走 full_scan", last_full_date)
+            return await self._full_scan(irminsul)
+
+        codes = [s.stock_code for s in full_snaps]
+        industry_map = {s.stock_code: s.industry for s in full_snaps}
+        name_map = {s.stock_code: s.stock_name for s in full_snaps}
+        logger.info(
+            "[岩神·daily] 候选池 {} 只（基于 {} 全扫描结果）",
+            len(codes), last_full_date,
+        )
 
         board_by_codes = await self._skill_fetch_board_by_codes(codes)
         market = board_by_codes.get('market_data', {})
-        # skill fetch-board --codes 只收到 code 不知 name/industry，
-        # 用 watchlist 的 name + industry 补齐 market_info（否则 snapshot stock_name 空）
+        # skill fetch-board --codes 不返 name/industry，用 snapshot 旧值补齐
         for code, info in market.items():
             if name_map.get(code) and not info.get('name'):
                 info['name'] = name_map[code]
@@ -706,6 +829,7 @@ class ZhongliArchon(Archon):
         }
 
         # 不 clear today；snapshot_upsert ON CONFLICT 自带覆盖（见 _full_scan 注释）
+        # prev 仍是 watchlist snap，事件检测保持 watchlist 范围（候选池其他票不发事件）
         prev = await irminsul.snapshot_latest_for_watchlist()
 
         dividends = await self._skill_fetch_dividend(codes)
@@ -756,43 +880,59 @@ class ZhongliArchon(Archon):
         if changes:
             await irminsul.change_save(changes, actor="岩神")
 
-        # 事件分级
+        # 事件分级 + 持久化
         events = _aggregate_events(results, prev)
+        await self._persist_events(events, results, scan_date, irminsul)
+
+        # "推荐选股"前端语义是 watchlist（21 只行业均衡选出的），不是候选池 352 只。
+        # daily 只刷数据不重选，所以 recommended 取当前 watchlist 的子集。
+        watchlist = await irminsul.watchlist_get()
+        watchlist_codes = {e.stock_code for e in watchlist}
+        recommended = [s for s in results if s['stock_data']['code'] in watchlist_codes]
 
         return {
             'mode': 'daily', 'scan_date': scan_date,
             'total_scanned': len(codes),
-            'stocks': results, 'recommended': results,
+            'stocks': results, 'recommended': recommended,
             'changes': changes,
             'events': events,
         }
 
     async def _rescore(self, irminsul: Irminsul) -> dict:
-        """秒级重评分：只用 skill 缓存 + 上次快照的 market 指标。无网络 I/O。"""
+        """重评分：候选池 350+ 范围，仅"不抓网络"，其余跟日更对齐。
+
+        与日更的差异：股息 / 财务走 cached_only；行情指标用最近一次全扫描
+        snapshot 里的 price/pe/pb/市值（不另外抓 fetch-board）。
+        与日更一致：扫描范围 = 候选池 350+；事件检测基于 watchlist；公告按日
+        聚合（dedup_per_day=True）；recommended 取 watchlist 子集。
+        """
         scan_date = date.today().isoformat()
 
-        watchlist = await irminsul.watchlist_get()
-        if not watchlist:
-            logger.info("[岩神·rescore] watchlist 为空，跳过")
-            return {'stocks': []}
+        last_full_date = await irminsul.watchlist_last_refresh()
+        if not last_full_date:
+            logger.info("[岩神·rescore] 无全扫描历史，改走 full_scan 建候选池")
+            return await self._full_scan(irminsul)
 
-        codes = [e.stock_code for e in watchlist]
-        industry_map = {e.stock_code: e.industry for e in watchlist}
-
-        # 市场数据从上次 snapshot 取（price/pe/pb/市值）
-        last_date = await irminsul.snapshot_latest_date()
-        if not last_date:
-            logger.info("[岩神·rescore] 无历史快照，改走 daily")
+        full_snaps = await irminsul.snapshot_at_date(last_full_date)
+        if not full_snaps:
+            logger.info("[岩神·rescore] 候选池为空（{}），改走 daily", last_full_date)
             return await self._daily_update(irminsul)
 
-        # 不 clear today；snapshot_upsert ON CONFLICT 自带覆盖（见 _full_scan 注释）。
-        # rescore 这里是最关键的——cached_only 命中率不到 100% 时旧路径会丢光 today
-        prev = await irminsul.snapshot_latest_for_watchlist()
-        prev_map = {s.stock_code: s for s in prev}
+        codes = [s.stock_code for s in full_snaps]
+        industry_map = {s.stock_code: s.industry for s in full_snaps}
+        # snap_map 提供 market_info 来源（重评分不抓 fetch-board）
+        snap_map: dict[str, ScoreSnapshot] = {s.stock_code: s for s in full_snaps}
+        logger.info(
+            "[岩神·rescore] 候选池 {} 只（基于 {} 全扫描结果，纯 cache 重算）",
+            len(codes), last_full_date,
+        )
 
         # 缓存读股息 + 财务
         cached_div = await self._skill_fetch_dividend(codes, cached_only=True)
         cached_fin = await self._skill_fetch_financial(codes, cached_only=True)
+
+        # prev 仍用 watchlist snap，事件检测保持 watchlist 范围
+        prev = await irminsul.snapshot_latest_for_watchlist()
 
         results: list[dict] = []
         total = len(codes)
@@ -800,7 +940,7 @@ class ZhongliArchon(Archon):
             div_info = cached_div.get(code)
             if not div_info:
                 continue
-            snap = prev_map.get(code)
+            snap = snap_map.get(code)
             if not snap:
                 continue
             market_info = {
@@ -817,10 +957,13 @@ class ZhongliArchon(Archon):
             )
             if scored:
                 results.append(scored)
-            if i % 10 == 0 or i == total:
-                self._set_progress("scoring_rescore", i, total, passed=len(results))
                 await irminsul.snapshot_upsert(
                     scan_date, _result_to_snapshot(scan_date, scored), actor="岩神",
+                )
+            if i % 50 == 0 or i == total:
+                self._set_progress("scoring_rescore", i, total, passed=len(results))
+                logger.info(
+                    "[岩神·rescore] 评分进度 {}/{}，通过 {}", i, total, len(results),
                 )
 
         results.sort(key=lambda x: x['total_score'], reverse=True)
@@ -829,12 +972,18 @@ class ZhongliArchon(Archon):
             await irminsul.change_save(changes, actor="岩神")
 
         events = _aggregate_events(results, prev)
+        await self._persist_events(events, results, scan_date, irminsul)
+
+        # recommended 取 watchlist 子集（与 daily 对齐）
+        watchlist = await irminsul.watchlist_get()
+        watchlist_codes = {e.stock_code for e in watchlist}
+        recommended = [s for s in results if s['stock_data']['code'] in watchlist_codes]
 
         logger.info("[岩神·rescore] 完成 {} 只", len(results))
         return {
             'mode': 'rescore', 'scan_date': scan_date,
             'total_scanned': len(codes),
-            'stocks': results, 'recommended': results,
+            'stocks': results, 'recommended': recommended,
             'changes': changes,
             'events': events,
         }
@@ -1046,6 +1195,26 @@ class ZhongliArchon(Archon):
             "",
         ]
 
+        # --- 行业趋势：按行业取 TOP3 均值排序，列 Top5（先放概览之后）---
+        # 跳过 "未知"：脏数据不该出现在 Top5 行业里（污染均值排序）
+        by_industry: dict[str, list[float]] = {}
+        for s in stocks:
+            ind = (s.get('stock_data') or {}).get('industry') or ''
+            if not ind or ind == '未知':
+                continue
+            by_industry.setdefault(ind, []).append(s.get('total_score', 0))
+        industry_rank = [
+            (ind, sum(scores[:3]) / min(3, len(scores)), len(scores))
+            for ind, scores in by_industry.items() if scores
+        ]
+        industry_rank.sort(key=lambda x: x[1], reverse=True)
+        if industry_rank:
+            lines.append("## 🏭 行业趋势 · Top5 均值")
+            lines.append("")
+            for ind, avg, n in industry_rank[:5]:
+                lines.append(f"- **{ind}**：均值 {avg:.1f} 分（{n} 只）")
+            lines.append("")
+
         # --- P0 致命异常 ---
         if p0:
             lines.append(f"## 🚨 P0 致命异常（{len(p0)} 只）")
@@ -1105,23 +1274,6 @@ class ZhongliArchon(Archon):
                 lines.append(
                     f"- **{c.stock_name}（{c.stock_code}）** · {c.description}"
                 )
-            lines.append("")
-
-        # --- 行业趋势：按行业取 TOP3 均值排序，列 Top5 ---
-        by_industry: dict[str, list[float]] = {}
-        for s in stocks:
-            ind = (s.get('stock_data') or {}).get('industry') or '未知'
-            by_industry.setdefault(ind, []).append(s.get('total_score', 0))
-        industry_rank = [
-            (ind, sum(scores[:3]) / min(3, len(scores)), len(scores))
-            for ind, scores in by_industry.items() if scores
-        ]
-        industry_rank.sort(key=lambda x: x[1], reverse=True)
-        if industry_rank:
-            lines.append("## 🏭 行业趋势 · Top5 均值")
-            lines.append("")
-            for ind, avg, n in industry_rank[:5]:
-                lines.append(f"- **{ind}**：均值 {avg:.1f} 分（{n} 只）")
             lines.append("")
 
         # --- 尾部 ---

@@ -189,6 +189,40 @@ class ScoreSnapshotRepo:
             row = await cur.fetchone()
         return row[0] if row and row[0] else None
 
+    async def at_date(self, scan_date: str) -> list[ScoreSnapshot]:
+        """指定日期的所有 snapshots（无 limit、不排序）。
+
+        日更场景需要从最近一次全扫描的快照里拿候选池股票的 name / industry，
+        latest_top(n) 受 latest_date=今天 影响只能拿到 today 的 watchlist 21 只
+        会丢候选池里非 watchlist 那 ~330 只的元数据。
+        """
+        if not scan_date:
+            return []
+        async with self._db.execute(
+            f"SELECT {', '.join(_SNAPSHOT_COLS)} FROM dividend_snapshot "
+            "WHERE scan_date = ?",
+            (scan_date,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_snap(r) for r in rows]
+
+    async def codes_at_date(self, scan_date: str) -> list[str]:
+        """指定 scan_date 的所有 stock_code。
+
+        日更场景传入 watchlist.last_refresh（最近一次全扫描日期），拿到候选池
+        ~300 只 codes。不能传 latest_date —— latest_date 一般是今天（被 daily
+        刚写进去 21 只），会形成"日更只扫 21 只 → today snapshot 21 → 下次
+        日更只看到 21"的循环死锁。
+        """
+        if not scan_date:
+            return []
+        async with self._db.execute(
+            "SELECT stock_code FROM dividend_snapshot WHERE scan_date = ?",
+            (scan_date,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [r[0] for r in rows]
+
     async def latest_top(self, n: int = 100) -> list[ScoreSnapshot]:
         """取最新扫描日的 top n（按 total_score 降序）。"""
         d = await self.latest_date()
@@ -257,10 +291,20 @@ class ChangeEventRepo:
         self._db = db
 
     async def save(self, events: list[ChangeEvent], actor: str) -> int:
+        """同日幂等保存：(event_date, stock_code, event_type) 三元组唯一。
+
+        先 DELETE 相同三元组的旧记录再 INSERT，避免同日多次扫描（cron + 手动
+        触发日更/重评分）产生重复 changes 行（与 dividend_events 同日去重一致）。
+        """
         if not events:
             return 0
         now = time.time()
         for e in events:
+            await self._db.execute(
+                "DELETE FROM dividend_changes "
+                "WHERE event_date = ? AND stock_code = ? AND event_type = ?",
+                (e.event_date, e.stock_code, e.event_type),
+            )
             await self._db.execute(
                 "INSERT INTO dividend_changes "
                 "(event_date, stock_code, stock_name, event_type, "
@@ -273,7 +317,7 @@ class ChangeEventRepo:
             )
         await self._db.commit()
         logger.info(
-            "[世界树] {}·changes 入库 {} 条 date={}",
+            "[世界树] {}·changes 入库 {} 条 date={}（同日去重）",
             actor, len(events), events[0].event_date,
         )
         return len(events)

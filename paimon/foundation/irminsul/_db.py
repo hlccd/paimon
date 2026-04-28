@@ -198,6 +198,40 @@ CREATE TABLE IF NOT EXISTS dividend_changes (
 CREATE INDEX IF NOT EXISTS idx_changes_date ON dividend_changes(event_date DESC);
 CREATE INDEX IF NOT EXISTS idx_changes_code ON dividend_changes(stock_code, event_date DESC);
 
+-- ============ 域 8.5: 理财事件聚类（岩神 P0/P1/P2 事件化）============
+-- 跨扫描 merge 语义：同 stock_code+event_type 在 7 天内合并进 timeline，
+-- 超 7 天起新事件；本轮该股没命中此 type 但表里有 active → mark resolved。
+-- event_type 集合：st_risen / dividend_halt / score_crash / history_broken
+--                  / dividend_drop / score_decline / score_change
+CREATE TABLE IF NOT EXISTS dividend_events (
+    id              TEXT PRIMARY KEY,                  -- 12 位 hex
+    stock_code      TEXT NOT NULL,
+    stock_name      TEXT NOT NULL DEFAULT '',
+    industry        TEXT NOT NULL DEFAULT '',
+    severity        TEXT NOT NULL DEFAULT 'p2',        -- 'p0'|'p1'|'p2'
+    event_type      TEXT NOT NULL,
+    title           TEXT NOT NULL DEFAULT '',
+    summary         TEXT NOT NULL DEFAULT '',
+    timeline_json   TEXT NOT NULL DEFAULT '[]',        -- [{scan_date, severity, total_score, ...}]
+    first_seen_at   REAL NOT NULL,
+    last_seen_at    REAL NOT NULL,
+    last_pushed_at  REAL,
+    last_severity   TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'active',    -- 'active'|'resolved'|'aged_out'
+    occurrence_count INTEGER NOT NULL DEFAULT 1,
+    detail_json     TEXT NOT NULL DEFAULT '{}',
+    created_at      REAL NOT NULL,
+    updated_at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dividend_events_code
+    ON dividend_events(stock_code, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dividend_events_severity
+    ON dividend_events(severity, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dividend_events_status
+    ON dividend_events(status, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dividend_events_merge
+    ON dividend_events(stock_code, event_type, status, last_seen_at DESC);
+
 -- ============ 域 10: 定时任务（三月）============
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id TEXT PRIMARY KEY,

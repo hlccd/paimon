@@ -8,6 +8,7 @@
 from .audit import AuditEntry
 from .authz import Authz
 from .dividend import ChangeEvent, ScoreSnapshot, WatchlistEntry
+from .dividend_event import DividendEvent
 from .feed_event import FeedEvent, is_severity_upgrade
 from .irminsul import Irminsul
 from .push_archive import PushArchiveRecord
@@ -28,6 +29,7 @@ __all__ = [
     "TokenRow",
     "AuditEntry",
     "WatchlistEntry", "ScoreSnapshot", "ChangeEvent",
+    "DividendEvent",
     "SessionRecord", "SessionMeta",
     "ScheduledTask",
     "SelfcheckRun",

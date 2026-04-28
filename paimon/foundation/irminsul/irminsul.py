@@ -13,6 +13,7 @@ from ._db import init_db
 from .audit import AuditEntry, AuditRepo
 from .authz import Authz, AuthzRepo
 from .dividend import ChangeEvent, DividendRepo, ScoreSnapshot, WatchlistEntry
+from .dividend_event import DividendEvent, DividendEventRepo
 from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
@@ -52,6 +53,7 @@ class Irminsul:
         self._token: TokenRepo | None = None
         self._audit: AuditRepo | None = None
         self._dividend: DividendRepo | None = None
+        self._dividend_event: DividendEventRepo | None = None
         self._session: SessionRepo | None = None
         self._schedule: ScheduleRepo | None = None
         self._subscription: SubscriptionRepo | None = None
@@ -78,6 +80,7 @@ class Irminsul:
         self._token = TokenRepo(self._db)
         self._audit = AuditRepo(self._db)
         self._dividend = DividendRepo(self._db)
+        self._dividend_event = DividendEventRepo(self._db)
         self._session = SessionRepo(self._db)
         self._schedule = ScheduleRepo(self._db)
         self._subscription = SubscriptionRepo(self._db)
@@ -357,6 +360,14 @@ class Irminsul:
     async def snapshot_latest_top(self, n: int = 100) -> list[ScoreSnapshot]:
         return await self._dividend.snapshot.latest_top(n)
 
+    async def snapshot_codes_at_date(self, scan_date: str) -> list[str]:
+        """指定日期的所有 stock_code。日更传 watchlist_last_refresh 拿候选池。"""
+        return await self._dividend.snapshot.codes_at_date(scan_date)
+
+    async def snapshot_at_date(self, scan_date: str) -> list[ScoreSnapshot]:
+        """指定日期的所有完整 snapshot。日更用它拿候选池股票的 name / industry。"""
+        return await self._dividend.snapshot.at_date(scan_date)
+
     async def snapshot_latest_for_watchlist(self) -> list[ScoreSnapshot]:
         return await self._dividend.snapshot.latest_for_watchlist()
 
@@ -382,6 +393,57 @@ class Irminsul:
     # -- 生命周期 --
     async def dividend_cleanup(self, keep_days: int = 180, *, actor: str) -> dict:
         return await self._dividend.cleanup(keep_days, actor=actor)
+
+    # ============ 域 8.5: 理财事件聚类 ============
+
+    async def dividend_event_upsert(
+        self, *, stock_code: str, event_type: str,
+        severity: str, stock_name: str, industry: str,
+        title: str, summary: str,
+        timeline_entry: dict,
+        detail: dict | None = None,
+        actor: str = "岩神",
+    ) -> tuple[str, bool]:
+        return await self._dividend_event.upsert(
+            stock_code=stock_code, event_type=event_type,
+            severity=severity, stock_name=stock_name, industry=industry,
+            title=title, summary=summary,
+            timeline_entry=timeline_entry, detail=detail, actor=actor,
+        )
+
+    async def dividend_event_mark_resolved(
+        self, stock_code: str, *,
+        exclude_types: set[str] | None = None,
+        actor: str = "岩神",
+    ) -> int:
+        return await self._dividend_event.mark_resolved(
+            stock_code, exclude_types=exclude_types, actor=actor,
+        )
+
+    async def dividend_event_list(
+        self, *, severity: str | None = None,
+        status: str | None = "active",
+        stock_code: str | None = None,
+        days: int | None = None,
+        limit: int = 200,
+    ) -> list[DividendEvent]:
+        return await self._dividend_event.list(
+            severity=severity, status=status, stock_code=stock_code,
+            days=days, limit=limit,
+        )
+
+    async def dividend_event_count_by_severity(
+        self, *, days: int | None = None, status: str | None = "active",
+    ) -> dict[str, int]:
+        return await self._dividend_event.count_by_severity(days=days, status=status)
+
+    async def dividend_event_get(self, event_id: str) -> DividendEvent | None:
+        return await self._dividend_event.get(event_id)
+
+    async def dividend_event_cleanup(
+        self, keep_days: int = 180, *, actor: str,
+    ) -> int:
+        return await self._dividend_event.cleanup_before(keep_days, actor=actor)
 
     # ============ 域 9: 会话 ============
     async def session_upsert(self, rec: SessionRecord, *, actor: str) -> None:
