@@ -581,6 +581,16 @@ CHAT_HTML = (
                                 } else if (data.type === 'done') {
                                     isWaitingResponse = false;
                                     updateStatus('就绪');
+                                    // 防御：若整个请求期间都没收到 message 事件（极端情况，
+                                    // 如四影 prepare 失败 + reply_text 为空，或服务端异常），
+                                    // typing 占位气泡从未被正文替换 → 移除避免底部残留空动画。
+                                    if (typingMsg && !fullResponse) {
+                                        const contentEl = typingMsg.querySelector('.message-content');
+                                        if (contentEl && contentEl.querySelector('.typing-indicator')) {
+                                            typingMsg.remove();
+                                            typingMsg = null;
+                                        }
+                                    }
                                     loadSessions();
                                     scrollToBottom();
                                 } else if (data.type === 'error') {

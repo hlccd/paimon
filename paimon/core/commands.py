@@ -348,8 +348,21 @@ async def cmd_task(ctx: CommandContext) -> str:
         text=ctx.args,
         _reply=ctx.msg._reply,
     )
+    # 入口立即 persist user 占位：让任务跑期间切 tab/刷新能看到自己发的 /task 指令。
+    # 外层 on_channel_message:155 的 _persist_turn(msg.text, final) 走 case 2 补 assistant。
+    # 不经 _persist_turn 抽象层直接操作 session —— 保证 append + save 一定生效且
+    # 日志里能直接看到"入口 persist user"凭证（否则任务跑几分钟后才知道到底有没有生效）。
+    session.messages.append({"role": "user", "content": ctx.msg.text})
+    await session_mgr.save_session_async(session)
+    logger.info(
+        "[派蒙·四影·入口 persist] task_user={!r} (session={} msgs={})",
+        ctx.msg.text[:60], session.id[:8], len(session.messages),
+    )
     from paimon.core.chat import enter_shades_pipeline_background
-    return await enter_shades_pipeline_background(task_msg, ctx.channel, session)
+    return await enter_shades_pipeline_background(
+        task_msg, ctx.channel, session,
+        persist_user_text=ctx.msg.text,
+    )
 
 
 @command("skills")

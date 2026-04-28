@@ -337,11 +337,9 @@ class ShadesPipeline:
             await self._notify_progress(
                 f"{head} task={task.id[:8]} 完成（rounds={round_idx}）\n\n{final[:3500]}"
             )
-            # done_recap：原会话 notice 气泡（渠道自决：Web SSE 若活跃则收到；QQ 窗口外丢）
-            await self._notice(
-                f"{head} 完成（共 {round_idx} 轮）\n\n{final[:3500]}",
-                kind="done_recap",
-            )
+            # 注意：final 不在此发 done_recap notice —— 最终产物应作为正文气泡呈现（marked
+            # 渲染），不是浅灰小字 notice。由上层（core/chat.py）拿到 return 的 final 后
+            # 走 reply.send + flush，WebUI 前端把 typing 占位替换为正文气泡。
             return final
 
         except Exception as e:
@@ -368,11 +366,8 @@ class ShadesPipeline:
             await self._notify_progress(
                 f"💥 task={task.id[:8]} 管线异常: {str(e)[:200]}"
             )
-            await self._notice(
-                f"💥 失败：{str(e)[:500]}",
-                kind="done_recap",
-            )
-            return f"任务执行失败: {e}"
+            # 同成功路径：失败说明也交给上层走正文，不在这里发 notice
+            return f"💥 任务执行失败：{e}"
 
     async def run(
         self,

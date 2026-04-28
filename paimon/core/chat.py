@@ -42,10 +42,15 @@ async def _persist_turn(
 ) -> None:
     """把一回合 (user + assistant) append 到当前绑定会话并落盘。
 
-    - 推送会话只读，跳过
-    - 最后两条已匹配 → 去重跳过（避免 enter_shades_pipeline_background / run_session_chat 等
-      内部已 append 后此处再重复）
-    - user_text 空白 → 不记
+    三种情形：
+    1. 最后两条已是同 (user, assistant) 对 → 完整去重跳过
+    2. 最后一条已是同 user（入口已先 persist user 占位，现在补 assistant）
+       → 只 append assistant，避免 user 重复
+    3. 其他 → 常规 append user + assistant（reply_text 空时只 append user）
+
+    四影流式路径下：
+    - 入口 `_persist_turn(channel_key, text, "")` 立即存 user（让切 tab 回来能看到）
+    - 任务完成后 `_persist_turn(channel_key, text, final)` 走 case 2 补 assistant
     """
     if not state.session_mgr or not user_text or not user_text.strip():
         return
@@ -57,15 +62,32 @@ async def _persist_turn(
     if not sess or sess.id == _PUSH_ID:
         return
     msgs = sess.messages
-    already = (
+
+    # case 1: 完整一对已存
+    if (
         len(msgs) >= 2
         and msgs[-2].get("role") == "user"
         and (msgs[-2].get("content") or "") == user_text
         and msgs[-1].get("role") == "assistant"
         and (msgs[-1].get("content") or "") == reply_text
-    )
-    if already:
+    ):
         return
+
+    # case 2: user 已存但缺 assistant（入口占位 + 任务完成后补）
+    if (
+        msgs
+        and msgs[-1].get("role") == "user"
+        and (msgs[-1].get("content") or "") == user_text
+    ):
+        if reply_text:
+            sess.messages.append({"role": "assistant", "content": reply_text})
+            try:
+                await state.session_mgr.save_session_async(sess)
+            except Exception as e:
+                logger.debug("[派蒙·落盘] save 失败: {}", e)
+        return
+
+    # case 3: 常规 append
     sess.messages.append({"role": "user", "content": user_text})
     if reply_text:
         sess.messages.append({"role": "assistant", "content": reply_text})
@@ -168,12 +190,29 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
     if intent.kind == "complex":
         # ack 由 pipeline.prepare 内部发（那时已有 LLM 短标题，更可读）
         reply = await channel.make_reply(msg)
+        # 关键：任务开始前立即 persist user 占位，让任务跑几分钟期间用户切 tab 回来
+        # 点会话能看到自己发过的问题（否则 shield(execute) 卡住整条 await，user 都
+        # 要等任务完成才落盘）。直接 append + save 不经 _persist_turn 抽象层，
+        # 保证一定生效 + 日志可见。任务完成后下面 _persist_turn 走 case 2 补 assistant。
+        session.messages.append({"role": "user", "content": msg.text})
+        await session_mgr.save_session_async(session)
+        logger.info(
+            "[派蒙·四影·入口 persist] complex_user={!r} (session={} msgs={})",
+            msg.text[:60], session.id[:8], len(session.messages),
+        )
         hint = await enter_shades_pipeline_background(msg, channel, session)
-        try:
-            await reply.send(hint)
-            await reply.flush()   # QQ 批次渠道需要 flush 才发；Web 的 flush 是 no-op
-        except Exception:
-            pass
+        # hint 为空串（QQ 批次路径，final 已在 _bg 内部 reply.send 过）时跳过外层 send，
+        # 避免发 SSE 空 message frame 把前端 typing 占位替换为空气泡。
+        if hint:
+            try:
+                await reply.send(hint)
+                await reply.flush()
+            except Exception:
+                pass
+        # persist 统一由外层做：/task 命令路径走 dispatch_command 分支自带 _persist_turn；
+        # complex intent 分支（非命令）之前漏了，这里补一次。hint 为空也要存 user 一侧
+        # 让 LLM 下轮至少知道"上一轮用户发起了四影任务"。
+        await _persist_turn(msg.channel_key, msg.text, hint)
     elif intent.kind == "skill":
         reply = await channel.make_reply(msg)
         sk = state.skill_registry.get(intent.skill_name) if state.skill_registry else None
@@ -195,19 +234,30 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
 async def enter_shades_pipeline_background(
     msg: IncomingMessage, channel: Channel, session: Session,
     *, escalation_reason: str | None = None,
+    persist_user_text: str | None = None,
 ) -> str:
-    """前台同步跑 prepare（入口审 + round-1 plan + 批量授权），成功后后台跑 execute。
+    """前台同步跑 prepare（入口审 + round-1 plan + 批量授权），execute 按渠道分流。
 
     - prepare 必须在 SSE 活跃时跑（ask_user 要问用户）
-    - execute 耗时长，放 asyncio.create_task 后台，SSE 关了也不影响
-    - execute 期间进度/summary 走 `march.ring_event → 📨 推送`
+    - execute 分流：
+        * 流式渠道（WebUI SSE）：asyncio.shield 同步等到完成，final 作为正文返回
+          给上层 reply.send，前端把 typing 占位替换为正文气泡。SSE 断开时
+          CancelledError 不穿透打断 execute。
+        * 批次渠道（QQ）：create_task 后台跑，final 在 _bg 里 reply.send+flush 送达。
+    - persist 职责分两阶段：
+        1) 入口由外层 caller 立即 `_persist_turn(user, "")` 存 user 占位（让任务
+           跑期间用户切 tab/刷新能看到自己发的问题）
+        2) 任务完成后外层再 `_persist_turn(user, final)` 走 case 2 补 assistant
+    - `persist_user_text` 用于 SSE 断开后台 finalize 的 case 2 persist —— 必须
+      和入口 persist 的一致。/task 命令路径下 msg.text=ctx.args（不含前缀），
+      外层入口用 ctx.msg.text（含 /task 前缀），两者不一致，所以需要透传。
+      None 时默认 msg.text。
     """
     channel_name = msg.channel_name
     chat_id = msg.chat_id
     text = msg.text
+    finalize_user_text = persist_user_text if persist_user_text is not None else text
 
-    # 给 pipeline 传 reply，使 prepare/execute 的关键阶段能在原会话推 notice
-    # （execute 后台跑时 SSE 可能已断，notice 会失败静默 —— 符合 degrade 语义）
     reply_for_notice = await channel.make_reply(msg)
 
     from paimon.shades.pipeline import ShadesPipeline
@@ -223,21 +273,15 @@ async def enter_shades_pipeline_background(
         text, session_id=session.id, escalation_reason=escalation_reason,
     )
     if not prep.ok:
-        # 准备阶段就失败（死执拒/授权全拒/异常）→ 直接回字，不进后台
-        await _persist_turn(msg.channel_key, text, prep.msg)
+        # 准备阶段失败（死执拒/授权全拒/异常）→ 回一段字给外层做正文送达 + persist
         return prep.msg
 
     task_id = prep.task.id
     plan = prep.plan
     assert plan is not None  # ok=True 保证
 
-    async def _bg():
-        try:
-            await pipeline.execute(prep.task, plan, session_id=session.id)
-        except Exception as e:
-            logger.exception("[派蒙·四影 bg] execute 失败: {}", e)
-
-        # 推 summary（无论成败，有 workspace 就推）
+    async def _push_summary() -> None:
+        """execute 完成后推 workspace summary.md 到 📨 推送（有就推，两渠道都保留）。"""
         try:
             from paimon.foundation.task_workspace import (
                 get_workspace_path, workspace_exists,
@@ -250,17 +294,89 @@ async def enter_shades_pipeline_background(
                         source="四影", message=summary.read_text(encoding="utf-8")[:4000],
                     )
         except Exception as e:
-            logger.warning("[派蒙·四影 bg] 推 summary 失败: {}", e)
+            logger.warning("[派蒙·四影] 推 summary 失败: {}", e)
 
-    asyncio.create_task(_bg())
-    # hint 瘦身：notice 的 🚀 milestone 已经列了全部子任务 + 查询提示，
-    # 这里只留 task id 识别符 + 一句补充说明，避免信息重复。
-    hint = (
-        f"✅ task={task_id[:8]} 后台执行中\n"
-        "完成后「📨 推送」会收到摘要。"
-    )
-    await _persist_turn(msg.channel_key, text, hint)
-    return hint
+    def _track_bg_task(t: asyncio.Task) -> None:
+        """fire-and-forget task 挂全局 set 防 GC；done 时自己 discard。"""
+        state.pending_bg_tasks.add(t)
+        t.add_done_callback(state.pending_bg_tasks.discard)
+
+    if reply_for_notice.streaming:
+        # 流式渠道：同步等 execute，拿 final 交给外层走正文。
+        # shield 保护 execute —— SSE 断（用户刷新/关页）时 CancelledError 不穿透，
+        # execute 继续后台跑完归档，不会把任务卡在 status=running 直到 stuck_timeout。
+        logger.info(
+            "[派蒙·四影] streaming 渠道 {} 同步等 execute task={}",
+            channel_name, task_id[:8],
+        )
+        execute_task = asyncio.create_task(
+            pipeline.execute(prep.task, plan, session_id=session.id)
+        )
+
+        async def _finalize_after_disconnect() -> None:
+            """SSE 断开时的后台收尾：等 execute 归档 + 推 📨 summary + 补 persist assistant。
+
+            用户可能几分钟后回来点会话；user 已在入口由外层 persist 过（占位），
+            这里补 assistant 让历史完整（_persist_turn 走 case 2 只补 assistant）。
+            persist 必须用 `finalize_user_text`（外层入口 persist 时用的同款 text）,
+            否则 case 2 匹配不上会再 append 一对，变成 4 msgs。
+            """
+            final = ""
+            try:
+                final = await execute_task
+            except Exception as e:
+                logger.exception(
+                    "[派蒙·四影] execute 异常（断连后台）task={}: {}", task_id, e,
+                )
+                final = f"💥 任务异常：{e}"
+            await _push_summary()
+            await _persist_turn(
+                msg.channel_key, finalize_user_text,
+                (final or "(无产物)")[:5000],
+            )
+
+        final_result = ""
+        try:
+            final_result = await asyncio.shield(execute_task)
+        except asyncio.CancelledError:
+            logger.info(
+                "[派蒙·四影] SSE 断开 task={}，execute 继续后台完成", task_id[:8],
+            )
+            _track_bg_task(asyncio.create_task(_finalize_after_disconnect()))
+            raise
+        except Exception as e:
+            logger.exception("[派蒙·四影] execute 异常 task={}: {}", task_id, e)
+            final_result = f"💥 任务异常：{e}"
+
+        await _push_summary()
+        # final 作为正文返回 —— 外层 reply.send(final) 会触发 SSE data.type=message，
+        # 前端 fullResponse += final + marked.parse 把 typing 气泡替换为正文气泡。
+        return (final_result or "(无产物)")[:5000]
+
+    # 批次渠道（QQ）：后台跑，final 在 _bg 里通过 reply.send + flush 送达 + persist assistant。
+    async def _bg() -> None:
+        final = ""
+        try:
+            final = await pipeline.execute(prep.task, plan, session_id=session.id)
+        except Exception as e:
+            logger.exception("[派蒙·四影 bg] execute 失败: {}", e)
+            final = f"💥 任务异常：{e}"
+        await _push_summary()
+        if final:
+            try:
+                await reply_for_notice.send(final[:5000])
+                await reply_for_notice.flush()
+            except Exception as e:
+                logger.debug("[派蒙·四影 bg] 推 final 失败（可能窗口已关）: {}", e)
+        # persist assistant 让 LLM 下轮能看到上轮产出（case 2 命中：user 已在入口占位）。
+        await _persist_turn(
+            msg.channel_key, finalize_user_text,
+            (final or "(无产物)")[:5000],
+        )
+
+    _track_bg_task(asyncio.create_task(_bg()))
+    # QQ 路径 return 空串，外层不再 reply.send 正文 hint（信息已在 🚀 milestone 里）。
+    return ""
 
 
 async def run_session_chat(
