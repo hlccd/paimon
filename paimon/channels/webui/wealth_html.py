@@ -172,18 +172,23 @@ WEALTH_BODY = """
 
         <div id="digest" class="digest-section" style="margin-top:0">
             <div class="ds-head">
-                <h2>📨 岩神 · 推送公告 <span id="zhongliBulletinHint" style="font-size:12px;color:var(--text-muted);font-weight:normal;margin-left:8px"></span></h2>
+                <h2>📨 岩神 · 理财日报 <span id="zhongliBulletinHint" style="font-size:12px;color:var(--text-muted);font-weight:normal;margin-left:8px"></span></h2>
                 <div class="ds-tools">
+                    <button onclick="window.zhongliDayShift(-1)" title="前一天">←</button>
+                    <input type="date" id="zhongliDateInput" onchange="window.zhongliDateChange()" />
+                    <button onclick="window.zhongliDayShift(1)" title="后一天">→</button>
+                    <button onclick="window.zhongliJumpToday()" title="跳到今天">今天</button>
                     <button onclick="window.markAllZhongliRead()">全部已读</button>
                 </div>
             </div>
             <div class="digest-scroll">
+                <div id="zhongliRunningBar" style="display:none"></div>
                 <div id="zhongliBulletins">
                     <div class="digest-bulletins-empty">加载中...</div>
                 </div>
                 <div class="digest-history-toggle">
                     <button onclick="window.toggleZhongliHistory()" id="zhongliHistoryToggleBtn">
-                        📜 查看更多历史 ↓
+                        🔍 搜索历史 ↓
                     </button>
                 </div>
                 <div id="zhongliHistoryWrap" style="display:none;margin-top:12px">
@@ -199,7 +204,7 @@ WEALTH_BODY = """
         <div class="stats-row">
             <div class="stat-card"><div class="stat-num" id="statWatchlist">-</div><div class="stat-label">推荐股池</div></div>
             <div class="stat-card"><div class="stat-num" id="statLatest">-</div><div class="stat-label">最新扫描</div></div>
-            <div class="stat-card"><div class="stat-num" id="statChanges">-</div><div class="stat-label">近 7 天变化</div></div>
+            <div class="stat-card"><div class="stat-num" id="statP0P1" style="color:var(--status-warning)">-</div><div class="stat-label">近 7 天 P0+P1</div></div>
             <div class="stat-card"><div class="stat-num" id="statCronStatus">-</div><div class="stat-label">定时任务</div></div>
         </div>
 
@@ -280,49 +285,137 @@ WEALTH_SCRIPT = """
             return mm+'-'+dd+' '+hh+':'+mi;
         }
         var _zhongliDigestSearch = '';
-        var _zhongliBulletinLimit = 3;
         var _zhongliHistoryShown = false;
 
+        function _todayStr(){
+            var d = new Date();
+            return d.getFullYear() + '-'
+                + String(d.getMonth()+1).padStart(2,'0') + '-'
+                + String(d.getDate()).padStart(2,'0');
+        }
+        function _dayBounds(dateStr){
+            var p = (dateStr||'').split('-');
+            if(p.length !== 3) return null;
+            var since = new Date(+p[0], +p[1]-1, +p[2], 0, 0, 0).getTime() / 1000;
+            return { since: since, until: since + 86400 };
+        }
+        function _shiftDate(dateStr, delta){
+            var p = (dateStr||_todayStr()).split('-');
+            var d = new Date(+p[0], +p[1]-1, +p[2], 0, 0, 0);
+            d.setDate(d.getDate() + delta);
+            return d.getFullYear() + '-'
+                + String(d.getMonth()+1).padStart(2,'0') + '-'
+                + String(d.getDate()).padStart(2,'0');
+        }
+        function _currentDate(){
+            var inp = document.getElementById('zhongliDateInput');
+            return (inp && inp.value) || _todayStr();
+        }
+
+        var _zhongliBulletinsPollTimer = null;
         async function loadZhongliBulletins(){
-            // 顶部公告区：最近 N 条 digest 直接展开式渲染
+            // 公告区：渲染当前选中日期的所有日报（对齐风神 sentiment 形态）
             var el = document.getElementById('zhongliBulletins');
+            var runBar = document.getElementById('zhongliRunningBar');
             if(!el) return;
+            var dateStr = _currentDate();
+            var b = _dayBounds(dateStr);
+            if(!b){
+                el.innerHTML = '<div class="digest-bulletins-empty">日期格式错误</div>';
+                return;
+            }
+            var isToday = dateStr === _todayStr();
             try{
-                var qs = 'actor=' + encodeURIComponent('岩神') + '&limit=' + _zhongliBulletinLimit;
-                var r = await fetch('/api/push_archive/list?' + qs);
-                var d = await r.json();
+                var qs = 'actor=' + encodeURIComponent('岩神')
+                    + '&since=' + b.since + '&until=' + b.until + '&limit=50';
+                // 并行拉公告 + 采集 running 状态（只在查看今天时有意义）
+                var reqs = [fetch('/api/push_archive/list?' + qs).then(function(r){return r.json();})];
+                if(isToday){
+                    reqs.push(fetch('/api/wealth/running').then(function(r){return r.json();}).catch(function(){return {running:false};}));
+                }
+                var results = await Promise.all(reqs);
+                var d = results[0];
+                var runResp = results[1] || {running: false};
                 var records = d.records || [];
+                var running = !!runResp.running;
+
+                // 顶部采集状态条
+                if(runBar){
+                    if(running){
+                        runBar.innerHTML = '<span class="dot"></span><span>岩神正在采集红利股数据…</span>';
+                        runBar.className = 'digest-running-bar';
+                        runBar.style.display = '';
+                    }else{
+                        runBar.style.display = 'none';
+                        runBar.innerHTML = '';
+                    }
+                }
+
                 var hint = document.getElementById('zhongliBulletinHint');
                 if(!records.length){
-                    el.innerHTML = '<div class="digest-bulletins-empty">暂无岩神推送<br><small>开启定时（cron_on）或手动触发 trigger_daily / trigger_full 后会出现</small></div>';
-                    if(hint) hint.textContent = '';
-                    return;
+                    var tip;
+                    if(running){
+                        tip = '采集中，请稍候…<br><small>完成后这里会自动展开当日日报</small>';
+                    }else{
+                        tip = isToday
+                            ? '今天还没有日报<br><small>定时任务会在 19:00 / 月初 21:00 生成，也可点顶部"日更/全扫描"按钮手动触发</small>'
+                            : '该日无日报<br><small>用 ← / → 切换其它日期</small>';
+                    }
+                    el.innerHTML = '<div class="digest-bulletins-empty">' + tip + '</div>';
+                    if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'');
+                }else{
+                    var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
+                    if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'')
+                        + ' · ' + records.length + ' 篇'
+                        + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
+                    el.innerHTML = records.map(function(rec){
+                        var unread = rec.read_at == null;
+                        var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
+                        var dot = unread ? '<span class="db-unread-dot" title="未读"></span>' : '';
+                        var markBtn = unread
+                            ? '<button class="db-mark-read" onclick="event.stopPropagation();window.markZhongliBulletinRead(\\''+_esc(rec.id)+'\\')">标记已读</button>'
+                            : '';
+                        var runningChip = (running && isToday)
+                            ? '<span class="db-running">采集中</span>' : '';
+                        return '<div class="' + cls + '" data-id="' + _esc(rec.id) + '">'
+                            + '<div class="db-head">'
+                            + '<div class="db-head-left">'
+                            + dot
+                            + '<span class="db-source">' + _esc(rec.source) + '</span>'
+                            + runningChip
+                            + '<span class="db-time">' + _fmtTime(rec.created_at) + '</span>'
+                            + '</div>'
+                            + markBtn
+                            + '</div>'
+                            + '<div class="db-body md-body">' + (window.renderMarkdown ? window.renderMarkdown(rec.message_md || '') : _esc(rec.message_md || '')) + '</div>'
+                            + '</div>';
+                    }).join('');
                 }
-                var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
-                if(hint) hint.textContent = '· 最近 ' + records.length + ' 条' + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
-                el.innerHTML = records.map(function(rec){
-                    var unread = rec.read_at == null;
-                    var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
-                    var dot = unread ? '<span class="db-unread-dot" title="未读"></span>' : '';
-                    var markBtn = unread
-                        ? '<button class="db-mark-read" onclick="event.stopPropagation();window.markZhongliBulletinRead(\'' + _esc(rec.id) + '\')">标记已读</button>'
-                        : '';
-                    return '<div class="' + cls + '" data-id="' + _esc(rec.id) + '">'
-                        + '<div class="db-head">'
-                        + '<div class="db-head-left">'
-                        + dot
-                        + '<span class="db-source">' + _esc(rec.source) + '</span>'
-                        + '<span class="db-time">' + _fmtTime(rec.created_at) + '</span>'
-                        + '</div>'
-                        + markBtn
-                        + '</div>'
-                        + '<div class="db-body md-body">' + (window.renderMarkdown ? window.renderMarkdown(rec.message_md || '') : _esc(rec.message_md || '')) + '</div>'
-                        + '</div>';
-                }).join('');
+
+                // running 时 2s 后自动再刷（采集完成时自然出现日报）
+                if(_zhongliBulletinsPollTimer){ clearTimeout(_zhongliBulletinsPollTimer); _zhongliBulletinsPollTimer = null; }
+                if(running){
+                    _zhongliBulletinsPollTimer = setTimeout(loadZhongliBulletins, 2000);
+                }
             }catch(e){
                 el.innerHTML = '<div class="digest-bulletins-empty">加载失败: ' + _esc(String(e)) + '</div>';
             }
         }
+        window.zhongliDayShift = function(delta){
+            var inp = document.getElementById('zhongliDateInput');
+            if(!inp) return;
+            inp.value = _shiftDate(inp.value || _todayStr(), delta);
+            loadZhongliBulletins();
+        };
+        window.zhongliDateChange = function(){
+            loadZhongliBulletins();
+        };
+        window.zhongliJumpToday = function(){
+            var inp = document.getElementById('zhongliDateInput');
+            if(!inp) return;
+            inp.value = _todayStr();
+            loadZhongliBulletins();
+        };
         window.markZhongliBulletinRead = async function(id){
             try{
                 await fetch('/api/push_archive/' + encodeURIComponent(id) + '/read', {method: 'POST'});
@@ -422,7 +515,10 @@ WEALTH_SCRIPT = """
                 var r=await fetch('/api/wealth/stats'); var d=await r.json();
                 document.getElementById('statWatchlist').textContent=d.watchlist_count||0;
                 document.getElementById('statLatest').textContent=d.latest_scan_date||'-';
-                document.getElementById('statChanges').textContent=d.changes_7d||0;
+                var p0 = d.p0_count_7d||0, p1 = d.p1_count_7d||0;
+                var p0p1El = document.getElementById('statP0P1');
+                p0p1El.textContent = (p0 + p1) > 0 ? (p0 + '/' + p1) : '0';
+                p0p1El.style.color = p0 > 0 ? 'var(--status-error)' : (p1 > 0 ? 'var(--status-warning)' : 'var(--text-muted)');
                 document.getElementById('statCronStatus').textContent=d.cron_enabled?'已启用':'未启用';
             }catch(e){}
         }
@@ -617,7 +713,11 @@ WEALTH_SCRIPT = """
             }
         };
 
-        window.onload=function(){ refreshAll(); };
+        window.onload=function(){
+            var inp = document.getElementById('zhongliDateInput');
+            if(inp && !inp.value) inp.value = _todayStr();
+            refreshAll();
+        };
     })();
     </script>
 """

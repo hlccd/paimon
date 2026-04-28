@@ -258,6 +258,116 @@ def _result_to_snapshot(scan_date: str, result: dict) -> ScoreSnapshot:
     )
 
 
+# ============================================================
+# 事件分级（A1：规则驱动日报的基础）
+# ============================================================
+# 按严重度分四档，规则判定（无 LLM）：
+#   p0 致命：停分红 / 新 ST / 评分暴跌 >=20 / 分红历史断档
+#   p1 警示：股息率骤跌 >=30% / 评分下滑 10-20
+#   p2 提醒：评分小幅变化 5-10 / 新入选 / 退出 top30
+#   p3 噪音：仅微调，不进日报
+# 输出给 _compose_daily_digest 拼 markdown；同一股一轮只出一个最严重事件。
+
+def _classify_event_severity(
+    stock_data: dict,
+    cur_score: float,
+    prev_snap: ScoreSnapshot | None,
+) -> tuple[str, str, str] | None:
+    """判定单只股票本轮最严重的事件。返回 (severity, kind, reason) 或 None（无事件）。
+
+    stock_data: 来自 scan_result 的 stock_data dict（含 dividend_yield / is_st / history_count）
+    cur_score: 本次 total_score
+    prev_snap: 上次快照（None 表示无历史，跳过对比类事件）
+    """
+    cur_dy = stock_data.get('dividend_yield', 0) or 0
+    cur_is_st = stock_data.get('is_st', 0) or 0
+    cur_history = stock_data.get('history_count', 0) or 0
+
+    if prev_snap is None:
+        return None  # 首次出现，交给 _detect_changes 的 entered 事件处理
+
+    prev_dy = prev_snap.dividend_yield or 0
+    prev_score = prev_snap.total_score or 0
+    prev_detail = prev_snap.detail or {}
+    prev_is_st = prev_detail.get('is_st', 0) or 0
+    prev_history = prev_detail.get('history_count', 0) or 0
+
+    score_drop = prev_score - cur_score  # 正数 = 下跌
+
+    # --- P0 致命 ---
+    if cur_is_st and not prev_is_st:
+        return ('p0', 'st_risen', f'股票被标 ST（上次未标）')
+    if prev_dy > 0.01 and cur_dy <= 0.001:
+        return ('p0', 'dividend_halt',
+                f'股息率跌至 {cur_dy * 100:.2f}%（上次 {prev_dy * 100:.2f}%），疑似停分红')
+    if score_drop >= 20:
+        return ('p0', 'score_crash',
+                f'评分暴跌 {score_drop:.1f} 分（{prev_score:.1f} → {cur_score:.1f}）')
+    if prev_history >= MIN_HISTORY_COUNT and cur_history < MIN_HISTORY_COUNT:
+        return ('p0', 'history_broken',
+                f'连续分红年数跌破 {MIN_HISTORY_COUNT} 年（{prev_history} → {cur_history}）')
+
+    # --- P1 警示 ---
+    if prev_dy > 0.01 and (prev_dy - cur_dy) / prev_dy >= 0.3:
+        drop_pct = (prev_dy - cur_dy) / prev_dy * 100
+        return ('p1', 'dividend_drop',
+                f'股息率骤跌 {drop_pct:.0f}%（{prev_dy * 100:.2f}% → {cur_dy * 100:.2f}%）')
+    if score_drop >= 10:
+        return ('p1', 'score_decline',
+                f'评分下滑 {score_drop:.1f} 分（{prev_score:.1f} → {cur_score:.1f}）')
+
+    # --- P2 普通变化 ---
+    if abs(prev_score - cur_score) >= 5:
+        diff = cur_score - prev_score
+        return ('p2', 'score_change',
+                f'评分变化 {diff:+.1f}（{prev_score:.1f} → {cur_score:.1f}）')
+
+    return None  # P3：无需进日报
+
+
+def _aggregate_events(
+    current: list[dict],
+    prev_snapshots: list[ScoreSnapshot],
+) -> dict[str, list[dict]]:
+    """为每只股票判事件，按 severity 分组。
+
+    返回 {'p0': [...], 'p1': [...], 'p2': [...]}，每个 item:
+    {stock_code, stock_name, industry, kind, reason, total_score, dividend_yield}
+    """
+    prev_map = {s.stock_code: s for s in (prev_snapshots or [])}
+    grouped: dict[str, list[dict]] = {'p0': [], 'p1': [], 'p2': []}
+
+    for s in current:
+        sd = s.get('stock_data') or {}
+        code = sd.get('code', '')
+        if not code:
+            continue
+        prev = prev_map.get(code)
+        verdict = _classify_event_severity(sd, s.get('total_score', 0), prev)
+        if verdict is None:
+            continue
+        severity, kind, reason = verdict
+        grouped[severity].append({
+            'stock_code': code,
+            'stock_name': sd.get('name', ''),
+            'industry': sd.get('industry', ''),
+            'severity': severity,
+            'kind': kind,
+            'reason': reason,
+            'total_score': s.get('total_score', 0),
+            'dividend_yield': sd.get('dividend_yield', 0),
+            'prev_score': (prev.total_score if prev else 0),
+        })
+
+    # 每档内按 |score_drop| 排序，严重的在前
+    for sev in grouped:
+        grouped[sev].sort(
+            key=lambda x: abs(x['prev_score'] - x['total_score']),
+            reverse=True,
+        )
+    return grouped
+
+
 def _detect_changes(
     current: list[dict],
     prev_snapshots: list[ScoreSnapshot],
@@ -373,17 +483,32 @@ class ZhongliArchon(Archon):
         irminsul: Irminsul,
         march: "MarchService",
         chat_id: str = "", channel_name: str = "",
+        industries_filter: set[str] | None = None,
     ) -> None:
-        """采集入口。mode ∈ 'full' / 'daily' / 'rescore'。"""
-        if mode not in ("full", "daily", "rescore"):
+        """采集入口。mode ∈ 'full' / 'daily' / 'rescore' / 'sample'。
+
+        industries_filter 仅对 full/sample 生效，限定行业白名单（daily/rescore 只扫 watchlist）。
+        sample = 加了行业过滤的 full，产物等价但规模小。
+        """
+        if mode not in ("full", "daily", "rescore", "sample"):
             logger.error("[岩神·采集] 未知 mode: {}", mode)
             return
 
         async with self._scan_lock:
-            logger.info("[岩神·采集] 开始 mode={}", mode)
+            logger.info(
+                "[岩神·采集] 开始 mode={} industries_filter={}",
+                mode, sorted(industries_filter) if industries_filter else "全市场",
+            )
             try:
                 if mode == "full":
-                    result = await self._full_scan(irminsul)
+                    result = await self._full_scan(irminsul, industries_filter=industries_filter)
+                elif mode == "sample":
+                    # sample = 行业限定的 full_scan
+                    if industries_filter is None:
+                        industries_filter = {"银行", "保险"}
+                    result = await self._full_scan(irminsul, industries_filter=industries_filter)
+                    # 把 mode 字段改回 "sample" 让日报头部文案对
+                    result["mode"] = "sample"
                 elif mode == "daily":
                     result = await self._daily_update(irminsul)
                 else:
@@ -396,29 +521,45 @@ class ZhongliArchon(Archon):
                 logger.info("[岩神·采集] 完成（无新数据） mode={}", mode)
                 return
 
-            # 推送
+            # 推送日报（digest · markdown）—— source="岩神·理财日报" 与旧 snapshot 推送区分
+            # extra 塞 {p0_count, p1_count, ...} 供 /api/wealth/stats 查近 7 天统计
             if channel_name and chat_id:
                 try:
-                    message = self._format_push_message(mode, result)
+                    events = result.get('events') or {'p0': [], 'p1': [], 'p2': []}
+                    digest_md, meta = self._compose_daily_digest(mode, result, events)
                     await march.ring_event(
                         channel_name=channel_name, chat_id=chat_id,
-                        source="岩神", message=message,
+                        source="岩神·理财日报", message=digest_md,
+                        extra=meta,
                     )
                 except Exception as e:
                     logger.error("[岩神·推送] 失败: {}", e)
 
+            p0n = len((result.get('events') or {}).get('p0') or [])
+            p1n = len((result.get('events') or {}).get('p1') or [])
             logger.info(
-                "[岩神·采集] 完成 mode={} qualified={} recommended={} changes={}",
+                "[岩神·采集] 完成 mode={} qualified={} recommended={} changes={} p0={} p1={}",
                 mode, len(result['stocks']), len(result.get('recommended', [])),
-                len(result.get('changes', [])),
+                len(result.get('changes', [])), p0n, p1n,
             )
 
     # ---------- scan 流程（full / daily / rescore）----------
 
-    async def _full_scan(self, irminsul: Irminsul) -> dict:
-        """全市场扫描：skill 三段 I/O + in-process 评分 + 写世界树。"""
+    async def _full_scan(
+        self, irminsul: Irminsul,
+        *, industries_filter: set[str] | None = None,
+    ) -> dict:
+        """全市场扫描：skill 三段 I/O + in-process 评分 + 写世界树。
+
+        industries_filter: 行业白名单，命中才进候选；None = 不过滤（原 full_scan 行为）。
+        传入如 {'银行', '保险'} 做小样本扫描，链路不变只是规模小。
+        """
         scan_date = date.today().isoformat()
-        logger.info("[岩神·full_scan] 启动")
+        scan_label = (
+            "full_scan" if industries_filter is None
+            else f"sample_scan({'/'.join(sorted(industries_filter))})"
+        )
+        logger.info("[岩神·{}] 启动", scan_label)
 
         # 1. 抓全市场行情
         board = await self._skill_fetch_board()
@@ -426,15 +567,23 @@ class ZhongliArchon(Archon):
         market = board.get('market_data', {})
         total_scanned = len(market)
         if not market:
-            logger.warning("[岩神·full_scan] 行情抓取空")
+            logger.warning("[岩神·{}] 行情抓取空", scan_label)
             return {'stocks': []}
 
-        # 2. 岩神筛选市值
+        # 2. 岩神筛选：市值硬门槛 + 可选行业白名单
+        def _ind_of(code: str) -> str:
+            return industry_map.get(code) or market[code].get('industry', '') or ''
+
         candidates = [
             code for code, info in market.items()
             if info.get('market_cap', 0) >= MIN_MARKET_CAP
+            and (industries_filter is None or _ind_of(code) in industries_filter)
         ]
-        logger.info("[岩神·full_scan] 全市场 {} 只 → 市值>=50亿 {} 只", total_scanned, len(candidates))
+        logger.info(
+            "[岩神·{}] 全市场 {} 只 → 筛选后 {} 只{}",
+            scan_label, total_scanned, len(candidates),
+            (f"（限定行业: {sorted(industries_filter)}）" if industries_filter else ""),
+        )
 
         # 3. 批量抓股息
         dividends = await self._skill_fetch_dividend(candidates)
@@ -501,7 +650,10 @@ class ZhongliArchon(Archon):
         if changes:
             await irminsul.change_save(changes, actor="岩神")
 
-        # 10. 清 skill 过期缓存
+        # 10. 事件分级（供日报用）
+        events = _aggregate_events(results, prev)
+
+        # 11. 清 skill 过期缓存
         await self._skill_cleanup_cache()
 
         return {
@@ -511,6 +663,7 @@ class ZhongliArchon(Archon):
             'stocks': results,
             'recommended': recommended,
             'changes': changes,
+            'events': events,
         }
 
     async def _daily_update(self, irminsul: Irminsul) -> dict:
@@ -586,11 +739,15 @@ class ZhongliArchon(Archon):
         if changes:
             await irminsul.change_save(changes, actor="岩神")
 
+        # 事件分级
+        events = _aggregate_events(results, prev)
+
         return {
             'mode': 'daily', 'scan_date': scan_date,
             'total_scanned': len(codes),
             'stocks': results, 'recommended': results,
             'changes': changes,
+            'events': events,
         }
 
     async def _rescore(self, irminsul: Irminsul) -> dict:
@@ -650,33 +807,97 @@ class ZhongliArchon(Archon):
         if changes:
             await irminsul.change_save(changes, actor="岩神")
 
+        events = _aggregate_events(results, prev)
+
         logger.info("[岩神·rescore] 完成 {} 只", len(results))
         return {
             'mode': 'rescore', 'scan_date': scan_date,
             'total_scanned': len(codes),
             'stocks': results, 'recommended': results,
             'changes': changes,
+            'events': events,
         }
 
     # ---------- skill CLI 子进程调用 ----------
 
     async def _run_skill(self, args: list[str], timeout: float) -> dict:
-        """调 skill main.py 子进程，返回解析后的 JSON dict。"""
+        """调 skill main.py 子进程，返回解析后的 JSON dict。
+
+        实时把 stderr 行转发到 paimon 日志（INFO 级），并每 30s 打一次心跳，
+        让用户知道子进程在跑什么而不是卡死。
+        """
         if not _SKILL_MAIN_PY.exists():
             raise RuntimeError(f"skill 入口不存在: {_SKILL_MAIN_PY}")
 
         cmd = [sys.executable, str(_SKILL_MAIN_PY), *args]
+        skill_tag = args[0] if args else "skill"
+        logger.info("[岩神·skill/{}] 启动子进程 args={}", skill_tag, args)
+        start_ts = time.time()
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+
+        async def _pump_stdout() -> None:
+            """收 stdout 到内存（JSON 完整拿回来再 parse，不流式打日志避免刷屏）。"""
+            assert proc.stdout is not None
+            while True:
+                chunk = await proc.stdout.read(8192)
+                if not chunk:
+                    break
+                stdout_chunks.append(chunk)
+
+        async def _pump_stderr() -> None:
+            """stderr 按行实时打 paimon INFO，让用户看到 BaoStock 进度。"""
+            assert proc.stderr is not None
+            async for raw_line in proc.stderr:
+                line = raw_line.decode("utf-8", "ignore").rstrip()
+                stderr_chunks.append(raw_line)
+                if line:
+                    logger.info("[岩神·skill/{}] {}", skill_tag, line[:500])
+
+        async def _heartbeat() -> None:
+            """每 30s 打一次心跳，证明子进程没卡死。"""
+            while True:
+                try:
+                    await asyncio.sleep(30)
+                except asyncio.CancelledError:
+                    return
+                elapsed = time.time() - start_ts
+                logger.info(
+                    "[岩神·skill/{}] 仍在运行 {:.0f}s（超时上限 {:.0f}s）",
+                    skill_tag, elapsed, timeout,
+                )
+
+        hb_task = asyncio.create_task(_heartbeat())
         try:
-            out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            raise RuntimeError(f"skill 子进程超时 > {timeout}s: {args}")
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(_pump_stdout(), _pump_stderr(), proc.wait()),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError(f"skill 子进程超时 > {timeout}s: {args}")
+        finally:
+            hb_task.cancel()
+            try:
+                await hb_task
+            except asyncio.CancelledError:
+                pass
+
+        out_b = b"".join(stdout_chunks)
+        err_b = b"".join(stderr_chunks)
+        elapsed = time.time() - start_ts
+        logger.info(
+            "[岩神·skill/{}] 结束 rc={} 耗时={:.1f}s stdout={}B stderr={}B",
+            skill_tag, proc.returncode, elapsed, len(out_b), len(err_b),
+        )
 
         rc = proc.returncode or 0
         if rc != 0:
@@ -686,10 +907,22 @@ class ZhongliArchon(Archon):
         out_txt = (out_b or b"").decode("utf-8", "ignore").strip()
         if not out_txt:
             return {}
+        # BaoStock CLI 登录成功时会往 stdout 打 "login success!\n" 污染 JSON，
+        # 从首个 '{' 或 '[' 开始解析跳过非 JSON 前缀
+        json_start = -1
+        for i, ch in enumerate(out_txt):
+            if ch in "{[":
+                json_start = i
+                break
+        if json_start < 0:
+            return {}
+        json_txt = out_txt[json_start:]
         try:
-            return json.loads(out_txt)
+            return json.loads(json_txt)
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"skill 输出非 JSON: {e}; head={out_txt[:200]}") from e
+            raise RuntimeError(
+                f"skill 输出非 JSON: {e}; head={json_txt[:200]}"
+            ) from e
 
     async def _skill_fetch_board(self) -> dict:
         """全市场抓（full_scan 用）。"""
@@ -746,6 +979,131 @@ class ZhongliArchon(Archon):
             parts.append("\n" + self._format_changes(changes))
         parts.append("\n⚠️ 以上数据仅供参考，不构成投资建议。")
         return '\n'.join(parts)
+
+    # ---------- 日报生成（A1 · 规则驱动 markdown digest）----------
+
+    @staticmethod
+    def _compose_daily_digest(
+        mode: str, result: dict, events: dict[str, list[dict]],
+    ) -> tuple[str, dict]:
+        """生成"理财日报 markdown" + 元数据 dict（供 push_archive.extra 存放）。
+
+        events 结构：{'p0':[...], 'p1':[...], 'p2':[...]}，来自 _aggregate_events。
+        result 结构：scan 内部 dict（stocks/recommended/changes/scan_date/...）。
+
+        返回 (markdown, meta):
+          meta = {mode, scan_date, p0_count, p1_count, p2_count, total_scanned, recommended_count}
+        """
+        scan_date = result.get('scan_date', '')
+        total_scanned = result.get('total_scanned', 0)
+        stocks = result.get('stocks') or []
+        recommended = result.get('recommended') or []
+        changes = result.get('changes') or []
+
+        p0 = events.get('p0') or []
+        p1 = events.get('p1') or []
+        p2 = events.get('p2') or []
+
+        lines: list[str] = [
+            f"# 📊 岩神·理财日报 · {scan_date} · {mode}",
+            "",
+            f"**概览**：扫描 {total_scanned} 只 · 通过筛选 {len(stocks)} 只 · 推荐 {len(recommended)} 只",
+            "",
+        ]
+
+        # --- P0 致命异常 ---
+        if p0:
+            lines.append(f"## 🚨 P0 致命异常（{len(p0)} 只）")
+            lines.append("")
+            for ev in p0[:10]:
+                dy = (ev.get('dividend_yield') or 0) * 100
+                lines.append(
+                    f"- **{ev['stock_name']}（{ev['stock_code']}）** · {ev['industry']}"
+                )
+                lines.append(f"  - {ev['reason']}")
+                lines.append(
+                    f"  - 当前评分 {ev['total_score']:.1f} · 股息率 {dy:.2f}%"
+                )
+            if len(p0) > 10:
+                lines.append(f"- ... 另有 {len(p0) - 10} 只 P0 异常")
+            lines.append("")
+
+        # --- P1 警示 ---
+        if p1:
+            lines.append(f"## ⚠️ P1 警示（{len(p1)} 只）")
+            lines.append("")
+            for ev in p1[:10]:
+                dy = (ev.get('dividend_yield') or 0) * 100
+                lines.append(
+                    f"- **{ev['stock_name']}（{ev['stock_code']}）** · "
+                    f"{ev['industry']} · {ev['reason']}（{ev['total_score']:.1f} 分 / "
+                    f"股息率 {dy:.2f}%）"
+                )
+            if len(p1) > 10:
+                lines.append(f"- ... 另有 {len(p1) - 10} 只 P1 警示")
+            lines.append("")
+
+        # --- P2 评分小幅变化概览（只报数不列表，避免日报过长）---
+        if p2:
+            up = sum(1 for e in p2 if e['total_score'] > e['prev_score'])
+            down = len(p2) - up
+            lines.append(
+                f"## 📐 P2 评分小幅变化：共 {len(p2)} 只（上升 {up} · 下降 {down}）"
+            )
+            lines.append("")
+
+        # --- 新入选 / 退出 ---
+        entered = [c for c in changes if c.event_type == 'entered'][:5]
+        exited = [c for c in changes if c.event_type == 'exited'][:5]
+        if entered:
+            lines.append(f"## 📈 新入选 TOP {len(entered)}")
+            lines.append("")
+            for c in entered:
+                lines.append(
+                    f"- **{c.stock_name}（{c.stock_code}）** · {c.description}"
+                )
+            lines.append("")
+        if exited:
+            lines.append(f"## 📉 退出 TOP {len(exited)}")
+            lines.append("")
+            for c in exited:
+                lines.append(
+                    f"- **{c.stock_name}（{c.stock_code}）** · {c.description}"
+                )
+            lines.append("")
+
+        # --- 行业趋势：按行业取 TOP3 均值排序，列 Top5 ---
+        by_industry: dict[str, list[float]] = {}
+        for s in stocks:
+            ind = (s.get('stock_data') or {}).get('industry') or '未知'
+            by_industry.setdefault(ind, []).append(s.get('total_score', 0))
+        industry_rank = [
+            (ind, sum(scores[:3]) / min(3, len(scores)), len(scores))
+            for ind, scores in by_industry.items() if scores
+        ]
+        industry_rank.sort(key=lambda x: x[1], reverse=True)
+        if industry_rank:
+            lines.append("## 🏭 行业趋势 · Top5 均值")
+            lines.append("")
+            for ind, avg, n in industry_rank[:5]:
+                lines.append(f"- **{ind}**：均值 {avg:.1f} 分（{n} 只）")
+            lines.append("")
+
+        # --- 尾部 ---
+        lines.append("---")
+        lines.append("")
+        lines.append("⚠️ 以上数据仅供参考，不构成投资建议。")
+
+        meta = {
+            "mode": mode,
+            "scan_date": scan_date,
+            "p0_count": len(p0),
+            "p1_count": len(p1),
+            "p2_count": len(p2),
+            "total_scanned": total_scanned,
+            "recommended_count": len(recommended),
+        }
+        return "\n".join(lines), meta
 
     @staticmethod
     def _format_recommended(stocks: list[dict]) -> str:

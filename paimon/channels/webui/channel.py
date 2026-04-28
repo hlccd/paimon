@@ -144,6 +144,7 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/wealth/changes", self.wealth_changes_api)
         self.app.router.add_get("/api/wealth/stock/{code}", self.wealth_stock_api)
         self.app.router.add_post("/api/wealth/trigger", self.wealth_trigger_api)
+        self.app.router.add_get("/api/wealth/running", self.wealth_running_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 三月·自检面板
         self.app.router.add_get("/selfcheck", self.selfcheck_page)
@@ -1216,7 +1217,8 @@ class WebUIChannel(Channel):
         if not irminsul:
             return web.json_response({
                 "watchlist_count": 0, "latest_scan_date": None,
-                "changes_7d": 0, "cron_enabled": False,
+                "changes_7d": 0, "p0_count_7d": 0, "p1_count_7d": 0,
+                "cron_enabled": False,
             })
         wl = await irminsul.watchlist_get()
         latest = await irminsul.snapshot_latest_date()
@@ -1228,12 +1230,37 @@ class WebUIChannel(Channel):
                 t.task_prompt.startswith("[DIVIDEND_SCAN] ") and t.enabled
                 for t in tasks
             )
+        # 近 7 天 P0 / P1 事件累计：从 push_archive(actor="岩神") 的 extra 读 p0/p1_count
+        import time as _time
+        p0_total = 0
+        p1_total = 0
+        try:
+            recent = await irminsul.push_archive_list(
+                actor="岩神",
+                since=_time.time() - 7 * 86400,
+                limit=50,
+            )
+            for rec in recent:
+                p0_total += int((rec.extra or {}).get("p0_count", 0) or 0)
+                p1_total += int((rec.extra or {}).get("p1_count", 0) or 0)
+        except Exception as e:
+            logger.debug("[WebUI·wealth_stats] 查 P0/P1 失败: {}", e)
         return web.json_response({
             "watchlist_count": len(wl),
             "latest_scan_date": latest,
             "changes_7d": len(changes),
+            "p0_count_7d": p0_total,
+            "p1_count_7d": p1_total,
             "cron_enabled": cron_on,
         })
+
+    async def wealth_running_api(self, request: web.Request) -> web.Response:
+        """岩神采集是否在跑（供 /wealth 公告区"采集中"状态条 + 轮询）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        zhongli = self.state.zhongli
+        running = bool(zhongli and zhongli.is_scanning())
+        return web.json_response({"running": running})
 
     async def wealth_recommended_api(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):
