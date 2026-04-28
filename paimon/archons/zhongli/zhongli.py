@@ -585,10 +585,12 @@ class ZhongliArchon(Archon):
         # 3. 批量抓股息
         dividends = await self._skill_fetch_dividend(candidates)
 
-        # 4. 读上次快照 + 清今日
+        # 4. 读上次快照（不再 clear today；snapshot_upsert ON CONFLICT 自带覆盖。
+        # 早期用"先清后写"模式，重写不全时会丢数据 —— 任何抓取/评分失败都会
+        # 把昨天健康的 snapshot 抹掉，rescore 用 cache 命中率不到 100% 时
+        # 直接砍掉 today 的推荐选股，前端从满变空。改 upsert 后无此风险。）
         prev = await irminsul.snapshot_latest_for_watchlist()
         prev_codes = {s.stock_code for s in (prev or [])}
-        await irminsul.snapshot_clear_date(scan_date, actor="岩神")
 
         # 5. 初评（apply_filter 过硬门槛；上轮 watchlist 内强制不过滤，
         # 让 _aggregate_events 能捕捉停分红/历史断档等 P0 事件，
@@ -703,8 +705,8 @@ class ZhongliArchon(Archon):
             for code in codes
         }
 
+        # 不 clear today；snapshot_upsert ON CONFLICT 自带覆盖（见 _full_scan 注释）
         prev = await irminsul.snapshot_latest_for_watchlist()
-        await irminsul.snapshot_clear_date(scan_date, actor="岩神")
 
         dividends = await self._skill_fetch_dividend(codes)
 
@@ -783,9 +785,10 @@ class ZhongliArchon(Archon):
             logger.info("[岩神·rescore] 无历史快照，改走 daily")
             return await self._daily_update(irminsul)
 
+        # 不 clear today；snapshot_upsert ON CONFLICT 自带覆盖（见 _full_scan 注释）。
+        # rescore 这里是最关键的——cached_only 命中率不到 100% 时旧路径会丢光 today
         prev = await irminsul.snapshot_latest_for_watchlist()
         prev_map = {s.stock_code: s for s in prev}
-        await irminsul.snapshot_clear_date(scan_date, actor="岩神")
 
         # 缓存读股息 + 财务
         cached_div = await self._skill_fetch_dividend(codes, cached_only=True)
