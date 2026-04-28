@@ -781,6 +781,46 @@ WEALTH_SCRIPT = """
             if(_histChart){ _histChart.destroy(); _histChart=null; }
         };
 
+        var _scanPollTimer = null;
+        var _scanStartTs = 0;            // trigger 那一刻的时间戳，秒级
+
+        // 用「公告 created_at 比 trigger 时刻新」作为扫描完成主信号 ——
+        // 比"running 由 true→false"更稳：极快的 rescore（1-2s）也能可靠抓到。
+        // 兜底信号：last_error 变新（扫描异常没写公告，需要恢复按钮 + 提示）。
+        // 30 分钟硬上限防泄漏。
+        function _pollScanComplete(btn, oldText){
+            if(_scanPollTimer){ clearTimeout(_scanPollTimer); _scanPollTimer = null; }
+            var checkCount = 0;
+            var poll = async function(){
+                checkCount++;
+                try{
+                    var [listRes, runRes] = await Promise.all([
+                        fetch('/api/push_archive/list?actor=' + encodeURIComponent('岩神') + '&limit=1')
+                            .then(function(r){ return r.json(); }),
+                        fetch('/api/wealth/running').then(function(r){ return r.json(); }),
+                    ]);
+                    var latest = (listRes.records || [])[0];
+                    var newDigest = latest && latest.created_at >= _scanStartTs;
+                    var newError = runRes.last_error && runRes.last_error.ts >= _scanStartTs;
+                    if(newDigest || newError){
+                        _scanPollTimer = null;
+                        btn.disabled = false; btn.textContent = oldText;
+                        refreshAll();
+                        return;
+                    }
+                }catch(e){ /* 静默 */ }
+                // 30 分钟硬上限
+                if(checkCount > 1800){
+                    _scanPollTimer = null;
+                    btn.disabled = false; btn.textContent = oldText;
+                    return;
+                }
+                // 前 6 次 500ms 高频抓极快任务，之后 2s
+                _scanPollTimer = setTimeout(poll, checkCount < 6 ? 500 : 2000);
+            };
+            poll();
+        }
+
         window.triggerScan=async function(mode){
             var btnMap={rescore:'btnRescore', daily:'btnDaily', full:'btnFull'};
             var btn=document.getElementById(btnMap[mode]);
@@ -797,11 +837,12 @@ WEALTH_SCRIPT = """
                 var d=await r.json();
                 if(d.ok){
                     btn.textContent='运行中';
-                    // 10 秒后刷新数据（rescore 足够完成；daily/full 要更久）
-                    setTimeout(function(){
-                        btn.disabled=false; btn.textContent=oldText;
-                        refreshAll();
-                    }, mode==='rescore'?8000:30000);
+                    // 记录 trigger 时刻，用作「公告变新 / last_error 变新」的判定基准
+                    _scanStartTs = Date.now() / 1000;
+                    // 1. 立即启动状态条（让用户即刻看到"准备中"）
+                    loadZhongliBulletins();
+                    // 2. 轮询「公告 created_at 比 _scanStartTs 新」→ 恢复按钮 + 刷数据
+                    _pollScanComplete(btn, oldText);
                 } else {
                     alert('触发失败: '+(d.error||'unknown'));
                     btn.disabled=false; btn.textContent=oldText;
