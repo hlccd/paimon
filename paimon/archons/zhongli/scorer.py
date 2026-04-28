@@ -1,9 +1,9 @@
 """评分引擎 v3.0 — 行业均衡化 + 银行偏向修复
 
-5 维度 103 分 + 独立惩罚：
+5 维度 105 分 + 独立惩罚：
 - 分红可持续性 (sustainability)  30 分
 - 财务堡垒     (fortress)        25 分
-- 估值安全边际 (valuation)       20 分
+- 估值安全边际 (valuation)       22 分（PB 分支 20，PE/PEG/PB_DEBT/PE_ROE 含 bonus 可达 22）
 - 分红记录     (track_record)    18 分（含市值5分）
 - 盈利动能     (momentum)        10 分
 - 惩罚         (penalty)         <= 0
@@ -15,8 +15,6 @@
 核心理念：评分回答"分红能不能持续"，而不仅仅是"分红高不高"。
 """
 from __future__ import annotations
-
-from datetime import datetime
 
 # ============================================================
 # 行业分类
@@ -212,7 +210,7 @@ def score_stock(stock_data: dict, classification: dict, financial_data: dict | N
         if all(p > 0 for p in valid_profits):
             sc['fortress'] += 2
 
-    # ── 维度 3: 估值安全边际 (20) ──
+    # ── 维度 3: 估值安全边际 (22) ──
 
     # 3a. 行业估值 (12-14) — 阈值由 INDUSTRY_VALUATION 驱动
     # v3.0: PB 分支满分 12，PE/PEG/PB_DEBT 分支含 bonus 可达 14
@@ -297,7 +295,7 @@ def score_stock(stock_data: dict, classification: dict, financial_data: dict | N
     elif dy >= 0.04 and pe > 0 and pe < 25:
         sc['valuation'] += 2
 
-    # ── 维度 4: 分红记录 (15) ──
+    # ── 维度 4: 分红记录 (18) ──
 
     # 4a. 历史分红次数 (8)
     if history >= 20:   sc['track_record'] += 8
@@ -623,25 +621,25 @@ def build_reasons(stock_data: dict, score: dict, classification: dict,
         g = vs.get('good', 0.7)
         f = vs.get('fair', 1.0)
         lv = "深度低估" if pb < g * 0.7 else "低估" if pb < g else "合理偏低" if pb < (g + f) / 2 else "合理" if pb < f else "略高"
-        reasons.append(f"[估值 {score['valuation']:.0f}/20] PB {pb:.2f}（{lv}），PE {pe:.1f}")
+        reasons.append(f"[估值 {score['valuation']:.0f}/22] PB {pb:.2f}（{lv}），PE {pe:.1f}")
     elif metric == "PE":
         g = vs.get('good', 10)
         f = vs.get('fair', 15)
         lv = "低估" if pe < g else "合理偏低" if pe < (g + f) / 2 else "合理" if pe < f else "略高"
-        reasons.append(f"[估值 {score['valuation']:.0f}/20] PE {pe:.1f}（{lv}），PB {pb:.2f}")
+        reasons.append(f"[估值 {score['valuation']:.0f}/22] PE {pe:.1f}（{lv}），PB {pb:.2f}")
     elif metric == "PEG":
         _pg = fd.get('profit_growth')
         if _pg is not None and _pg > 0 and pe > 0:
             peg_val = pe / _pg
-            reasons.append(f"[估值 {score['valuation']:.0f}/20] PEG {peg_val:.1f}（PE {pe:.1f}/增速{_pg:.0f}%）")
+            reasons.append(f"[估值 {score['valuation']:.0f}/22] PEG {peg_val:.1f}（PE {pe:.1f}/增速{_pg:.0f}%）")
         else:
-            reasons.append(f"[估值 {score['valuation']:.0f}/20] PE {pe:.1f}，无增速数据")
+            reasons.append(f"[估值 {score['valuation']:.0f}/22] PE {pe:.1f}，无增速数据")
     elif metric == "PB_DEBT":
         st = "破净" if pb < 1.0 else "接近破净" if pb < 1.2 else "合理"
         dr_txt = f"，负债率{fd.get('debt_ratio', 0):.0f}%" if fd.get('debt_ratio') is not None else ""
-        reasons.append(f"[估值 {score['valuation']:.0f}/20] 周期股PB {pb:.2f}（{st}）{dr_txt}")
+        reasons.append(f"[估值 {score['valuation']:.0f}/22] 周期股PB {pb:.2f}（{st}）{dr_txt}")
     else:
-        reasons.append(f"[估值 {score['valuation']:.0f}/20] PE {pe:.1f}，PB {pb:.2f}")
+        reasons.append(f"[估值 {score['valuation']:.0f}/22] PE {pe:.1f}，PB {pb:.2f}")
 
     # 维度 4: 分红记录
     stab = "超稳定" if history >= 20 else "稳定" if history >= 15 else "较稳定" if history >= 10 else "尚可"
@@ -652,7 +650,7 @@ def build_reasons(stock_data: dict, score: dict, classification: dict,
     if prev_dps > 0 and dps > 0:
         dps_g = (dps - prev_dps) / prev_dps * 100
         dps_part = f"，DPS{'↑' if dps_g > 0 else '↓'}{abs(dps_g):.0f}%"
-    reasons.append(f"[记录 {score['track_record']:.0f}/15] {stab}（累计{history}次，{dn}）{dps_part}")
+    reasons.append(f"[记录 {score['track_record']:.0f}/18] {stab}（累计{history}次，{dn}）{dps_part}")
 
     # 维度 5: 动能
     parts_m = []
@@ -687,81 +685,6 @@ def build_reasons(stock_data: dict, score: dict, classification: dict,
         reasons.append("  * 防御性行业：适合长期配置")
 
     return reasons
-
-
-def format_report(results: list[dict], top_n: int = 20, title: str | None = None) -> str:
-    """格式化文本报告"""
-    lines = []
-    now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    lines.append(f"\n红利股扫描报告（{now}）")
-    lines.append("=" * 55)
-    header = title or f"TOP {top_n}（按综合评分排序）"
-    lines.append(f"\n{header}\n")
-
-    for i, stock in enumerate(results[:top_n], 1):
-        sd = stock['stock_data']
-        sc = stock['score']
-        total = sum(sc.values())
-        industry = sd['industry']
-        tag = '(周期)' if stock['classification']['is_cyclical'] else ''
-
-        recent = sd.get('recent_dividend_count', 1)
-        div_text = f"年化{sd['dividend_yield']*100:.1f}%（近12月{recent}次）" if recent > 1 else f"{sd['dividend_yield']*100:.1f}%"
-        avg_3y = sd.get('avg_3y_dividend_yield', 0)
-        avg_3y_text = f" | 3年均息{avg_3y*100:.1f}%" if avg_3y > 0 else ""
-
-        lines.append(f"{i}. {sd['name']} ({sd['code']}) {industry}{tag}")
-        lines.append(f"   综合评分：{total:.1f}/100")
-        lines.append(f"   股息率：{div_text}{avg_3y_text} | 历史分红：{sd['history_count']}次")
-        lines.append(f"   PE：{sd['pe']:.1f} | PB：{sd['pb']:.2f} | 市值：{sd['market_cap']/1e8:.0f}亿")
-
-        if stock.get('financial_data'):
-            fd = stock['financial_data']
-            parts = []
-            if fd.get('roe') is not None:
-                parts.append(f"ROE {fd['roe']:.1f}%")
-            if fd.get('profit_growth') is not None:
-                parts.append(f"利润增长 {fd['profit_growth']:.1f}%")
-            if fd.get('debt_ratio') is not None:
-                parts.append(f"负债率 {fd['debt_ratio']:.1f}%")
-            if fd.get('cfo_to_np') is not None:
-                parts.append(f"现金覆盖 {fd['cfo_to_np']:.2f}")
-            if parts:
-                lines.append(f"   财务：{' | '.join(parts)}")
-
-        lines.append(f"   评分明细：")
-        for reason in stock['reasons']:
-            lines.append(f"     {reason}")
-        lines.append("")
-
-    lines.append("注意：本报告仅供参考，不构成投资建议。")
-    return '\n'.join(lines)
-
-
-def format_recommended(results: list[dict], title: str = "推荐选股") -> str:
-    """精简推荐报告：突出推荐理由，弱化数据细节"""
-    lines = []
-    now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    lines.append(f"\n红利股推荐（{now}）")
-    lines.append("=" * 55)
-    lines.append(f"\n{title}\n")
-
-    for i, stock in enumerate(results, 1):
-        sd = stock['stock_data']
-        total = stock['total_score']
-        industry = sd['industry']
-        tag = '(周期)' if stock['classification']['is_cyclical'] else ''
-        dy = sd['dividend_yield'] * 100
-        avg_3y = sd.get('avg_3y_dividend_yield', 0) * 100
-
-        avg_3y_text = f" | 3年均息{avg_3y:.1f}%" if avg_3y > 0 else ""
-        lines.append(f"{i}. {sd['name']} ({sd['code']}) {industry}{tag}")
-        lines.append(f"   评分{total:.1f} | 股价{sd['price']:.2f} | 股息率{dy:.1f}%{avg_3y_text} | PE {sd['pe']:.1f} | 市值{sd['market_cap']/1e8:.0f}亿")
-        lines.append(f"   {stock.get('advice', '')}")
-        lines.append("")
-
-    lines.append("注意：本报告仅供参考，不构成投资建议。")
-    return '\n'.join(lines)
 
 
 # ============================================================

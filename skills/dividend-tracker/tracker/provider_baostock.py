@@ -6,6 +6,7 @@ BaoStock 使用独立服务器（public-api.baostock.com），免费无限额，
 from __future__ import annotations
 
 import json
+import sys
 import time
 import asyncio
 import threading
@@ -16,6 +17,20 @@ import pandas as pd
 from loguru import logger
 
 from .provider import CACHE_TTL, _load_cache, _load_cache_any_age, _save_cache
+
+
+def _emit_progress(stage: str, cur: int, total: int, **extra) -> None:
+    """结构化进度行 → stderr，供 paimon 主进程解析（被 paimon 拉起时才有意义）。
+
+    格式：``PROGRESS: {"stage":"board","cur":500,"total":5521,"valid":436}``。
+    单独一行，不经 loguru，避免被前缀污染。
+    """
+    payload = {"stage": stage, "cur": cur, "total": total, **extra}
+    try:
+        print("PROGRESS: " + json.dumps(payload, ensure_ascii=False),
+              file=sys.stderr, flush=True)
+    except Exception:
+        pass
 
 # ============================================================
 # BaoStock 全局会话管理（单连接，需加锁）
@@ -548,8 +563,9 @@ class BaoStockDataProvider:
                 'is_st': price_info.get('is_st', 0),
             }
 
-            if i % 500 == 0:
+            if i % 500 == 0 or i == total:
                 logger.info(f"[provider-bs] 行情进度: {i}/{total}，已获取 {len(market_data)} 只")
+                _emit_progress("board", i, total, valid=len(market_data))
 
         logger.info(f"[provider-bs] 行情获取完成: {total} 只扫描，{len(market_data)} 只有效数据")
         return industry_map, market_data
@@ -603,6 +619,7 @@ class BaoStockDataProvider:
 
             if i % 20 == 0 or i == total:
                 logger.info(f"[provider-bs] watchlist 行情: {i}/{total}，已获取 {len(market_data)} 只")
+                _emit_progress("board_codes", i, total, valid=len(market_data))
 
         logger.info(f"[provider-bs] watchlist 行情完成，共 {len(market_data)} 只")
         return industry_map, market_data
@@ -629,6 +646,7 @@ class BaoStockDataProvider:
 
             if i % 20 == 0 or i == total:
                 logger.info(f"[provider-bs] 股息进度: {i}/{total}，成功 {len(results)}")
+                _emit_progress("dividend", i, total, success=len(results))
             if on_progress and r is not None:
                 await on_progress(i, total, code, r)
 
@@ -657,6 +675,7 @@ class BaoStockDataProvider:
 
             if i % 20 == 0 or i == total:
                 logger.info(f"[provider-bs] 财务进度: {i}/{total}，成功 {len(results)}")
+                _emit_progress("financial", i, total, success=len(results))
             if on_progress and r is not None:
                 await on_progress(i, total, code, r)
 

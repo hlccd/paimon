@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 import time
@@ -29,8 +30,6 @@ from paimon.archons.zhongli.scorer import (
     build_advice,
     build_reasons,
     classify_stock,
-    format_recommended,
-    format_report,
     score_stock,
 )
 from paimon.foundation.irminsul import (
@@ -68,9 +67,12 @@ _SKILL_MAIN_PY = (
     / "skills" / "dividend-tracker" / "main.py"
 )
 
-# subprocess 超时
-_FETCH_BOARD_TIMEOUT = 30 * 60    # full_scan 行情抓取 30 分钟
-_FETCH_BATCH_TIMEOUT = 30 * 60    # dividend/financial 批量 30 分钟
+# subprocess 活性超时：连续 5 分钟无 stderr 活动才 kill。
+# 旧版用全程死线（fetch-board 1800s），但 BaoStock 单连接串行 + 网络方差大 →
+# 5500 只行情快则 6 分钟、慢则 60 分钟，单一阈值无法兼顾。改为活性判定后，
+# 只要 skill 还在打进度日志（每 500 只一条 board / 每 20 只一条 dividend）
+# 就续命；真卡住才 kill。
+_SKILL_IDLE_TIMEOUT = 5 * 60
 
 
 _SYSTEM_PROMPT = """\
@@ -435,10 +437,31 @@ class ZhongliArchon(Archon):
 
     def __init__(self):
         self._scan_lock = asyncio.Lock()
+        # 当前扫描进度（供 /api/wealth/running 暴露给前端状态条）。
+        # None = 未在扫描；扫描中至少包含 {stage, cur, total, started_at, updated_at}，
+        # 各阶段（board/board_codes/dividend/financial/scoring）可附带额外字段如
+        # valid/success/mode 等。
+        self._progress: dict | None = None
 
     def is_scanning(self) -> bool:
         """是否正在跑扫描（supply 给 WebUI/tool 做并发保护）。"""
         return self._scan_lock.locked()
+
+    def get_progress(self) -> dict | None:
+        """当前扫描进度快照（None 表示未在跑）。"""
+        return self._progress
+
+    def _set_progress(self, stage: str, cur: int, total: int, **extra) -> None:
+        now = time.time()
+        prev = self._progress or {}
+        self._progress = {
+            "stage": stage,
+            "cur": cur,
+            "total": total,
+            "started_at": prev.get("started_at", now),
+            "updated_at": now,
+            **extra,
+        }
 
     # ---------- 四影路径（保留）----------
 
@@ -483,83 +506,62 @@ class ZhongliArchon(Archon):
         irminsul: Irminsul,
         march: "MarchService",
         chat_id: str = "", channel_name: str = "",
-        industries_filter: set[str] | None = None,
     ) -> None:
-        """采集入口。mode ∈ 'full' / 'daily' / 'rescore' / 'sample'。
-
-        industries_filter 仅对 full/sample 生效，限定行业白名单（daily/rescore 只扫 watchlist）。
-        sample = 加了行业过滤的 full，产物等价但规模小。
-        """
-        if mode not in ("full", "daily", "rescore", "sample"):
+        """采集入口。mode ∈ 'full' / 'daily' / 'rescore'。"""
+        if mode not in ("full", "daily", "rescore"):
             logger.error("[岩神·采集] 未知 mode: {}", mode)
             return
 
         async with self._scan_lock:
-            logger.info(
-                "[岩神·采集] 开始 mode={} industries_filter={}",
-                mode, sorted(industries_filter) if industries_filter else "全市场",
-            )
+            logger.info("[岩神·采集] 开始 mode={}", mode)
+            self._set_progress("init", 0, 0, mode=mode)
             try:
-                if mode == "full":
-                    result = await self._full_scan(irminsul, industries_filter=industries_filter)
-                elif mode == "sample":
-                    # sample = 行业限定的 full_scan
-                    if industries_filter is None:
-                        industries_filter = {"银行", "保险"}
-                    result = await self._full_scan(irminsul, industries_filter=industries_filter)
-                    # 把 mode 字段改回 "sample" 让日报头部文案对
-                    result["mode"] = "sample"
-                elif mode == "daily":
-                    result = await self._daily_update(irminsul)
-                else:
-                    result = await self._rescore(irminsul)
-            except Exception as e:
-                logger.exception("[岩神·采集] 失败 mode={}: {}", mode, e)
-                return
-
-            if not result or not result.get('stocks'):
-                logger.info("[岩神·采集] 完成（无新数据） mode={}", mode)
-                return
-
-            # 推送日报（digest · markdown）—— source="岩神·理财日报" 与旧 snapshot 推送区分
-            # extra 塞 {p0_count, p1_count, ...} 供 /api/wealth/stats 查近 7 天统计
-            if channel_name and chat_id:
                 try:
-                    events = result.get('events') or {'p0': [], 'p1': [], 'p2': []}
-                    digest_md, meta = self._compose_daily_digest(mode, result, events)
-                    await march.ring_event(
-                        channel_name=channel_name, chat_id=chat_id,
-                        source="岩神·理财日报", message=digest_md,
-                        extra=meta,
-                    )
+                    if mode == "full":
+                        result = await self._full_scan(irminsul)
+                    elif mode == "daily":
+                        result = await self._daily_update(irminsul)
+                    else:
+                        result = await self._rescore(irminsul)
                 except Exception as e:
-                    logger.error("[岩神·推送] 失败: {}", e)
+                    logger.exception("[岩神·采集] 失败 mode={}: {}", mode, e)
+                    return
 
-            p0n = len((result.get('events') or {}).get('p0') or [])
-            p1n = len((result.get('events') or {}).get('p1') or [])
-            logger.info(
-                "[岩神·采集] 完成 mode={} qualified={} recommended={} changes={} p0={} p1={}",
-                mode, len(result['stocks']), len(result.get('recommended', [])),
-                len(result.get('changes', [])), p0n, p1n,
-            )
+                if not result or not result.get('stocks'):
+                    logger.info("[岩神·采集] 完成（无新数据） mode={}", mode)
+                    return
+
+                # 推送日报（digest · markdown）—— source="岩神·理财日报" 与旧 snapshot 推送区分
+                # extra 塞 {p0_count, p1_count, ...} 供 /api/wealth/stats 查近 7 天统计
+                if channel_name and chat_id:
+                    try:
+                        events = result.get('events') or {'p0': [], 'p1': [], 'p2': []}
+                        digest_md, meta = self._compose_daily_digest(mode, result, events)
+                        await march.ring_event(
+                            channel_name=channel_name, chat_id=chat_id,
+                            source="岩神·理财日报", message=digest_md,
+                            extra=meta,
+                        )
+                    except Exception as e:
+                        logger.error("[岩神·推送] 失败: {}", e)
+
+                p0n = len((result.get('events') or {}).get('p0') or [])
+                p1n = len((result.get('events') or {}).get('p1') or [])
+                logger.info(
+                    "[岩神·采集] 完成 mode={} qualified={} recommended={} changes={} p0={} p1={}",
+                    mode, len(result['stocks']), len(result.get('recommended', [])),
+                    len(result.get('changes', [])), p0n, p1n,
+                )
+            finally:
+                # 任何路径结束（成功/失败/无数据）都清进度，避免前端一直"采集中"
+                self._progress = None
 
     # ---------- scan 流程（full / daily / rescore）----------
 
-    async def _full_scan(
-        self, irminsul: Irminsul,
-        *, industries_filter: set[str] | None = None,
-    ) -> dict:
-        """全市场扫描：skill 三段 I/O + in-process 评分 + 写世界树。
-
-        industries_filter: 行业白名单，命中才进候选；None = 不过滤（原 full_scan 行为）。
-        传入如 {'银行', '保险'} 做小样本扫描，链路不变只是规模小。
-        """
+    async def _full_scan(self, irminsul: Irminsul) -> dict:
+        """全市场扫描：skill 三段 I/O + in-process 评分 + 写世界树。"""
         scan_date = date.today().isoformat()
-        scan_label = (
-            "full_scan" if industries_filter is None
-            else f"sample_scan({'/'.join(sorted(industries_filter))})"
-        )
-        logger.info("[岩神·{}] 启动", scan_label)
+        logger.info("[岩神·full_scan] 启动")
 
         # 1. 抓全市场行情
         board = await self._skill_fetch_board()
@@ -567,22 +569,17 @@ class ZhongliArchon(Archon):
         market = board.get('market_data', {})
         total_scanned = len(market)
         if not market:
-            logger.warning("[岩神·{}] 行情抓取空", scan_label)
+            logger.warning("[岩神·full_scan] 行情抓取空")
             return {'stocks': []}
 
-        # 2. 岩神筛选：市值硬门槛 + 可选行业白名单
-        def _ind_of(code: str) -> str:
-            return industry_map.get(code) or market[code].get('industry', '') or ''
-
+        # 2. 岩神筛选：市值硬门槛
         candidates = [
             code for code, info in market.items()
             if info.get('market_cap', 0) >= MIN_MARKET_CAP
-            and (industries_filter is None or _ind_of(code) in industries_filter)
         ]
         logger.info(
-            "[岩神·{}] 全市场 {} 只 → 筛选后 {} 只{}",
-            scan_label, total_scanned, len(candidates),
-            (f"（限定行业: {sorted(industries_filter)}）" if industries_filter else ""),
+            "[岩神·full_scan] 全市场 {} 只 → 筛选后 {} 只",
+            total_scanned, len(candidates),
         )
 
         # 3. 批量抓股息
@@ -590,27 +587,36 @@ class ZhongliArchon(Archon):
 
         # 4. 读上次快照 + 清今日
         prev = await irminsul.snapshot_latest_for_watchlist()
+        prev_codes = {s.stock_code for s in (prev or [])}
         await irminsul.snapshot_clear_date(scan_date, actor="岩神")
 
-        # 5. 初评（股息阶段，apply_filter=True 过硬门槛）
+        # 5. 初评（apply_filter 过硬门槛；上轮 watchlist 内强制不过滤，
+        # 让 _aggregate_events 能捕捉停分红/历史断档等 P0 事件，
+        # 否则 dy<3% 的票会被丢弃，dividend_halt 规则永远命不中）
         results: list[dict] = []
-        for code, div_info in dividends.items():
+        total_div = len(dividends)
+        for i, (code, div_info) in enumerate(dividends.items(), 1):
             info = market.get(code)
             if not info:
                 continue
             industry = industry_map.get(code) or info.get('industry', '未知')
-            scored = _score_single(code, div_info, None, info, industry, apply_filter=True)
+            apply_filter = code not in prev_codes
+            scored = _score_single(code, div_info, None, info, industry, apply_filter=apply_filter)
             if scored:
                 results.append(scored)
                 await irminsul.snapshot_upsert(
                     scan_date, _result_to_snapshot(scan_date, scored), actor="岩神",
                 )
+            if i % 50 == 0 or i == total_div:
+                self._set_progress("scoring_dividend", i, total_div, passed=len(results))
+                logger.info("[岩神·full_scan] 股息评分进度 {}/{}，通过 {}", i, total_div, len(results))
         logger.info("[岩神·full_scan] 股息初筛通过 {} 只", len(results))
 
         # 6. 批量抓财务 + 二次评分
         codes_with_div = [s['stock_data']['code'] for s in results]
         financials = await self._skill_fetch_financial(codes_with_div)
-        for s in results:
+        total_fin = len(results)
+        for i, s in enumerate(results, 1):
             code = s['stock_data']['code']
             fin_info = financials.get(code)
             if fin_info is None:
@@ -626,6 +632,9 @@ class ZhongliArchon(Archon):
                 await irminsul.snapshot_upsert(
                     scan_date, _result_to_snapshot(scan_date, updated), actor="岩神",
                 )
+            if i % 50 == 0 or i == total_fin:
+                self._set_progress("scoring_financial", i, total_fin)
+                logger.info("[岩神·full_scan] 财务评分进度 {}/{}", i, total_fin)
 
         # 7. 排序 + 行业均衡
         results.sort(key=lambda x: x['total_score'], reverse=True)
@@ -700,7 +709,8 @@ class ZhongliArchon(Archon):
         dividends = await self._skill_fetch_dividend(codes)
 
         results: list[dict] = []
-        for code, div_info in dividends.items():
+        total_div = len(dividends)
+        for i, (code, div_info) in enumerate(dividends.items(), 1):
             info = market.get(code)
             if not info:
                 continue
@@ -713,10 +723,13 @@ class ZhongliArchon(Archon):
                 await irminsul.snapshot_upsert(
                     scan_date, _result_to_snapshot(scan_date, scored), actor="岩神",
                 )
+            if i % 10 == 0 or i == total_div:
+                self._set_progress("scoring_dividend", i, total_div, passed=len(results))
 
         # 补财务
         financials = await self._skill_fetch_financial(list(dividends.keys()))
-        for s in results:
+        total_fin = len(results)
+        for i, s in enumerate(results, 1):
             code = s['stock_data']['code']
             fin_info = financials.get(code)
             if fin_info is None:
@@ -731,6 +744,8 @@ class ZhongliArchon(Archon):
                 await irminsul.snapshot_upsert(
                     scan_date, _result_to_snapshot(scan_date, updated), actor="岩神",
                 )
+            if i % 10 == 0 or i == total_fin:
+                self._set_progress("scoring_financial", i, total_fin)
 
         results.sort(key=lambda x: x['total_score'], reverse=True)
 
@@ -777,7 +792,8 @@ class ZhongliArchon(Archon):
         cached_fin = await self._skill_fetch_financial(codes, cached_only=True)
 
         results: list[dict] = []
-        for code in codes:
+        total = len(codes)
+        for i, code in enumerate(codes, 1):
             div_info = cached_div.get(code)
             if not div_info:
                 continue
@@ -798,6 +814,8 @@ class ZhongliArchon(Archon):
             )
             if scored:
                 results.append(scored)
+            if i % 10 == 0 or i == total:
+                self._set_progress("scoring_rescore", i, total, passed=len(results))
                 await irminsul.snapshot_upsert(
                     scan_date, _result_to_snapshot(scan_date, scored), actor="岩神",
                 )
@@ -820,11 +838,14 @@ class ZhongliArchon(Archon):
 
     # ---------- skill CLI 子进程调用 ----------
 
-    async def _run_skill(self, args: list[str], timeout: float) -> dict:
+    async def _run_skill(self, args: list[str]) -> dict:
         """调 skill main.py 子进程，返回解析后的 JSON dict。
 
-        实时把 stderr 行转发到 paimon 日志（INFO 级），并每 30s 打一次心跳，
-        让用户知道子进程在跑什么而不是卡死。
+        - stderr 透传到 paimon 日志，并解析 ``PROGRESS: {...}`` 行 update self._progress
+        - 活性超时：连续 _SKILL_IDLE_TIMEOUT 秒无 stderr 活动才 kill（旧版用全程死线，
+          BaoStock 速率方差太大会错杀）
+        - 子进程环境：PAIMON_SKILL_RUNTIME=1 让 skill loguru 切极简 format（避免双重时间戳）；
+          PYTHONIOENCODING=utf-8 兜底 Windows cp936 中文乱码
         """
         if not _SKILL_MAIN_PY.exists():
             raise RuntimeError(f"skill 入口不存在: {_SKILL_MAIN_PY}")
@@ -833,14 +854,17 @@ class ZhongliArchon(Archon):
         skill_tag = args[0] if args else "skill"
         logger.info("[岩神·skill/{}] 启动子进程 args={}", skill_tag, args)
         start_ts = time.time()
+        env = {**os.environ, "PAIMON_SKILL_RUNTIME": "1", "PYTHONIOENCODING": "utf-8"}
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
 
         stdout_chunks: list[bytes] = []
         stderr_chunks: list[bytes] = []
+        last_activity_ts = time.time()
 
         async def _pump_stdout() -> None:
             """收 stdout 到内存（JSON 完整拿回来再 parse，不流式打日志避免刷屏）。"""
@@ -852,42 +876,60 @@ class ZhongliArchon(Archon):
                 stdout_chunks.append(chunk)
 
         async def _pump_stderr() -> None:
-            """stderr 按行实时打 paimon INFO，让用户看到 BaoStock 进度。"""
+            """stderr 按行实时打 paimon INFO + 解析 PROGRESS 行更新进度。"""
+            nonlocal last_activity_ts
             assert proc.stderr is not None
             async for raw_line in proc.stderr:
+                last_activity_ts = time.time()  # 续命
                 line = raw_line.decode("utf-8", "ignore").rstrip()
                 stderr_chunks.append(raw_line)
-                if line:
-                    logger.info("[岩神·skill/{}] {}", skill_tag, line[:500])
+                if not line:
+                    continue
+                # PROGRESS: {...} 是 skill 给 paimon 的结构化信号，不打日志（噪音）
+                if line.startswith("PROGRESS: "):
+                    try:
+                        prog = json.loads(line[len("PROGRESS: "):])
+                        if isinstance(prog, dict) and "stage" in prog:
+                            self._set_progress(
+                                prog["stage"],
+                                int(prog.get("cur", 0)),
+                                int(prog.get("total", 0)),
+                                **{k: v for k, v in prog.items()
+                                   if k not in ("stage", "cur", "total")},
+                            )
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
+                    continue
+                logger.info("[岩神·skill/{}] {}", skill_tag, line[:500])
 
-        async def _heartbeat() -> None:
-            """每 30s 打一次心跳，证明子进程没卡死。"""
+        async def _watchdog() -> None:
+            """每 30s 检查一次活性 + 打心跳；连续 _SKILL_IDLE_TIMEOUT 秒无 stderr 活动 → kill。"""
             while True:
                 try:
                     await asyncio.sleep(30)
                 except asyncio.CancelledError:
                     return
+                idle = time.time() - last_activity_ts
                 elapsed = time.time() - start_ts
+                if idle > _SKILL_IDLE_TIMEOUT:
+                    logger.error(
+                        "[岩神·skill/{}] {:.0f}s 无 stderr 活动，判定卡死，kill",
+                        skill_tag, idle,
+                    )
+                    proc.kill()
+                    return
                 logger.info(
-                    "[岩神·skill/{}] 仍在运行 {:.0f}s（超时上限 {:.0f}s）",
-                    skill_tag, elapsed, timeout,
+                    "[岩神·skill/{}] 仍在运行 {:.0f}s（{:.0f}s 前最后活动；空闲超 {:.0f}s 即 kill）",
+                    skill_tag, elapsed, idle, _SKILL_IDLE_TIMEOUT,
                 )
 
-        hb_task = asyncio.create_task(_heartbeat())
+        wd_task = asyncio.create_task(_watchdog())
         try:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(_pump_stdout(), _pump_stderr(), proc.wait()),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                raise RuntimeError(f"skill 子进程超时 > {timeout}s: {args}")
+            await asyncio.gather(_pump_stdout(), _pump_stderr(), proc.wait())
         finally:
-            hb_task.cancel()
+            wd_task.cancel()
             try:
-                await hb_task
+                await wd_task
             except asyncio.CancelledError:
                 pass
 
@@ -902,6 +944,11 @@ class ZhongliArchon(Archon):
         rc = proc.returncode or 0
         if rc != 0:
             err_txt = (err_b or b"").decode("utf-8", "ignore").strip()
+            # watchdog kill 时 returncode 通常为 -9 / -SIGKILL，给明确错误
+            if rc < 0:
+                raise RuntimeError(
+                    f"skill 子进程被活性 watchdog kill（{_SKILL_IDLE_TIMEOUT}s 无活动）: {args}"
+                )
             raise RuntimeError(f"skill 退出码 {rc}: {err_txt[:400]}")
 
         out_txt = (out_b or b"").decode("utf-8", "ignore").strip()
@@ -926,15 +973,14 @@ class ZhongliArchon(Archon):
 
     async def _skill_fetch_board(self) -> dict:
         """全市场抓（full_scan 用）。"""
-        return await self._run_skill(["fetch-board"], timeout=_FETCH_BOARD_TIMEOUT)
+        return await self._run_skill(["fetch-board"])
 
     async def _skill_fetch_board_by_codes(self, codes: list[str]) -> dict:
         """只抓指定股票行情（daily_update 用，走 skill fetch-board --codes）。"""
         if not codes:
             return {"industry_map": {}, "market_data": {}, "count": 0}
         args = ["fetch-board", "--codes", ",".join(codes)]
-        # daily watchlist 通常 ≤25 只，几秒完成，给 5 分钟上限足够
-        return await self._run_skill(args, timeout=5 * 60)
+        return await self._run_skill(args)
 
     async def _skill_fetch_dividend(
         self, codes: list[str], cached_only: bool = False,
@@ -944,7 +990,7 @@ class ZhongliArchon(Archon):
         args = ["fetch-dividend", "--codes", ",".join(codes)]
         if cached_only:
             args.append("--cached-only")
-        data = await self._run_skill(args, timeout=_FETCH_BATCH_TIMEOUT)
+        data = await self._run_skill(args)
         return data.get('dividends', {})
 
     async def _skill_fetch_financial(
@@ -955,30 +1001,16 @@ class ZhongliArchon(Archon):
         args = ["fetch-financial", "--codes", ",".join(codes)]
         if cached_only:
             args.append("--cached-only")
-        data = await self._run_skill(args, timeout=_FETCH_BATCH_TIMEOUT)
+        data = await self._run_skill(args)
         return data.get('financials', {})
 
     async def _skill_cleanup_cache(self) -> None:
         try:
-            await self._run_skill(["cleanup-cache"], timeout=60)
+            await self._run_skill(["cleanup-cache"])
         except Exception as e:
             logger.warning("[岩神·采集] 清缓存失败（可忽略）: {}", e)
 
     # ---------- 格式化（供推送 + query）----------
-
-    def _format_push_message(self, mode: str, result: dict) -> str:
-        """采集完成后发给用户的消息。"""
-        scan_date = result.get('scan_date', '')
-        recommended = result.get('recommended') or []
-        changes = result.get('changes') or []
-
-        parts = [f"📊 红利股扫描报告（{scan_date}·{mode}）\n"]
-        if recommended:
-            parts.append(self._format_recommended(recommended))
-        if changes:
-            parts.append("\n" + self._format_changes(changes))
-        parts.append("\n⚠️ 以上数据仅供参考，不构成投资建议。")
-        return '\n'.join(parts)
 
     # ---------- 日报生成（A1 · 规则驱动 markdown digest）----------
 
@@ -1104,57 +1136,6 @@ class ZhongliArchon(Archon):
             "recommended_count": len(recommended),
         }
         return "\n".join(lines), meta
-
-    @staticmethod
-    def _format_recommended(stocks: list[dict]) -> str:
-        """推荐选股精简版（供推送）。"""
-        n = len(stocks)
-        lines = [f"推荐选股（{n} 只）"]
-        for i, s in enumerate(stocks[:15], 1):
-            sd = s['stock_data']
-            lines.append(
-                f"{i}. {sd.get('name', '')}({sd['code']}) {sd.get('industry', '')} "
-                f"· {s['total_score']:.1f}分 · "
-                f"股息率{sd.get('dividend_yield', 0) * 100:.1f}% "
-                f"· {s.get('advice', '')}"
-            )
-        if n > 15:
-            lines.append(f"... 另有 {n - 15} 只，详见 /wealth 面板")
-        return '\n'.join(lines)
-
-    @staticmethod
-    def _format_changes(changes: list[ChangeEvent]) -> str:
-        entered = [c for c in changes if c.event_type == 'entered']
-        exited = [c for c in changes if c.event_type == 'exited']
-        score_up = [
-            c for c in changes
-            if c.event_type == 'score_change'
-            and (c.new_value or 0) > (c.old_value or 0)
-        ]
-        score_down = [
-            c for c in changes
-            if c.event_type == 'score_change'
-            and (c.new_value or 0) < (c.old_value or 0)
-        ]
-
-        lines = ["📈 变化动态:"]
-        if entered:
-            lines.append("-- 新入选 --")
-            for c in entered[:10]:
-                lines.append(f"  {c.stock_name}({c.stock_code}) — {c.description}")
-        if exited:
-            lines.append("-- 退出 --")
-            for c in exited[:10]:
-                lines.append(f"  {c.stock_name}({c.stock_code}) — {c.description}")
-        if score_up:
-            lines.append("-- 评分上升 --")
-            for c in score_up[:10]:
-                lines.append(f"  {c.stock_name}({c.stock_code}) — {c.description}")
-        if score_down:
-            lines.append("-- 评分下降 --")
-            for c in score_down[:10]:
-                lines.append(f"  {c.stock_name}({c.stock_code}) — {c.description}")
-        return '\n'.join(lines)
 
     # ---------- 查询 API（供 tool / 面板 / LLM 调用）----------
 

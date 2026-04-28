@@ -1255,12 +1255,20 @@ class WebUIChannel(Channel):
         })
 
     async def wealth_running_api(self, request: web.Request) -> web.Response:
-        """岩神采集是否在跑（供 /wealth 公告区"采集中"状态条 + 轮询）。"""
+        """岩神采集是否在跑（供 /wealth 公告区"采集中"状态条 + 轮询）。
+
+        progress 字段（仅在 running=true 时有意义）：
+        ``{stage, cur, total, started_at, updated_at, ...stage特有字段}``
+        - stage ∈ init / board / board_codes / dividend / financial /
+          scoring_dividend / scoring_financial / scoring_rescore
+        - 前端按 stage 拼"行情扫描 X/Y"等文案
+        """
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
         zhongli = self.state.zhongli
         running = bool(zhongli and zhongli.is_scanning())
-        return web.json_response({"running": running})
+        progress = zhongli.get_progress() if (zhongli and running) else None
+        return web.json_response({"running": running, "progress": progress})
 
     async def wealth_recommended_api(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):

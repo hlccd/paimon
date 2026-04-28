@@ -311,6 +311,38 @@ WEALTH_SCRIPT = """
             var inp = document.getElementById('zhongliDateInput');
             return (inp && inp.value) || _todayStr();
         }
+        // 把 /api/wealth/running 返回的 progress dict 拼成中文文案。
+        // progress 字段：stage/cur/total/mode + 各 stage 特有（valid/passed/success 等）
+        function _formatScanProgress(p){
+            if(!p) return '正在采集红利股数据…';
+            var stage = p.stage || '';
+            var mode = p.mode || '';
+            var cur = p.cur || 0;
+            var total = p.total || 0;
+            var pct = (total > 0) ? ((cur / total * 100).toFixed(1) + '%') : '';
+            // init 没有 cur/total，按 mode 给写实文案（fetch_board 第一步是拉全市场行业分类）
+            if(stage === 'init'){
+                if(mode === 'full')    return '获取全市场行业分类…';
+                if(mode === 'daily')   return '准备 watchlist 数据…';
+                if(mode === 'rescore') return '读取缓存…';
+                return '准备中…';
+            }
+            var stageLabel = {
+                'board': '全市场行情扫描',
+                'board_codes': 'watchlist 行情扫描',
+                'dividend': '股息数据抓取',
+                'financial': '财务数据抓取',
+                'scoring_dividend': '股息评分',
+                'scoring_financial': '财务评分',
+                'scoring_rescore': '重评分',
+            }[stage] || stage;
+            if(total <= 0) return stageLabel + '…';
+            var extra = '';
+            if(p.valid != null)   extra = '，已获取 ' + p.valid + ' 只';
+            else if(p.success != null) extra = '，成功 ' + p.success + ' 只';
+            else if(p.passed != null)  extra = '，通过 ' + p.passed + ' 只';
+            return stageLabel + ' ' + cur + '/' + total + '（' + pct + '）' + extra;
+        }
 
         var _zhongliBulletinsPollTimer = null;
         async function loadZhongliBulletins(){
@@ -338,11 +370,13 @@ WEALTH_SCRIPT = """
                 var runResp = results[1] || {running: false};
                 var records = d.records || [];
                 var running = !!runResp.running;
+                var progress = runResp.progress || null;
 
                 // 顶部采集状态条
                 if(runBar){
                     if(running){
-                        runBar.innerHTML = '<span class="dot"></span><span>岩神正在采集红利股数据…</span>';
+                        var progressText = _formatScanProgress(progress);
+                        runBar.innerHTML = '<span class="dot"></span><span>岩神·' + progressText + '</span>';
                         runBar.className = 'digest-running-bar';
                         runBar.style.display = '';
                     }else{

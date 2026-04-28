@@ -845,7 +845,6 @@ async def cmd_dividend(ctx: CommandContext) -> str:
     /dividend run-full   立即全市场扫描（~15 分钟）
     /dividend run-daily  立即 watchlist 日更（~1 分钟）
     /dividend rescore    秒级重评分（仅用缓存）
-    /dividend sample [行业,行业]  小样本扫描（默认银行+保险，~4-8 分钟）
     /dividend top [N]    查看当前 top（默认 20）
     /dividend recommended 查看推荐选股（watchlist）
     /dividend changes [N] 近 N 天变化（默认 7）
@@ -869,32 +868,6 @@ async def cmd_dividend(ctx: CommandContext) -> str:
             chat_id=ctx.msg.chat_id,
         )
         return msg
-
-    if action == "sample":
-        # 小样本扫描：复用 full_scan 链路，但只扫指定行业（默认银行+保险 ~50 只）
-        # 用途：首次部署或数据丢失后快速看到面板效果，不用等 20-30 分钟 full_scan
-        if not state.march:
-            return "三月未就绪"
-        if state.zhongli.is_scanning():
-            return "已有扫描在进行，请等待完成后再触发"
-        industries = {"银行", "保险"}
-        if rest:
-            parsed = {s.strip() for s in rest.split(",") if s.strip()}
-            if parsed:
-                industries = parsed
-        import asyncio as _asyncio
-        _asyncio.create_task(state.zhongli.collect_dividend(
-            mode="sample",
-            irminsul=state.irminsul,
-            march=state.march,
-            chat_id=ctx.msg.chat_id,
-            channel_name=ctx.msg.channel_name,
-            industries_filter=industries,
-        ))
-        return (
-            f"已触发 sample 扫描（行业: {'、'.join(sorted(industries))}），"
-            f"约 4-8 分钟完成后推送日报"
-        )
 
     if action in ("run-full", "run-daily", "rescore"):
         mode_map = {"run-full": "full", "run-daily": "daily", "rescore": "rescore"}

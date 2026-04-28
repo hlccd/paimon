@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -24,6 +25,20 @@ from pathlib import Path
 _SKILL_DIR = Path(__file__).resolve().parent
 if str(_SKILL_DIR) not in sys.path:
     sys.path.insert(0, str(_SKILL_DIR))
+
+
+def _configure_runtime_logging() -> None:
+    """被 paimon 拉起时（PAIMON_SKILL_RUNTIME=1）切极简 loguru format，
+    让 paimon 主进程包前缀/时间戳，不再双重输出；
+    独立调试时（无环境变量）保持丰富格式不变。"""
+    if os.environ.get("PAIMON_SKILL_RUNTIME") != "1":
+        return
+    try:
+        from loguru import logger as _bs_logger
+        _bs_logger.remove()
+        _bs_logger.add(sys.stderr, format="{message}", level="INFO")
+    except Exception:
+        pass
 
 
 def _default_cache_dir() -> Path:
@@ -137,11 +152,14 @@ async def _async_main(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    # stdout 强制 UTF-8（防 Windows GBK 炸中文）
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+    # stdout/stderr 强制 UTF-8（防 Windows cp936 炸中文）
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+    _configure_runtime_logging()
 
     parser = argparse.ArgumentParser(
         prog="dividend-tracker",
