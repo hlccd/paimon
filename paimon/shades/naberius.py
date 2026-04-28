@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from uuid import uuid4
 
@@ -23,6 +24,10 @@ from paimon.llm.model import Model
 
 from ._plan import Plan, detect_cycle, filter_invalid_deps, linearize
 from ._verdict import ReviewVerdict, LEVEL_REDO, LEVEL_REVISE
+
+
+# 七神白名单：assignee 抢救 fallback 时用，防止 LLM 幻觉出"月神"之类不存在的 archon
+_VALID_ARCHONS = {"草神", "雷神", "水神", "火神", "风神", "岩神", "冰神"}
 
 
 _SEVEN_ARCHONS_DESC = """\
@@ -521,6 +526,103 @@ async def _plan_revise(
     return preserved + new_subs, preserved_ids
 
 
+def _strip_code_fence(raw: str) -> str:
+    """去掉 ```...``` 包裹（LLM 偶尔违反"不要 markdown fence"指令时的兜底）。"""
+    raw = (raw or "").strip()
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
+    return raw.strip()
+
+
+def _tolerant_json_parse(raw: str) -> tuple[object | None, str | None]:
+    """尽力把 raw 解析成 JSON，失败返回 (None, 最后一次报错信息)。
+
+    修复链（从轻到重）：
+      1. 原文直接 json.loads
+      2. 剥 ```fence``` 再试
+      3. 截取从首个 '{' 或 '[' 到最后一个匹配的 '}' 或 ']'（LLM 偶尔前后加解释）
+      4. 删尾随逗号（`,}` / `,]`）
+    不做"嵌套未转义双引号"的智能修复——正则做不对，交给 LLM 重试。
+    """
+    if not raw:
+        return None, "empty"
+    last_err: str | None = None
+    candidates: list[str] = []
+    stripped = raw.strip()
+    candidates.append(stripped)
+    candidates.append(_strip_code_fence(stripped))
+
+    # 截子串：从首个 { 或 [ 到最后一个 } 或 ]
+    for ob, cb in (("{", "}"), ("[", "]")):
+        i = stripped.find(ob)
+        j = stripped.rfind(cb)
+        if 0 <= i < j:
+            candidates.append(stripped[i: j + 1])
+
+    # 删尾随逗号（生成新候选）
+    trailing_comma_re = re.compile(r",(\s*[}\]])")
+    candidates += [trailing_comma_re.sub(r"\1", c) for c in list(candidates)]
+
+    seen: set[str] = set()
+    for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        try:
+            return json.loads(cand), None
+        except Exception as e:
+            last_err = str(e)
+    return None, last_err
+
+
+def _extract_items_from_obj(obj: object) -> list[dict]:
+    """兼容两种格式：{"subtasks":[...]} 或 直接 [...]。非 list 归一为空。"""
+    if isinstance(obj, dict) and "subtasks" in obj:
+        items = obj["subtasks"]
+    elif isinstance(obj, list):
+        items = obj
+    else:
+        items = []
+    if not isinstance(items, list):
+        return []
+    return items
+
+
+def _salvage_from_raw_text(raw: str, task: TaskEdict) -> list[dict]:
+    """最后兜底：从 raw 文本正则抓 "assignee":"某神" 和 "description":"..." 片段，
+    保留 LLM 意图。抓不到才降级单节点草神。
+
+    目标不是还原完整 DAG（那不可能），而是**至少不改派**——让风神任务留在风神手里。
+    """
+    # 找第一个合法 assignee
+    assignee: str | None = None
+    for m in re.finditer(r'"assignee"\s*:\s*"([^"]+)"', raw):
+        cand = m.group(1).strip()
+        if cand in _VALID_ARCHONS:
+            assignee = cand
+            break
+
+    if not assignee:
+        logger.warning("[生执·salvage] 从 raw 抓不到合法 assignee → 回退单节点草神")
+        return [{"id": "s1", "assignee": "草神",
+                 "description": task.description, "deps": []}]
+
+    # 找第一个非空 description（不强求合法 JSON 转义，尽力匹配第一个"...")
+    desc_match = re.search(
+        r'"description"\s*:\s*"([^"]{3,})"', raw,
+    )
+    description = (
+        desc_match.group(1).strip() if desc_match else task.description
+    )
+    logger.warning(
+        "[生执·salvage] 从 raw 抢救 assignee={} desc_len={} (不改派神)",
+        assignee, len(description),
+    )
+    return [{"id": "s1", "assignee": assignee,
+             "description": description, "deps": []}]
+
+
 async def _call_llm_for_plan(
     messages: list[dict],
     model: Model,
@@ -528,35 +630,73 @@ async def _call_llm_for_plan(
     *,
     purpose: str,
 ) -> list[dict]:
+    """LLM 生成 plan JSON。三层兜底保证尽量保留 LLM 意图，不无脑改派草神。
+
+    L1: 容错解析（tolerant_json_parse）—— 常见语法修复
+    L2: LLM 重试一轮 —— 把原错误+原输出回喂让它重出
+    L3: salvage_from_raw_text —— 正则从 raw 抢救 assignee+description
+    """
+    # 一次正常调用
     try:
         raw, usage = await model._stream_text(messages, component="生执", purpose=purpose)
         await model._record_primogem(task.session_id, "生执", usage, purpose=purpose)
     except Exception as e:
         logger.warning("[生执] LLM 调用异常，回退单节点草神: {}", e)
-        return [{"id": "s1", "assignee": "草神", "description": task.description, "deps": []}]
+        return [{"id": "s1", "assignee": "草神",
+                 "description": task.description, "deps": []}]
 
-    raw = (raw or "").strip()
-    if raw.startswith("```"):
-        lines = raw.splitlines()
-        raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
+    raw = _strip_code_fence(raw or "")
 
-    try:
-        obj = json.loads(raw)
-    except Exception as e:
-        logger.warning("[生执] JSON 解析失败，回退单节点草神: {} 原文={}", e, raw[:200])
-        return [{"id": "s1", "assignee": "草神", "description": task.description, "deps": []}]
+    # L1: 容错解析
+    obj, err = _tolerant_json_parse(raw)
+    if obj is not None:
+        items = _extract_items_from_obj(obj)
+        if items:
+            return items
+        logger.warning("[生执] JSON 解析成功但 items 为空 → 进入 LLM 重试")
 
-    # 兼容两种格式：{"subtasks":[...]} 或 直接 [...]
-    if isinstance(obj, dict) and "subtasks" in obj:
-        items = obj["subtasks"]
-    elif isinstance(obj, list):
-        items = obj
-    else:
-        items = []
+    # L2: 一次重试 —— 把原错误+原输出喂回让 LLM 纠正
+    if err or obj is not None:
+        logger.warning(
+            "[生执] JSON 解析失败 err={} 原文前200={!r} → 重试一轮",
+            err, raw[:200],
+        )
+        retry_messages = list(messages) + [
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": (
+                f"上面的输出无法解析为合法 JSON（{err or 'items 为空'}）。"
+                "请严格按照前面规定的 JSON 格式重新输出：\n"
+                "1. 不要 markdown fence\n"
+                "2. 不要任何解释文字\n"
+                "3. description 字段内若需引用关键词，使用中文引号「」或转义 \\\" ，"
+                "**禁止使用未转义的 ASCII 双引号**\n"
+                "4. subtasks 至少 1 项"
+            )},
+        ]
+        try:
+            raw2, usage2 = await model._stream_text(
+                retry_messages, component="生执", purpose=purpose + "·重试",
+            )
+            await model._record_primogem(
+                task.session_id, "生执", usage2, purpose=purpose + "·重试",
+            )
+            raw2 = _strip_code_fence(raw2 or "")
+            obj2, err2 = _tolerant_json_parse(raw2)
+            if obj2 is not None:
+                items2 = _extract_items_from_obj(obj2)
+                if items2:
+                    logger.info("[生执] 重试成功，获得 {} 个节点", len(items2))
+                    return items2
+            # 重试仍失败：把 raw2 作为 salvage 输入（比 raw 更可能含 LLM 修正过的结构）
+            logger.warning(
+                "[生执] 重试仍失败 err={} → 进入 salvage", err2 or "items 为空",
+            )
+            raw = raw2 or raw
+        except Exception as e:
+            logger.warning("[生执] 重试 LLM 调用异常: {} → 用原 raw 进入 salvage", e)
 
-    if not isinstance(items, list) or not items:
-        return [{"id": "s1", "assignee": "草神", "description": task.description, "deps": []}]
-    return items
+    # L3: salvage —— 正则抢救 assignee+description，不无脑改派草神
+    return _salvage_from_raw_text(raw, task)
 
 
 def _items_to_subtasks(items: list[dict], task_id: str, round: int) -> list[Subtask]:
