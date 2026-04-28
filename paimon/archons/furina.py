@@ -7,6 +7,9 @@
 - `review_spec()` — 调 check skill 审 spec.md（spec 模式）
 - `review_design()` — 调 check 对齐 spec ↔ design
 - `review_code()` — 调 check 对齐 design ↔ code
+
+按产物体量分档：小产物走**轻量 review**（一次 LLM 调用，不跑 check skill）；
+大产物走**check skill 严格审查**（原路径）。阈值由 _LIGHT_REVIEW_* 常量控制。
 """
 from __future__ import annotations
 
@@ -20,6 +23,88 @@ from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.irminsul.task import Subtask, TaskEdict
 from paimon.llm.model import Model
 from paimon.session import Session
+
+
+# 轻量 review 阈值：产物小于此值直接走一次 LLM（不跑 check skill）
+# spec/design 是 markdown 文档，按字符数（≈ token 数 × 2~3）衡量
+# code 目录按所有代码文件总行数衡量（常见 py/ts/js/go/rs 等）
+_LIGHT_REVIEW_DOC_CHAR_THRESHOLD = 2000
+_LIGHT_REVIEW_CODE_LINE_THRESHOLD = 200
+
+# code 目录"轻量判定"时统计行数的文件扩展名
+_CODE_EXTENSIONS = (".py", ".ts", ".js", ".go", ".rs", ".java", ".cpp", ".c", ".h", ".hpp")
+
+
+def _measure_doc_chars(path: Path) -> int:
+    """文档字符数；文件不存在返回 0。"""
+    if not path.is_file():
+        return 0
+    try:
+        return len(path.read_text(encoding="utf-8", errors="ignore"))
+    except OSError:
+        return 0
+
+
+def _measure_code_lines(code_dir: Path) -> int:
+    """code 目录所有代码文件总行数。目录不存在返回 0。"""
+    if not code_dir.is_dir():
+        return 0
+    total = 0
+    for ext in _CODE_EXTENSIONS:
+        for f in code_dir.rglob(f"*{ext}"):
+            try:
+                total += len(f.read_text(encoding="utf-8", errors="ignore").splitlines())
+            except OSError:
+                continue
+    return total
+
+
+def _should_use_lightweight_review(
+    stage: str,
+    *,
+    spec_path: Path | None = None,
+    design_path: Path | None = None,
+    code_dir: Path | None = None,
+) -> tuple[bool, str]:
+    """判定是否走轻量 review 路径。返回 (is_light, reason)。
+
+    review_spec: 看 spec.md 字符数
+    review_design: 看 design.md 字符数
+    review_code: 看 code 目录所有代码文件总行数
+    """
+    if stage == "review_spec" and spec_path is not None:
+        n = _measure_doc_chars(spec_path)
+        if 0 < n < _LIGHT_REVIEW_DOC_CHAR_THRESHOLD:
+            return True, f"spec.md {n} 字符 < {_LIGHT_REVIEW_DOC_CHAR_THRESHOLD}"
+        return False, f"spec.md {n} 字符"
+    if stage == "review_design" and design_path is not None:
+        n = _measure_doc_chars(design_path)
+        if 0 < n < _LIGHT_REVIEW_DOC_CHAR_THRESHOLD:
+            return True, f"design.md {n} 字符 < {_LIGHT_REVIEW_DOC_CHAR_THRESHOLD}"
+        return False, f"design.md {n} 字符"
+    if stage == "review_code" and code_dir is not None:
+        n = _measure_code_lines(code_dir)
+        if 0 < n < _LIGHT_REVIEW_CODE_LINE_THRESHOLD:
+            return True, f"code {n} 行 < {_LIGHT_REVIEW_CODE_LINE_THRESHOLD}"
+        return False, f"code {n} 行"
+    return False, f"stage {stage} 无法判定"
+
+
+_LIGHT_REVIEW_SYSTEM = """\
+你是水神·芙宁娜，对产物做严格但快速的 review。
+按 P0/P1/P2/P3 分级输出 findings，**只关心质量问题，不要泛泛赞美**。
+
+严重度定义：
+- P0 致命：语法错误 / 功能不可用 / 安全漏洞 / 与 prior 严重偏离 → redo
+- P1 关键：逻辑错误 / 测试缺失 / 明显可用性问题 → revise
+- P2 次要：代码风格 / 小 bug 影响体验但不阻塞
+- P3 建议：可选优化 / 命名改进
+
+**严格输出 JSON（不要 markdown fence、不要解释）**：
+{"findings":[{"severity":"P0|P1|P2|P3","description":"具体问题定位+原因"}],"summary":"一句话总评"}
+
+findings 可为空数组（产物确实合格）；有问题必须列出至少一条。
+"""
 
 _SYSTEM_PROMPT = """\
 你是水神·芙宁娜，掌管戏剧与评审。你是质量终审官。
@@ -97,6 +182,8 @@ class FurinaArchon(Archon):
                 verdict = await self.review_code(
                     design_path=design_path, code_dir=code_dir,
                     workspace=workspace, model=model, subtask_id=reviewed_id,
+                    # simple/trivial DAG 无 design 阶段，传 task.description 作 prior 基准
+                    fallback_requirement=task.description,
                 )
 
             # 产物：文本 + 末尾 JSON（pipeline 的 _resolve_verdict 按 find_last_verdict_producer 解析）
@@ -143,13 +230,123 @@ class FurinaArchon(Archon):
         logger.info("[水神] 子任务完成, 结果长度={}", len(result))
         return result
 
+    # ============ 轻量 review 路径（小产物不跑 check skill）============
+
+    async def _lightweight_review(
+        self,
+        *,
+        stage: str,
+        target_content: str,
+        prior_context: str,
+        model: Model,
+        subtask_id: str,
+        task_id: str,
+    ) -> "ReviewVerdict":
+        """一次 LLM 调用做 review，解析成 ReviewVerdict。
+
+        比 check skill 路径快 ~20 倍（单次 ~5-10s vs check skill ~200s）；
+        适用于：spec.md / design.md < 2000 字符，code 总行数 < 200 行。
+        不加载 check skill 的 references，不走 tool-loop。
+        """
+        from paimon.shades._verdict import (
+            LEVEL_PASS, LEVEL_REDO, LEVEL_REVISE, ReviewVerdict,
+        )
+
+        user_parts = [f"# 待审 stage: {stage}\n"]
+        if prior_context:
+            user_parts.append(
+                f"## prior（对齐基准，只读）\n\n{prior_context[:4000]}\n",
+            )
+        user_parts.append(f"## target\n\n{target_content[:8000]}\n")
+
+        messages = [
+            {"role": "system", "content": _LIGHT_REVIEW_SYSTEM},
+            {"role": "user", "content": "\n".join(user_parts)},
+        ]
+
+        try:
+            raw, usage = await model._stream_text(
+                messages, component="水神", purpose=f"lightweight·{stage}",
+            )
+            await model._record_primogem(
+                task_id, "水神", usage, purpose=f"lightweight·{stage}",
+            )
+        except Exception as e:
+            logger.error("[水神·{}·轻量] LLM 调用失败: {} → 保守 pass", stage, e)
+            return ReviewVerdict(
+                level=LEVEL_PASS, issues=[],
+                summary=f"{stage}(轻量): LLM 调用失败，保守 pass",
+            )
+
+        # 解析 JSON（容错剥 fence）
+        raw = (raw or "").strip()
+        if raw.startswith("```"):
+            lines = raw.splitlines()
+            if len(lines) >= 2:
+                raw = "\n".join(lines[1:-1]).strip()
+
+        findings = []
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                findings = obj.get("findings") or []
+        except Exception as e:
+            logger.warning(
+                "[水神·{}·轻量] JSON 解析失败: {} raw_preview={!r}",
+                stage, e, raw[:200],
+            )
+
+        sev_count = {"P0": 0, "P1": 0, "P2": 0, "P3": 0}
+        issues: list[dict] = []
+        for f in findings:
+            if not isinstance(f, dict):
+                continue
+            sev = f.get("severity", "P3")
+            if sev not in sev_count:
+                sev = "P3"
+            sev_count[sev] += 1
+            issues.append({
+                "severity": sev,
+                "reason": (f.get("description") or "")[:300],
+                "suggestion": "",
+                "subtask_id": subtask_id,
+            })
+
+        if sev_count["P0"] > 0:
+            level = LEVEL_REDO
+        elif sev_count["P1"] > 0:
+            level = LEVEL_REVISE
+        else:
+            level = LEVEL_PASS
+
+        summary = (
+            f"{stage}(轻量): {sev_count['P0']} P0 / {sev_count['P1']} P1 / "
+            f"{sev_count['P2']} P2 / {sev_count['P3']} P3"
+        )
+        logger.info("[水神·{}·轻量] verdict={} {}", stage, level, summary)
+        return ReviewVerdict(level=level, issues=issues[:20], summary=summary)
+
     # ============ 四影管线 review 阶段入口（调 check skill）============
 
     async def review_spec(
         self, *, spec_path: Path, workspace: Path, model: Model,
         subtask_id: str = "",
     ) -> "ReviewVerdict":
-        """审 spec.md；check --level=core --depth=quick（只挑 P0/P1 严重问题，快速单轮）。"""
+        """审 spec.md。小文档走轻量 LLM；大文档走 check skill core+quick 档。"""
+        is_light, reason = _should_use_lightweight_review(
+            "review_spec", spec_path=spec_path,
+        )
+        if is_light:
+            logger.info("[水神·review_spec·轻量] 触发 ({})", reason)
+            target = spec_path.read_text(encoding="utf-8", errors="ignore") if spec_path.is_file() else ""
+            return await self._lightweight_review(
+                stage="review_spec",
+                target_content=target,
+                prior_context="",
+                model=model,
+                subtask_id=subtask_id,
+                task_id=workspace.name,
+            )
         return await self._run_check_and_parse(
             check_args=f"spec {spec_path} --level core --depth quick --fix report-only",
             workspace=workspace,
@@ -163,7 +360,22 @@ class FurinaArchon(Archon):
         self, *, spec_path: Path, design_path: Path, workspace: Path, model: Model,
         subtask_id: str = "",
     ) -> "ReviewVerdict":
-        """审 design.md；core + quick 档位。"""
+        """审 design.md 对齐 spec。小文档走轻量 LLM；大文档走 check skill。"""
+        is_light, reason = _should_use_lightweight_review(
+            "review_design", design_path=design_path,
+        )
+        if is_light:
+            logger.info("[水神·review_design·轻量] 触发 ({})", reason)
+            design_text = design_path.read_text(encoding="utf-8", errors="ignore") if design_path.is_file() else ""
+            spec_text = spec_path.read_text(encoding="utf-8", errors="ignore") if spec_path.is_file() else ""
+            return await self._lightweight_review(
+                stage="review_design",
+                target_content=design_text,
+                prior_context=spec_text,
+                model=model,
+                subtask_id=subtask_id,
+                task_id=workspace.name,
+            )
         return await self._run_check_and_parse(
             check_args=f"spec {design_path} --level core --depth quick --fix report-only --note \"对齐 spec: {spec_path}\"",
             workspace=workspace,
@@ -175,11 +387,63 @@ class FurinaArchon(Archon):
 
     async def review_code(
         self, *, design_path: Path, code_dir: Path, workspace: Path, model: Model,
-        subtask_id: str = "",
+        subtask_id: str = "", fallback_requirement: str = "",
     ) -> "ReviewVerdict":
-        """审 code 对齐 design；core + quick 档位（每阶段 N+M+K 多轮成本过高，MVP 用快速档位）。"""
+        """审 code 对齐 design。小代码走轻量 LLM；大代码走 check skill。
+
+        simple/trivial DAG 无 design 阶段时，design_path 不存在 —— 用
+        `fallback_requirement`（task.description）作对齐基准代替 design.md。
+        """
+        is_light, reason = _should_use_lightweight_review(
+            "review_code", code_dir=code_dir,
+        )
+        if is_light:
+            logger.info("[水神·review_code·轻量] 触发 ({})", reason)
+            # 拼接所有代码文件（轻量路径上限 8KB target_content，够几个小文件）
+            code_chunks: list[str] = []
+            if code_dir.is_dir():
+                for ext in _CODE_EXTENSIONS:
+                    for f in code_dir.rglob(f"*{ext}"):
+                        try:
+                            rel = f.relative_to(code_dir)
+                            body = f.read_text(encoding="utf-8", errors="ignore")
+                            code_chunks.append(f"### {rel}\n```\n{body}\n```\n")
+                        except OSError:
+                            continue
+            code_text = "\n".join(code_chunks)
+            # prior 优先用 design.md；不存在则退回原始需求（simple/trivial DAG 场景）
+            if design_path.is_file():
+                prior = design_path.read_text(encoding="utf-8", errors="ignore")
+            elif fallback_requirement:
+                prior = f"[原始用户需求]\n{fallback_requirement}"
+            else:
+                prior = ""
+            return await self._lightweight_review(
+                stage="review_code",
+                target_content=code_text,
+                prior_context=prior,
+                model=model,
+                subtask_id=subtask_id,
+                task_id=workspace.name,
+            )
+        # 重路径：check skill 对齐 design.md；若 design 不存在则用原始需求作为 --spec 降级
+        align_spec = str(design_path) if design_path.is_file() else ""
+        if not align_spec and fallback_requirement:
+            # 临时把原始需求写进 workspace/requirement.md 给 check 当 spec
+            req_file = workspace / "requirement.md"
+            try:
+                req_file.write_text(
+                    f"# 原始需求\n\n{fallback_requirement}\n", encoding="utf-8",
+                )
+                align_spec = str(req_file)
+            except OSError as e:
+                logger.warning("[水神·review_code] 写 requirement.md 失败: {}", e)
+        check_args = (
+            f"code-vs-spec {code_dir} --level core --depth quick --fix report-only"
+            + (f" --spec {align_spec}" if align_spec else "")
+        )
         return await self._run_check_and_parse(
-            check_args=f"code-vs-spec {code_dir} --spec {design_path} --level core --depth quick --fix report-only",
+            check_args=check_args,
             workspace=workspace,
             model=model,
             stage_name="review_code",
