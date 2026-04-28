@@ -252,6 +252,7 @@ class Model:
         session.messages.append({"role": "user", "content": user_input})
 
         max_rounds = 15
+        tool_calls: list = []   # 防御：for 0 次时外层检查不会 NameError
         for round_idx in range(max_rounds):
             runtime_messages = self._build_runtime_messages(session)
             text_buf = ""
@@ -426,6 +427,52 @@ class Model:
                     "content": str(result),
                 })
                 logger.debug("[天使·工具结果] {} -> {}字符", fn["name"], len(str(result)))
+
+        # for 循环结束判定：
+        # - 正常 break（最后一轮无 tool_calls）→ 循环内 if not tool_calls 分支已把 assistant 文本
+        #   append 到 session.messages，tool_calls 变量为空列表
+        # - 耗尽 max_rounds → tool_calls 仍有值，session.messages 末尾是 tool results，
+        #   最后一条 assistant 消息带 tool_calls 且 content 只是过渡语
+        # 后者场景下 _extract_result 只能 L2 fallback 抓过渡语几十字符的垃圾 →
+        # 强制再跑一次 LLM（不传 tools）让它基于已有信息给纯文字最终答复。
+        if tool_calls:
+            logger.warning(
+                "[神之心·模型] tool loop 达上限 {} 轮仍在调工具，强制收尾一次",
+                max_rounds,
+            )
+            forced_messages = self._build_runtime_messages(session) + [
+                {"role": "user",
+                 "content": (
+                    f"工具调用已达上限（{max_rounds} 轮）。请基于已有信息直接给出"
+                    "最终答复，不要再调用工具。"
+                 )},
+            ]
+            forced_text = ""
+            forced_reasoning = ""
+            forced_usage = self._empty_usage()
+            try:
+                # 关键：tools=None 强制 LLM 走纯文本输出
+                async for chunk in active_provider.chat_stream(forced_messages, tools=None):
+                    if chunk.usage:
+                        self._merge_usage(forced_usage, chunk.usage)
+                        continue
+                    if chunk.reasoning_content:
+                        forced_reasoning += chunk.reasoning_content
+                    if chunk.content:
+                        forced_text += chunk.content
+                        yield chunk.content
+            except Exception as e:
+                logger.error("[神之心·模型] 强制收尾轮失败: {}", e)
+            self._merge_usage(total_usage, forced_usage)
+            if forced_text:
+                # 进 session.messages 让 _extract_result 走 L1 命中（纯 assistant content）；
+                # 带 reasoning_content 字段对齐 DeepSeek thinking 硬约束。
+                session.messages.append({
+                    "role": "assistant",
+                    "content": forced_text,
+                    "reasoning_content": forced_reasoning,
+                })
+                logger.info("[神之心·模型] 强制收尾产出 {} 字", len(forced_text))
 
         if total_usage["input_tokens"] == 0 and total_usage["output_tokens"] == 0:
             runtime_messages = self._build_runtime_messages(session)
