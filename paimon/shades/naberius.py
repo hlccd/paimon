@@ -192,10 +192,14 @@ async def plan(
 async def _plan_initial(
     task: TaskEdict, model: Model, irminsul: Irminsul,
 ) -> list[Subtask]:
-    # 检测是否是"写代码"任务 → 生成固定三阶段 6 节点 DAG（spec/design/code × 生产+水神）
-    if _is_code_task(task):
-        logger.info("[生执] 检测为写代码任务 → 三阶段 DAG")
-        return _build_code_pipeline_dag(task.id)
+    # 检测是否是"写代码"任务并按复杂度分档生成对应 DAG
+    level = _classify_code_task(task)
+    if level != "none":
+        logger.info(
+            "[生执] 写代码任务 {} 级 → {} 节点 DAG",
+            level, {"trivial": 1, "simple": 2, "complex": 6}[level],
+        )
+        return _build_code_pipeline_dag(task.id, level=level)
 
     messages = [
         {"role": "system", "content": _INITIAL_PROMPT},
@@ -206,6 +210,7 @@ async def _plan_initial(
 
 
 # 写代码任务识别关键词（命中即走三阶段 DAG）
+# 注：trivial/simple/complex 分档在 `_classify_code_task` 里做，此处只做"是不是写代码"的粗判
 _CODE_TASK_KEYWORDS = (
     "写代码", "写个", "写一个", "写一段",
     "实现", "开发", "编写", "新增", "加一个", "加上", "加个",
@@ -222,6 +227,61 @@ def _is_code_task(task: TaskEdict) -> bool:
     """简单关键词规则识别写代码任务。未来可加 LLM 兜底。"""
     text = (task.title + "\n" + task.description).lower()
     return any(k in text or k.lower() in text for k in _CODE_TASK_KEYWORDS)
+
+
+# 写代码任务复杂度分档
+#   trivial: 1 节点（只雷神 code + 自检，零 review）——"写个 hello.py"类
+#   simple:  2 节点（雷神 code + 水神 review_code，跳过 spec/design）——单文件级改动
+#   complex: 6 节点（完整 spec/design/code 三阶段 × 生产+review）——涉及架构决策的任务
+# 启发式：长度粗分 + 关键词升/降档
+_TRIVIAL_CHAR_THRESHOLD = 12
+_SIMPLE_CHAR_THRESHOLD = 40
+
+# 命中任一 → 升档到 complex（即使字数短，也表示需求涉及架构决策）
+_COMPLEX_SIGNAL_KEYWORDS = (
+    "系统", "框架", "架构", "服务", "模块", "组件",
+    "接入", "集成", "重构", "迁移", "redesign",
+    "完整的", "整套", "一整个",
+)
+
+# 命中任一 → 降档到 simple（轻量实体，不到 complex）
+_SIMPLE_SIGNAL_KEYWORDS = (
+    "函数", "脚本", "文件", "工具", "小工具",
+    "script", "snippet",
+)
+
+
+def _classify_code_task(task: TaskEdict) -> str:
+    """返回 "none" / "trivial" / "simple" / "complex"。
+
+    不是写代码任务 → "none"。
+    否则按 task.description 长度粗分 + 关键词升降档：
+      - complex 关键词命中 → complex
+      - simple 关键词命中且初判 trivial → 升到 simple
+      - 否则按长度：<12 trivial / <40 simple / 其他 complex
+    用户输入越详细，越可能是复杂任务；"系统/框架"等词直接走 complex。
+    """
+    if not _is_code_task(task):
+        return "none"
+    desc = task.description.strip()
+    n = len(desc)
+
+    # 关键词升档：含架构/系统信号 → 直接 complex
+    if any(k in desc for k in _COMPLEX_SIGNAL_KEYWORDS):
+        return "complex"
+
+    # 长度初判
+    if n < _TRIVIAL_CHAR_THRESHOLD:
+        base = "trivial"
+    elif n < _SIMPLE_CHAR_THRESHOLD:
+        base = "simple"
+    else:
+        base = "complex"
+
+    # 关键词微调：命中 simple 关键词且初判 trivial → 升到 simple
+    if base == "trivial" and any(k in desc for k in _SIMPLE_SIGNAL_KEYWORDS):
+        return "simple"
+    return base
 
 
 def _is_code_pipeline_plan(plan: "Plan | None") -> bool:
@@ -267,38 +327,57 @@ def _revise_code_pipeline(
         if it.get("subtask_id")
     }
 
-    # 识别被挑的阶段（spec / design / code）
+    # 关键：按**当前 plan 实际存在**的阶段工作，不硬编码 6 阶段。
+    # 这样 simple (code+review_code) / trivial (code only) DAG 在 revise 时
+    # 不会被升级为 complex 6 节点，保持用户原本选的复杂度档位。
+    full_stage_order = ["spec", "review_spec", "design", "review_design", "code", "review_code"]
+    present_stages = {_stage_of(s) for s in ordered if _stage_of(s) != "unknown"}
+    stage_order = [s for s in full_stage_order if s in present_stages]
+    if not stage_order:
+        # 完全没识别出任何 stage（异常），降级到整套 6 节点
+        stage_order = full_stage_order
+
+    # 识别被挑的阶段（只考虑 plan 里真实存在的生产阶段）
+    production_in_plan = [s for s in stage_order if not s.startswith("review_")]
     failed_stage: str | None = None
     for s in ordered:
         if s.id in failed_ids:
             st = _stage_of(s)
-            if st in ("spec", "design", "code"):
+            if st in production_in_plan:
                 failed_stage = st
                 break
-    # fallback：末尾 review 节点的 deps[0] stage 即生产节点
+    # fallback：末尾 review 节点的对应生产阶段
     if failed_stage is None:
-        # 若 level=redo，按 review 节点识别被审阶段：review_code redo 回 design 阶段
         last_review = next(
             (s for s in reversed(ordered) if _stage_of(s).startswith("review_")),
             None,
         )
         if last_review:
             rs = _stage_of(last_review)
-            failed_stage = {
+            mapped = {
                 "review_spec": "spec",
                 "review_design": "design",
                 "review_code": "code",
-            }.get(rs, "code")
-        else:
-            failed_stage = "code"
+            }.get(rs)
+            # 映射后的 stage 必须在 plan 里（simple DAG 没有 spec）
+            if mapped and mapped in production_in_plan:
+                failed_stage = mapped
+        if failed_stage is None:
+            # 兜底：取 plan 里最后一个生产阶段
+            failed_stage = production_in_plan[-1] if production_in_plan else "code"
 
-    # redo 降级一层：code→design, design→spec, spec→spec（没得降）
+    # redo 降级一层：只在降级后的阶段在 plan 里才降；否则留原地
     if verdict.level == "redo":
-        failed_stage = {"code": "design", "design": "spec", "spec": "spec"}[failed_stage]
+        downgrade = {"code": "design", "design": "spec", "spec": "spec"}.get(failed_stage, failed_stage)
+        if downgrade in production_in_plan:
+            failed_stage = downgrade
+        # 否则保持 failed_stage 不变（simple/trivial 没有上游阶段可降）
 
-    # 阶段排序 → 确定要重派的节点 = 从 failed_stage 起所有后续阶段
-    stage_order = ["spec", "review_spec", "design", "review_design", "code", "review_code"]
-    redo_from = stage_order.index(failed_stage)
+    # 阶段排序 → 要重派的节点 = 从 failed_stage 起所有后续阶段（限在 present_stages 内）
+    try:
+        redo_from = stage_order.index(failed_stage)
+    except ValueError:
+        redo_from = 0  # failed_stage 不在 stage_order（异常），从头重派
     redo_stages = set(stage_order[redo_from:])
 
     # 保留前面阶段（同 stage 但非 review 的生产节点；且 status=completed）
@@ -334,7 +413,9 @@ def _revise_code_pipeline(
             compensate="",
         )
 
-    stage_meta = [
+    # stage_meta 只保留当前 plan 里实际存在的 stage，避免 simple/trivial revise
+    # 被升级成 complex 6 节点
+    _full_stage_meta = [
         ("spec", "草神", "产出产品方案 spec.md（revise 轮）"),
         ("review_spec", "水神", "审查 spec.md"),
         ("design", "雷神", "产出技术方案 design.md（revise 轮）"),
@@ -342,6 +423,7 @@ def _revise_code_pipeline(
         ("code", "雷神", "产出代码（revise 轮，增量修改）"),
         ("review_code", "水神", "审查 code"),
     ]
+    stage_meta = [m for m in _full_stage_meta if m[0] in present_stages]
 
     # verdict.issues 嵌到**第一个被 redo 的生产节点** description 里——
     # revise 轮时，上一轮水神 review 节点在新 plan 里被替换，deps 机制拿不到
@@ -386,42 +468,72 @@ def _revise_code_pipeline(
     return preserved + new_nodes, preserved_ids
 
 
-def _build_code_pipeline_dag(task_id: str) -> list[Subtask]:
-    """生成写代码三阶段 6 节点 DAG。
-
-    description 前缀 `[STAGE:xxx]` 用于各 archon execute() 分派到对应方法。
-    deps 形成流水线：每个水神节点依赖对应生产节点。
-    """
+def _mk_code_node(
+    task_id: str, assignee: str, stage: str, desc: str,
+    deps: list[str], *, round: int = 1,
+) -> Subtask:
+    """统一构造带 [STAGE:xxx] 前缀的 Subtask。各 archon execute 按前缀分派方法。"""
     import time
     import uuid
-
     now = time.time()
+    return Subtask(
+        id=uuid.uuid4().hex[:12],
+        task_id=task_id,
+        parent_id=None,
+        assignee=assignee,
+        description=f"[STAGE:{stage}] {desc}",
+        status="pending",
+        result="",
+        created_at=now,
+        updated_at=now,
+        deps=deps,
+        round=round,
+        sensitive_ops=[],
+        verdict_status="",
+        compensate="",
+    )
 
-    def _mk(assignee: str, stage: str, desc: str, deps: list[str]) -> Subtask:
-        return Subtask(
-            id=uuid.uuid4().hex[:12],
-            task_id=task_id,
-            parent_id=None,
-            assignee=assignee,
-            description=f"[STAGE:{stage}] {desc}",
-            status="pending",
-            result="",
-            created_at=now,
-            updated_at=now,
-            deps=deps,
-            round=1,
-            sensitive_ops=[],
-            verdict_status="",
-            compensate="",
+
+def _build_code_pipeline_dag(task_id: str, level: str = "complex") -> list[Subtask]:
+    """按复杂度生成写代码 DAG。
+
+    - trivial: 1 节点（雷神 code + 自检），如"写个 hello.py"
+    - simple:  2 节点（雷神 code → 水神 review_code），单文件级改动
+    - complex: 6 节点（草神 spec → 水神 review_spec → 雷神 design → 水神 review_design
+              → 雷神 code → 水神 review_code），涉及架构决策的任务
+
+    description 前缀 `[STAGE:xxx]` 用于各 archon execute() 分派到对应方法。
+    """
+    if level == "trivial":
+        return [_mk_code_node(
+            task_id, "雷神", "code",
+            "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [],
+        )]
+
+    if level == "simple":
+        n1 = _mk_code_node(
+            task_id, "雷神", "code",
+            "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [],
         )
+        n2 = _mk_code_node(
+            task_id, "水神", "review_code",
+            "审查 code（对齐原始需求）", [n1.id],
+        )
+        return [n1, n2]
 
-    n1 = _mk("草神", "spec", "产出产品方案 spec.md（调 requirement-spec skill）", [])
-    n2 = _mk("水神", "review_spec", "审查 spec.md（调 check skill spec 模式）", [n1.id])
-    n3 = _mk("雷神", "design", "产出技术方案 design.md（调 architecture-design skill）", [n2.id])
-    n4 = _mk("水神", "review_design", "审查 design.md（调 check skill 对齐 spec）", [n3.id])
-    n5 = _mk("雷神", "code", "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [n4.id])
-    n6 = _mk("水神", "review_code", "审查 code（调 check skill 对齐 design）", [n5.id])
-
+    # complex: 完整三阶段 6 节点
+    n1 = _mk_code_node(task_id, "草神", "spec",
+                       "产出产品方案 spec.md（调 requirement-spec skill）", [])
+    n2 = _mk_code_node(task_id, "水神", "review_spec",
+                       "审查 spec.md（调 check skill spec 模式）", [n1.id])
+    n3 = _mk_code_node(task_id, "雷神", "design",
+                       "产出技术方案 design.md（调 architecture-design skill）", [n2.id])
+    n4 = _mk_code_node(task_id, "水神", "review_design",
+                       "审查 design.md（调 check skill 对齐 spec）", [n3.id])
+    n5 = _mk_code_node(task_id, "雷神", "code",
+                       "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [n4.id])
+    n6 = _mk_code_node(task_id, "水神", "review_code",
+                       "审查 code（调 check skill 对齐 design）", [n5.id])
     return [n1, n2, n3, n4, n5, n6]
 
 
