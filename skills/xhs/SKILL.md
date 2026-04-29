@@ -8,56 +8,63 @@ allowed-tools: Bash Read Write
 
 # 小红书内容分析器
 
-自动解析和分析小红书笔记内容，支持视频和图文笔记。
-
-## 功能特性
-
-- **自动解析短链**: 支持小红书分享短链自动解析（xhslink.com）
-- **内容类型识别**: 自动判断视频笔记或图文笔记
-- **视频笔记处理**: 提取视频音频，生成详细总结
-- **图文笔记处理**: 提取页面文本和描述信息
-- **元信息提取**: 自动获取标题、作者、描述等信息
-
-## 使用方法
-
-### 基本用法
-
-```bash
-/xhs <小红书短链或完整URL>
-```
-
-### 示例
-
-```bash
-# 使用短链
-/xhs http://xhslink.com/o/XXXXXXX
-
-# 使用完整URL
-/xhs https://www.xiaohongshu.com/discovery/item/69c79a740000000028009f3d
-
-# 自定义分析要求
-/xhs http://xhslink.com/o/XXXXXXX --prompt "提取关键建议和论据"
-```
-
-## 参数说明
-
-- `<url>`: (必需) 小红书分享链接（短链或完整URL）
-- `--prompt <text>`: (可选) 自定义分析要求，不指定则生成全面总结
+解析小红书笔记，自动识别视频/图文，分别走 audio_process / 文本提取。
 
 ## 处理流程
 
-### 视频笔记
-1. 解析短链获取完整URL
-2. 抓取页面提取视频直链
-3. 下载视频音频
-4. 使用 audio_process 生成总结
-5. 自动清理临时文件
+### 1. 短链解析（xhslink.com）
+小红书短链通过 302 重定向到长链。用 curl 抓 Location 头（必须带 Chrome UA，默认 curl UA 会被拦）：
 
-### 图文笔记
-1. 解析短链获取完整URL
-2. 使用 exec 工具抓取页面内容：`curl -s -L "<url>"`
-3. 提取标题、描述、文本内容
-4. 返回结构化信息
+```bash
+curl -s -I -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "<短链>" | grep -i "^location:" | tail -1
+```
+
+或更简单的 `curl -Ls -o /dev/null -w '%{url_effective}' -A "Mozilla/5.0 ... Chrome/120..." "<短链>"`。
+
+### 2. 抓页面（用 web_fetch，不要用裸 curl）
+`web_fetch` 已内置真实 Chrome UA + Accept-Language，绕过基础反爬：
+
+```
+web_fetch(url="<长链>", raw=true)
+```
+
+`raw=true` 返回原始 HTML，方便正则提视频直链。要纯文本就 `raw=false`（默认）。
+
+### 3. 判断笔记类型
+- URL 含 `type=video` → 视频笔记
+- URL 含 `type=normal` → 图文笔记
+- 都没有 → 看 HTML 里有没有 `https://sns-video-*.xhscdn.com/...`
+
+### 4. 视频笔记 → audio_process
+正则提视频直链：
+
+```
+https://sns-video-[a-z0-9-]+\.xhscdn\.com/[^\s"'<>]+
+```
+
+下载音频（必须带 UA，否则被拦）：
+
+```bash
+yt-dlp -x --audio-format mp3 --audio-quality 5 \
+  --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+  -o ~/workspace/_xhs_audio.mp3 "<视频直链>"
+```
+
+然后调用 `audio_process(audio_path="~/workspace/_xhs_audio.mp3", prompt="...")`。
+
+**注意**：audio_process 的 prompt 别提「视频/画面」，统一说「音频/内容」，避免模型困惑。
+
+### 5. 图文笔记 → 文本提取
+直接把 `web_fetch(url, raw=false)` 的纯文本返给用户。如果用户有自定义 prompt，再调一次 `web_fetch` 让大模型按要求总结。
+
+## 注意
+
+- **反爬关键**：所有出站请求都要带真实 Chrome UA。`web_fetch` 已经内置；裸 curl 必须显式 `-A`；yt-dlp 必须 `--user-agent`
+- 短链有时效，过期就报错让用户重新分享
+- 视频直链 CDN 不需要登录就能下，但 UA 检查严格
+- 处理完清理：`rm -f ~/workspace/_xhs_audio*`
+- 如果 web_fetch 返 `HTTP 错误 403/461` → 多半是 UA 被识破或笔记设私密，直接告知用户
+- 图文笔记的图片 OCR 暂不支持，仅提文本
 
 ## 输出格式
 
@@ -69,62 +76,4 @@ allowed-tools: Bash Read Write
 
 📝 内容总结
 [根据笔记内容生成的详细总结]
-
-📊 处理信息
-- Token用量: xxx
 ```
-
-## 限制
-
-- 短链可能过期，建议及时处理
-- 视频音频最大20MB
-- 长视频（>30分钟）总结可能不够详尽
-- 图文笔记中的图片内容暂不支持OCR识别
-- 页面结构可能随小红书版本变化而调整
-
-## 依赖工具
-
-- `curl`: 短链解析和页面抓取
-- `yt-dlp`: 视频下载
-- `ffmpeg`: 音频转换
-- `exec` 工具: 通过 curl 抓取页面内容
-- `audio_process`: 音频内容理解（外部工具）
-
-## 技术说明
-
-处理流程：
-
-1. xhslink 短链 302 重定向解析
-2. 页面内容提取（视频直链、标题、描述等）
-3. 根据内容类型选择处理方式
-4. 自动清理临时文件
-5. 返回结构化结果
-
-## 注意事项
-
-### 短链特性
-- 小红书短链格式: `http://xhslink.com/{o|a|m}/{hash}`
-- 短链通过 302 重定向到长链接
-- 长链接包含 note_id 和 xsec_token 等关键参数
-
-### 页面抓取
-- 小红书页面为 SSR 渲染，包含完整的视频直链
-- 页面结构可能变化，提取逻辑需要定期验证
-- 某些笔记可能有访问限制
-
-### 音频处理
-- prompt 中不应提及"视频"，避免模型混淆
-- 长音频总结可能不够详尽，可在 prompt 中强调重点
-- 音频文件自动存储在 `~/workspace/` 目录
-
-## 实际案例
-
-### 案例：「非哥传术」视频笔记
-- **短链**: http://xhslink.com/o/xxx
-- **内容**: 《国央企，体制内，一定要沉得住气！》
-- **处理**: 短链解析 → 页面抓取 → 视频音频下载(4MB) → audio_process总结
-- **结果**: 成功提取完整内容和关键观点
-
-## 更新日志
-
-- 2026-04-09: 初始版本，支持视频和图文笔记分析
