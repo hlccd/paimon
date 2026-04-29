@@ -406,7 +406,7 @@ class WebUIChannel(Channel):
     # ---------- 草神·知识库（world tree knowledge 域）----------
 
     async def knowledge_kb_list_api(self, request: web.Request) -> web.Response:
-        """列知识库所有 (category, topic) 条目，可选按 category 过滤。"""
+        """列知识库条目（带 body_preview + updated_at），按更新时间降序，可选按 category 过滤。"""
         if self.require_auth:
             token = request.cookies.get("paimon_token")
             if not token or token not in self.valid_tokens:
@@ -418,21 +418,11 @@ class WebUIChannel(Channel):
 
         category = request.query.get("category", "").strip()
         try:
-            pairs = await irminsul.knowledge_list(category)
+            items = await irminsul.knowledge_list_detailed(category)
         except Exception as e:
             logger.error("[草神·知识库] 列出异常: {}", e)
             return web.json_response({"error": str(e)}, status=500)
-
-        # 分组 category → [topics]
-        groups: dict[str, list[str]] = {}
-        for cat, topic in pairs:
-            groups.setdefault(cat, []).append(topic)
-        return web.json_response({
-            "items": [
-                {"category": c, "topics": sorted(ts)}
-                for c, ts in sorted(groups.items())
-            ],
-        })
+        return web.json_response({"items": items})
 
     async def knowledge_kb_read_api(self, request: web.Request) -> web.Response:
         """读知识条目全文。"""

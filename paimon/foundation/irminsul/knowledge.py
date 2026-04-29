@@ -68,6 +68,37 @@ class KnowledgeRepo:
                     result.append((cat_dir.name, md.stem))
         return result
 
+    async def list_detailed(
+        self, category: str = "", preview_chars: int = 200,
+    ) -> list[dict]:
+        """返回 [{category, topic, body_preview, updated_at}]，按 updated_at DESC 排序。"""
+        pairs = await self.list(category)
+        items: list[dict] = []
+        for cat, topic in pairs:
+            try:
+                path = self._topic_path(cat, topic)
+            except ValueError:
+                continue
+            if not path.is_file():
+                continue
+            try:
+                mtime = int(path.stat().st_mtime)
+            except OSError:
+                mtime = 0
+            try:
+                body = path.read_text(encoding="utf-8")
+            except OSError:
+                body = ""
+            preview = body if len(body) <= preview_chars else body[:preview_chars].rstrip() + "..."
+            items.append({
+                "category": cat,
+                "topic": topic,
+                "body_preview": preview,
+                "updated_at": mtime,
+            })
+        items.sort(key=lambda x: x["updated_at"], reverse=True)
+        return items
+
     async def delete(self, category: str, topic: str, *, actor: str) -> bool:
         try:
             path = self._topic_path(category, topic)

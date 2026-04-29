@@ -169,26 +169,6 @@ KNOWLEDGE_CSS = """
     }
     .mono { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 12px; color: var(--text-secondary); }
 
-    /* 知识库 category 分组卡片 */
-    .kb-category {
-        margin-bottom: 20px; padding: 16px;
-        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 8px;
-    }
-    .kb-category-header {
-        font-size: 14px; font-weight: 600; color: var(--gold);
-        margin-bottom: 10px; padding-bottom: 8px;
-        border-bottom: 1px solid var(--paimon-border);
-    }
-    .kb-topics { display: flex; flex-wrap: wrap; gap: 8px; }
-    .kb-topic {
-        padding: 6px 12px; background: var(--paimon-panel-light);
-        border: 1px solid var(--paimon-border); border-radius: 16px;
-        cursor: pointer; font-size: 13px; color: var(--text-secondary);
-        transition: all .15s;
-    }
-    .kb-topic:hover { border-color: var(--gold); color: var(--gold); }
-
     /* 文书归档卡片 */
     .archive-card {
         margin-bottom: 12px; padding: 14px 18px;
@@ -277,9 +257,12 @@ KNOWLEDGE_BODY = """
         </div>
 
         <div id="kb" class="tab-panel">
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
-                <button class="btn-add" onclick="triggerKbHygiene()" id="btnKbHygiene" title="LLM 按分类扫知识库，批量合并/去重。周一凌晨也会自动跑。">🧹 整理</button>
-                <button class="btn-add" onclick="openKbCreate()">+ 新建</button>
+            <div class="pills-row">
+                <div class="pills"></div>
+                <div style="display:flex;gap:8px">
+                    <button class="btn-add" onclick="triggerKbHygiene()" id="btnKbHygiene" title="LLM 按分类扫知识库，批量合并/去重。周一凌晨也会自动跑。">🧹 整理</button>
+                    <button class="btn-add" onclick="openKbCreate()">+ 新建</button>
+                </div>
             </div>
             <div id="kbEl"><div class="empty-state">加载中...</div></div>
         </div>
@@ -790,34 +773,73 @@ KNOWLEDGE_SCRIPT = """
         };
 
         // ---------- 知识库 tab ----------
+        var _kbCache = {};  // key = "cat/topic" → {category, topic, body_preview, updated_at}
+
         async function loadKb(){
             var el = document.getElementById('kbEl');
             try{
                 var r = await fetch('/api/knowledge/kb/list');
                 var d = await r.json();
                 var items = d.items || [];
-                var totalTopics = items.reduce(function(acc, g){ return acc + g.topics.length; }, 0);
                 var cc = document.getElementById('countKb');
-                if(cc) cc.textContent = totalTopics ? totalTopics : '';
+                if(cc) cc.textContent = items.length ? items.length : '';
                 if(!items.length){
                     el.innerHTML = '<div class="empty-state">知识库为空。<br><br>让草神调 <code>knowledge</code> 工具写入，或在对话里说"帮我把 X 记到知识库 Y 分类下"</div>';
                     window._kbLoaded = true;
                     return;
                 }
-                el.innerHTML = items.map(function(g){
-                    var topics = g.topics.map(function(t){
-                        return '<div class="kb-topic" onclick="openKb(\\''+esc(g.category)+'\\',\\''+esc(t)+'\\')">'+esc(t)+'</div>';
-                    }).join('');
-                    return '<div class="kb-category">'
-                        + '<div class="kb-category-header">'+esc(g.category)+' <span style="color:var(--text-muted);font-weight:normal;font-size:12px">· '+g.topics.length+' 个 topic</span></div>'
-                        + '<div class="kb-topics">'+topics+'</div>'
-                        + '</div>';
+                _kbCache = {};
+                var rows = items.map(function(it){
+                    var key = it.category + '/' + it.topic;
+                    _kbCache[key] = it;
+                    return ''
+                        +'<tr data-key="'+esc(key)+'">'
+                        +'<td><strong>'+esc(it.topic)+'</strong>'
+                            +'<div class="body-preview">'+esc(it.body_preview || '')+'</div></td>'
+                        +'<td class="mono">'+esc(it.category)+'</td>'
+                        +'<td class="mono">'+fmtTime(it.updated_at)+'</td>'
+                        +'<td>'
+                            +'<button class="btn-view" data-action="view" data-key="'+esc(key)+'">查看</button>'
+                            +'<button class="btn-revoke" data-action="delete" data-key="'+esc(key)+'">删除</button>'
+                        +'</td>'
+                        +'</tr>';
                 }).join('');
+                el.innerHTML = '<table class="data-table">'
+                    + '<thead><tr><th>知识</th><th>分类</th><th>更新</th><th>操作</th></tr></thead>'
+                    + '<tbody>'+rows+'</tbody></table>';
+                el.querySelectorAll('button[data-action]').forEach(function(btn){
+                    btn.addEventListener('click', function(){
+                        var act = btn.getAttribute('data-action');
+                        var key = btn.getAttribute('data-key');
+                        var it = _kbCache[key];
+                        if(!it) return;
+                        if(act==='view') openKb(it.category, it.topic);
+                        else if(act==='delete') delKb(it.category, it.topic);
+                    });
+                });
                 window._kbLoaded = true;
             }catch(e){
                 el.innerHTML = '<div class="empty-state">加载失败: '+esc(e.message)+'</div>';
             }
         }
+
+        window.delKb = async function(cat, topic){
+            if(!confirm('确定删除知识「'+cat+' / '+topic+'」?\\n此操作不可恢复。')) return;
+            try{
+                var r = await fetch('/api/knowledge/kb/delete', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({category: cat, topic: topic}),
+                });
+                var d = await r.json();
+                if(d.ok){
+                    flashToast('已删除「' + cat + ' / ' + topic + '」', '', 'success');
+                    window._kbLoaded = false; loadKb();
+                }else{
+                    alert('删除失败: ' + (d.error || '未知错误'));
+                }
+            }catch(e){ alert('删除失败: ' + e.message); }
+        };
 
         window.openKb = async function(cat, topic){
             document.getElementById('modalTitle').textContent = cat + ' / ' + topic;

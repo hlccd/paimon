@@ -159,6 +159,9 @@ class Irminsul:
     async def knowledge_list(self, category: str = "") -> list[tuple[str, str]]:
         return await self._knowledge.list(category)
 
+    async def knowledge_list_detailed(self, category: str = "") -> list[dict]:
+        return await self._knowledge.list_detailed(category)
+
     async def knowledge_delete(self, category: str, topic: str, *, actor: str) -> bool:
         return await self._knowledge.delete(category, topic, actor=actor)
 
