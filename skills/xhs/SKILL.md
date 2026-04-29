@@ -8,63 +8,53 @@ allowed-tools: Bash Read Write
 
 # 小红书内容分析器
 
-解析小红书笔记，自动识别视频/图文，分别走 audio_process / 文本提取。
+解析小红书笔记。视频走 video_process / audio_process（与 bili 对称），图文走 web_fetch 提正文。
 
 ## 处理流程
 
-### 1. 短链解析（xhslink.com）
-小红书短链通过 302 重定向到长链。用 curl 抓 Location 头（必须带 Chrome UA，默认 curl UA 会被拦）：
+### 1. 短链解析（仅 xhslink.com）
+小红书短链 302 重定向到长链，必须带 Chrome UA 否则被反爬：
 
 ```bash
-curl -s -I -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "<短链>" | grep -i "^location:" | tail -1
+curl -Ls -o /dev/null -w '%{url_effective}' \
+  -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+  "<短链>"
 ```
 
-或更简单的 `curl -Ls -o /dev/null -w '%{url_effective}' -A "Mozilla/5.0 ... Chrome/120..." "<短链>"`。
+QQ 卡片转过来的已经是带 xsec_token 的长链，直接跳过这步。
 
-### 2. 抓页面（用 web_fetch，不要用裸 curl）
-`web_fetch` 已内置真实 Chrome UA + Accept-Language，绕过基础反爬：
-
-```
-web_fetch(url="<长链>", raw=true)
-```
-
-`raw=true` 返回原始 HTML，方便正则提视频直链。要纯文本就 `raw=false`（默认）。
-
-### 3. 判断笔记类型
-- URL 含 `type=video` → 视频笔记
-- URL 含 `type=normal` → 图文笔记
-- 都没有 → 看 HTML 里有没有 `https://sns-video-*.xhscdn.com/...`
-
-### 4. 视频笔记 → audio_process
-正则提视频直链：
-
-```
-https://sns-video-[a-z0-9-]+\.xhscdn\.com/[^\s"'<>]+
-```
-
-下载音频（必须带 UA，否则被拦）：
+### 2. 抓元信息判类型
+yt-dlp 原生支持小红书（含 xsec_token 长链），用元信息判视频还是图文：
 
 ```bash
-yt-dlp -x --audio-format mp3 --audio-quality 5 \
-  --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-  -o ~/workspace/_xhs_audio.mp3 "<视频直链>"
+yt-dlp --print title --print duration --print uploader --no-download --no-playlist "<长链>"
 ```
 
-然后调用 `audio_process(audio_path="~/workspace/_xhs_audio.mp3", prompt="...")`。
+- 命令成功有 `duration` 输出 → **视频笔记**
+- 命令报错 `Unsupported URL` 或没 duration → **图文笔记**（fallback 到 web_fetch）
 
-**注意**：audio_process 的 prompt 别提「视频/画面」，统一说「音频/内容」，避免模型困惑。
+### 3. 视频笔记（走 video_process / audio_process）
+和 bili skill 同一套规则：
 
-### 5. 图文笔记 → 文本提取
-直接把 `web_fetch(url, raw=false)` 的纯文本返给用户。如果用户有自定义 prompt，再调一次 `web_fetch` 让大模型按要求总结。
+- **时长 ≤15 分钟** → 直接调 `video_process(video_url="<长链>")`，工具内部用 yt-dlp 下载 + ffmpeg merge + MiMo 多模态理解
+- **时长 >15 分钟** → 用 exec 下载音频，再调 audio_process：
+  ```bash
+  yt-dlp -f "worstaudio" -x --audio-format mp3 -o ~/workspace/_xhs_audio.mp3 --no-playlist "<长链>"
+  ```
+  然后 `audio_process(audio_path="~/workspace/_xhs_audio.mp3")`。
+  audio_process 的 prompt 别提「视频/画面」，统一说「音频/内容」。
+
+### 4. 图文笔记（走 web_fetch）
+yt-dlp 不支持的 URL（图文笔记没视频流）→ 直接 `web_fetch(url=<长链>)` 拿纯文本正文返给用户。`web_fetch` 已内置 Chrome UA + Accept-Language，绕过基础反爬。
 
 ## 注意
 
-- **反爬关键**：所有出站请求都要带真实 Chrome UA。`web_fetch` 已经内置；裸 curl 必须显式 `-A`；yt-dlp 必须 `--user-agent`
-- 短链有时效，过期就报错让用户重新分享
-- 视频直链 CDN 不需要登录就能下，但 UA 检查严格
-- 处理完清理：`rm -f ~/workspace/_xhs_audio*`
-- 如果 web_fetch 返 `HTTP 错误 403/461` → 多半是 UA 被识破或笔记设私密，直接告知用户
-- 图文笔记的图片 OCR 暂不支持，仅提文本
+- **入口统一**：xhs skill 是小红书唯一入口；内部分发到 video_process / audio_process / web_fetch，与 bili skill 流程对齐
+- **不要自己抓 HTML 正则提视频直链** — yt-dlp 已经做完了这事，再做一遍是冗余且容易出错（shell 引号地狱）
+- 处理完清理音频临时文件：`rm -f ~/workspace/_xhs_audio*`
+- 工具报错时直接告知用户原因，别反复重试
+- 如果 yt-dlp 报「Unsupported URL」→ 大概率是图文笔记，回落到 web_fetch
+- 如果 web_fetch 报 403/461 → UA 被识破或笔记设私密，告知用户
 
 ## 输出格式
 

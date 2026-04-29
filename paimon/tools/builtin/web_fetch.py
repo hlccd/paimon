@@ -41,11 +41,6 @@ class WebFetchTool(BaseTool):
                 "description": "最大返回字符数，默认 20000",
                 "default": 20000,
             },
-            "raw": {
-                "type": "boolean",
-                "description": "是否返回原始 HTML（默认 false，返回正文）。需要从页面正则提取视频直链等场景请设为 true",
-                "default": False,
-            },
         },
         "required": ["url"],
     }
@@ -55,7 +50,6 @@ class WebFetchTool(BaseTool):
 
         url = kwargs.get("url", "")
         max_len = kwargs.get("max_length", MAX_LENGTH)
-        raw = kwargs.get("raw", False)
 
         if not url:
             return "缺少 url 参数"
@@ -72,7 +66,7 @@ class WebFetchTool(BaseTool):
         except httpx.RequestError as e:
             return f"请求失败: {e}"
 
-        content = html if raw else self._extract_text(html)
+        content = self._extract_text(html)
 
         if len(content) > max_len:
             content = content[:max_len] + f"\n\n... (截断，共 {len(content)} 字符)"
