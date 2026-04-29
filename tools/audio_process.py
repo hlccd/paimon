@@ -26,13 +26,19 @@ DEPS = ["httpx"]
 MAX_AUDIO_MB = 20
 
 
+def _ffmpeg_exe() -> str:
+    """imageio-ffmpeg 提供的真 ffmpeg 二进制，跨平台、随 pip 装好。"""
+    import imageio_ffmpeg
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
 async def _convert_to_wav(audio_path: str) -> str:
     """将音频转换为 16kHz 单声道 WAV（兼容性最佳），异步不阻塞事件循环。"""
     import asyncio
 
     wav_path = audio_path.rsplit(".", 1)[0] + "_converted.wav"
     cmd = [
-        "ffmpeg", "-y", "-i", audio_path,
+        _ffmpeg_exe(), "-y", "-i", audio_path,
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
         wav_path
     ]
@@ -102,6 +108,8 @@ async def execute(audio_path: str, prompt: str = "", **kwargs) -> str:
     except subprocess.CalledProcessError as e:
         err = e.stderr.decode(errors="replace") if isinstance(e.stderr, (bytes, bytearray)) else str(e.stderr)
         return f"❌ 音频转换失败，ffmpeg 错误: {err}"
+    except RuntimeError as e:
+        return f"❌ {e}"
 
     # 读文件 + base64 放 executor，百兆文件 CPU 密集会阻塞事件循环
     import asyncio

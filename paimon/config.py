@@ -75,8 +75,8 @@ class Config(BaseSettings):
     # 天使超时 + 魔女会桥（docs/angels/angels.md §运作方式）
     # 单次 tool call 超时 → 第一次自愈（返错误给模型）、连续 2 次触发魔女会
     # 整体任务超时（仅 skill 路径）→ 直接触发魔女会
-    angel_tool_timeout_seconds: int = 30
-    angel_total_timeout_seconds: int = 180
+    angel_tool_timeout_seconds: int = 300
+    angel_total_timeout_seconds: int = 600
 
     # 冰神 skill 热重载（默认关闭，生产避免意外启用）
     # 开启后：watchdog 监听 skills/*/SKILL.md，create/modify 过死执审查，delete 标孤儿

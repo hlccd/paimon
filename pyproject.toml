@@ -45,6 +45,11 @@ dependencies = [
     "baostock>=0.8.8",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
+    # bili skill + tools/video_process + tools/audio_process：B站视频抓取 + 音视频处理
+    # yt-dlp 抓 bili/youtube；imageio-ffmpeg 内置真 ffmpeg 二进制（B 站强制 V/A 分离流必须 merge）
+    # ffprobe 不装：时长检测改走 yt-dlp metadata，pip install -e . 一步到位、跨平台
+    "yt-dlp>=2024.0.0",
+    "imageio-ffmpeg>=0.5.1",
 ]
 
 [project.scripts]
