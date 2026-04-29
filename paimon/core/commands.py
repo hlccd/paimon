@@ -815,15 +815,26 @@ async def toggle_dividend_cron(
     }
 
     if not enable:
-        # 删除所有已有 dividend cron
-        removed = 0
+        # 暂停（而非删除）已有 dividend cron
+        # 选 pause 而非 delete 的原因：保留"用户关过"的证据，让启动自动启用路径
+        # (restore_disabled=False) 能识别这是用户明确意图，不会重新开起来；
+        # 且 /tasks 面板上仍能看到"已停止"的卡，透明度更好
+        paused = 0
+        already_off = 0
         for mode_key, t in existing.items():
+            if not t.enabled:
+                already_off += 1
+                continue
             try:
-                if await state.march.delete_task(t.id):
-                    removed += 1
+                if await state.march.pause_task(t.id):
+                    paused += 1
             except Exception as e:
-                logger.warning("[岩神·cron] 删任务 {} 失败: {}", t.id, e)
-        return True, f"已关闭红利股定时任务（删 {removed} 条）"
+                logger.warning("[岩神·cron] 暂停 {} 失败: {}", t.id, e)
+        parts = []
+        if paused: parts.append(f"暂停 {paused} 条")
+        if already_off: parts.append(f"{already_off} 条本就关闭")
+        detail = "、".join(parts) if parts else "无需操作"
+        return True, f"已关闭红利股定时任务（{detail}）"
 
     # enable：确保两个 cron 都在
     created: list[str] = []
