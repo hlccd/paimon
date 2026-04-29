@@ -1,6 +1,11 @@
-"""三月 · 任务观测面板（双 tab：定时任务 / 四影任务）
+"""三月 · 任务观测面板（三 tab：定时任务 / 系统任务 / 深度任务）
 
-docs/interaction.md §四 WebUI："扩展现有 /tasks 面板，在定时任务旁新增四影任务视图"。
+- 定时任务：用户主动创建的 cron/interval/once（task_type='user'）
+- 系统任务：archon 注册的内部周期任务（方案 D，task_type != 'user'），
+  如风神订阅采集 / 岩神红利股扫描
+- 深度任务：四影管线复杂任务（原 "四影任务"，2026-04-29 更名为 "深度任务"）
+
+docs/interaction.md §四 WebUI。
 """
 
 from paimon.channels.webui.theme import (
@@ -28,6 +33,14 @@ TASKS_CSS = """
     .tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+    .tab-count {
+        display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px;
+        font-size: 11px; line-height: 16px; border-radius: 8px;
+        background: var(--paimon-panel-light); color: var(--text-muted);
+        vertical-align: middle;
+    }
+    .tab-btn.active .tab-count { background: rgba(245,158,11,.2); color: var(--gold); }
+    .tab-count:empty { display: none; }
 
     .task-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
     .task-card {
@@ -140,14 +153,18 @@ TASKS_BODY = """
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>
         </div>
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('scheduled',this)">定时任务</button>
-            <button class="tab-btn" onclick="switchTab('complex',this)">四影任务</button>
+            <button class="tab-btn active" onclick="switchTab('scheduled',this)">定时任务 <span class="tab-count" id="countScheduled"></span></button>
+            <button class="tab-btn" onclick="switchTab('system',this)">系统任务 <span class="tab-count" id="countSystem"></span></button>
+            <button class="tab-btn" onclick="switchTab('complex',this)">深度任务 <span class="tab-count" id="countComplex"></span></button>
         </div>
         <div id="scheduled" class="tab-panel active">
             <div id="taskGrid"><div class="empty-state">加载中...</div></div>
         </div>
+        <div id="system" class="tab-panel">
+            <div id="systemGrid"><div class="empty-state">加载中...</div></div>
+        </div>
         <div id="complex" class="tab-panel">
-            <div id="complexGrid"><div class="empty-state">点击查看四影任务</div></div>
+            <div id="complexGrid"><div class="empty-state">点击查看深度任务</div></div>
         </div>
     </div>
 
@@ -202,64 +219,90 @@ TASKS_SCRIPT = """
             document.getElementById(key).classList.add('active');
             btn.classList.add('active');
             if(key==='complex')loadComplex();
-            if(key==='scheduled')loadTasks();
+            // scheduled / system 共用 /api/tasks 一次拉完；切过去不用重拉
+            if((key==='scheduled'||key==='system') && !window._tasksLoaded) loadTasks();
         };
         window.refreshAll=function(){
+            window._tasksLoaded=false;
             loadTasks();
             if(document.getElementById('complex').classList.contains('active')) loadComplex();
         };
 
+        // 渲染单张卡（user / system 共用）
+        function renderTaskCard(t){
+            var src=t.source||null;  // 方案 D：非 user 类型带 source 元信息
+            var cls='task-card'+(t.enabled?'':' disabled')+(src?' internal clickable':'');
+            var badge=t.enabled?'<span class="task-badge badge-enabled">运行中</span>':'<span class="task-badge badge-disabled">已停止</span>';
+            var err=t.last_error?'<div class="task-error">'+esc(t.last_error.substring(0,100))+(t.consecutive_failures?' (连续'+t.consecutive_failures+'次)':'')+'</div>':'';
+
+            var headLeft='<span class="task-id">'+esc(t.id)+'</span>';
+            var displayText='';
+            var sourceHint='';
+            if(src){
+                var chipCls='task-source-chip'+(src.task_type && !src.jump_url?' unknown':'');
+                headLeft='<span class="'+chipCls+'">'+esc(src.label||'?')+'</span>'+headLeft;
+                displayText=esc(src.description||src.task_type||'-');
+                if(src.jump_url){
+                    sourceHint='<div class="task-source-hint">💡 此任务由 <a href="'+esc(src.jump_url)+'">'+esc(src.manager_panel||src.jump_url)+'</a> 面板创建，启停/删除请到对应面板管理</div>';
+                }else if(src.task_type){
+                    sourceHint='<div class="task-source-hint">⚠️ 未知任务类型 '+esc(src.task_type)+'（对应 archon 可能未注册或已移除）</div>';
+                }
+            }else{
+                displayText=esc(t.prompt);
+            }
+
+            var onClick=src&&src.jump_url
+                ? ' onclick="window.location=\\''+esc(src.jump_url)+'\\'"'
+                : '';
+
+            return '<div class="'+cls+'"'+onClick+'>'
+                +'<div class="task-header"><span>'+headLeft+'</span>'+badge+'</div>'
+                +'<div class="task-prompt">'+displayText+'</div>'
+                +'<div class="task-meta">'
+                +'<span class="task-meta-item">'+fmtTrigger(t)+'</span>'
+                +'<span class="task-meta-item">下次: '+fmtTime(t.next_run_at)+'</span>'
+                +'<span class="task-meta-item">上次: '+fmtTime(t.last_run_at)+'</span>'
+                +'<span class="task-meta-item">创建: '+fmtTime(t.created_at)+'</span>'
+                +'</div>'
+                +err
+                +sourceHint
+                +'</div>';
+        }
+
         window.loadTasks=async function(){
-            var el=document.getElementById('taskGrid');
+            var userEl=document.getElementById('taskGrid');
+            var sysEl=document.getElementById('systemGrid');
             try{
                 var r=await fetch('/api/tasks');
                 var data=await r.json();
                 var tasks=data.tasks||[];
-                if(!tasks.length){
-                    el.innerHTML='<div class="empty-state"><div class="empty-icon">&#128337;</div>暂无定时任务<br><br>在对话中说"每小时提醒我喝水"或使用 /tasks 命令查看</div>';
-                    return;
+
+                // 按 source 字段分流：有 source = 系统任务（archon 注册），无 source = 用户定时任务
+                var userTasks=tasks.filter(function(t){ return !t.source; });
+                var sysTasks =tasks.filter(function(t){ return !!t.source; });
+
+                // 计数 chip
+                var cu=document.getElementById('countScheduled');
+                var cs=document.getElementById('countSystem');
+                if(cu) cu.textContent=userTasks.length?userTasks.length:'';
+                if(cs) cs.textContent=sysTasks.length?sysTasks.length:'';
+
+                if(!userTasks.length){
+                    userEl.innerHTML='<div class="empty-state"><div class="empty-icon">&#128337;</div>暂无定时任务<br><br>在对话中说"每小时提醒我喝水"或使用 /schedule 指令创建</div>';
+                }else{
+                    userEl.innerHTML=userTasks.map(renderTaskCard).join('');
                 }
-                el.innerHTML=tasks.map(function(t){
-                    var src=t.source||null;  // 方案 D：非 user 类型带 source 元信息
-                    var cls='task-card'+(t.enabled?'':' disabled')+(src?' internal clickable':'');
-                    var badge=t.enabled?'<span class="task-badge badge-enabled">运行中</span>':'<span class="task-badge badge-disabled">已停止</span>';
-                    var err=t.last_error?'<div class="task-error">'+esc(t.last_error.substring(0,100))+(t.consecutive_failures?' (连续'+t.consecutive_failures+'次)':'')+'</div>':'';
 
-                    var headLeft='<span class="task-id">'+esc(t.id)+'</span>';
-                    var displayText='';
-                    var sourceHint='';
-                    if(src){
-                        var chipCls='task-source-chip'+(src.task_type && !src.jump_url?' unknown':'');
-                        headLeft='<span class="'+chipCls+'">'+esc(src.label||'?')+'</span>'+headLeft;
-                        displayText=esc(src.description||src.task_type||'-');
-                        if(src.jump_url){
-                            sourceHint='<div class="task-source-hint">💡 此任务由 <a href="'+esc(src.jump_url)+'">'+esc(src.manager_panel||src.jump_url)+'</a> 面板创建，启停/删除请到对应面板管理</div>';
-                        }else if(src.task_type){
-                            sourceHint='<div class="task-source-hint">⚠️ 未知任务类型 '+esc(src.task_type)+'（对应 archon 可能未注册或已移除）</div>';
-                        }
-                    }else{
-                        displayText=esc(t.prompt);
-                    }
+                if(!sysTasks.length){
+                    sysEl.innerHTML='<div class="empty-state"><div class="empty-icon">&#9881;&#65039;</div>暂无系统任务<br><br>开启订阅推送（/feed 面板）或红利股追踪（/wealth 面板）后，这里会显示由系统代管的周期任务</div>';
+                }else{
+                    sysEl.innerHTML=sysTasks.map(renderTaskCard).join('');
+                }
 
-                    var onClick=src&&src.jump_url
-                        ? ' onclick="window.location=\\''+esc(src.jump_url)+'\\'"'
-                        : '';
-
-                    return '<div class="'+cls+'"'+onClick+'>'
-                        +'<div class="task-header"><span>'+headLeft+'</span>'+badge+'</div>'
-                        +'<div class="task-prompt">'+displayText+'</div>'
-                        +'<div class="task-meta">'
-                        +'<span class="task-meta-item">'+fmtTrigger(t)+'</span>'
-                        +'<span class="task-meta-item">下次: '+fmtTime(t.next_run_at)+'</span>'
-                        +'<span class="task-meta-item">上次: '+fmtTime(t.last_run_at)+'</span>'
-                        +'<span class="task-meta-item">创建: '+fmtTime(t.created_at)+'</span>'
-                        +'</div>'
-                        +err
-                        +sourceHint
-                        +'</div>';
-                }).join('');
+                window._tasksLoaded=true;
             }catch(e){
-                el.innerHTML='<div class="empty-state">加载失败</div>';
+                userEl.innerHTML='<div class="empty-state">加载失败</div>';
+                if(sysEl) sysEl.innerHTML='<div class="empty-state">加载失败</div>';
             }
         };
 
@@ -270,8 +313,10 @@ TASKS_SCRIPT = """
                 var r=await fetch('/api/tasks/complex');
                 var data=await r.json();
                 var tasks=data.tasks||[];
+                var cc=document.getElementById('countComplex');
+                if(cc) cc.textContent=tasks.length?tasks.length:'';
                 if(!tasks.length){
-                    el.innerHTML='<div class="empty-state"><div class="empty-icon">&#128221;</div>最近 7 天暂无四影任务<br><br>用 /task &lt;描述&gt; 或自然语言描述复杂任务，派蒙会路由到四影</div>';
+                    el.innerHTML='<div class="empty-state"><div class="empty-icon">&#128221;</div>最近 7 天暂无深度任务<br><br>用 /task &lt;描述&gt; 或自然语言描述复杂任务，派蒙会路由到四影管线</div>';
                     return;
                 }
                 el.innerHTML=tasks.map(function(t){
@@ -352,11 +397,20 @@ TASKS_SCRIPT = """
             document.getElementById('taskModal').classList.remove('show');
         };
 
-        window.onload=function(){loadTasks();};
+        window.onload=function(){
+            loadTasks();   // 渲染 scheduled + system 两 grid + 更新双计数
+            loadComplex(); // 提前拉一次只为更新 complex 计数 chip；渲染会被下次 switch 覆盖
+        };
         setInterval(function(){
-            // 仅刷新当前 tab，避免不必要的请求
-            if(document.getElementById('scheduled').classList.contains('active')) loadTasks();
-            else if(document.getElementById('complex').classList.contains('active')) loadComplex();
+            // 仅刷新当前 tab，避免不必要的请求；system / scheduled 共享同一 API
+            var active=document.querySelector('.tab-panel.active');
+            if(!active) return;
+            if(active.id==='scheduled'||active.id==='system'){
+                window._tasksLoaded=false;
+                loadTasks();
+            }else if(active.id==='complex'){
+                loadComplex();
+            }
         },30000);
     })();
     </script>

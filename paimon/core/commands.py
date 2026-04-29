@@ -1148,7 +1148,7 @@ async def _build_task_list_index(channel_key: str) -> list:
 
 @command("task-list")
 async def cmd_task_list(ctx: CommandContext) -> str:
-    """/task-list — 列最近 7 天的四影任务（按 updated_at DESC 取 20 条）。
+    """/task-list — 列最近 7 天的深度任务（按 updated_at DESC 取 20 条）。
 
     docs/interaction.md §2.3.2 / §四：列表后写 channel 级编号缓存，TTL 10 分钟，
     /task-index N 用同 channel_key 取回。
@@ -1159,7 +1159,7 @@ async def cmd_task_list(ctx: CommandContext) -> str:
     items = await _build_task_list_index(ctx.msg.channel_key)
     if not items:
         return (
-            "📋 最近 7 天暂无四影任务\n"
+            "📋 最近 7 天暂无深度任务\n"
             "（用 /task <描述> 强制走四影管线；或自然语言里描述复杂任务派蒙会自动判定）"
         )
 
@@ -1178,7 +1178,7 @@ async def cmd_task_list(ctx: CommandContext) -> str:
 
 @command("task-index")
 async def cmd_task_index(ctx: CommandContext) -> str:
-    """/task-index [N] — 查看四影任务详情。
+    """/task-index [N] — 查看深度任务详情。
 
     无参 → 取最近一条（N=1）。缓存缺失或过期时自动重建索引（不再要求先 /task-list）。
     """
@@ -1206,7 +1206,7 @@ async def cmd_task_index(ctx: CommandContext) -> str:
         if not state.irminsul:
             return "世界树未就绪"
         if not items:
-            return "📋 最近 7 天暂无四影任务"
+            return "📋 最近 7 天暂无深度任务"
         ids = [e.id for e in items]
 
     if n > len(ids):
@@ -1368,7 +1368,7 @@ async def cmd_help(ctx: CommandContext) -> str:
         "  /skills - 查看可用 Skill\n"
         "  /tasks - 查看定时任务\n"
         "  /task <描述> - 强制走四影处理复杂任务\n"
-        "  /task-list - 列最近 7 天的四影任务（带 1-基序号，10 分钟内有效）\n"
+        "  /task-list - 列最近 7 天的深度任务（带 1-基序号，10 分钟内有效）\n"
         "  /task-index [N] - 查看任务详情（无参=最近一条；自动按需重建索引）\n"
         "  /remember <内容> - 记住一段跨会话信息（偏好/规范/项目事实）\n"
         "  /subscribe <关键词> [| <cron>] [| <engine>] - 订阅话题定时推送\n"
