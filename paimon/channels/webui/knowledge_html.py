@@ -110,6 +110,28 @@ KNOWLEDGE_CSS = """
     }
     .form-error.active { display: block; }
 
+    /* Flash toast（reconcile 结果 / 通用通知）*/
+    .flash-bar {
+        position: fixed; top: 70px; right: 24px;
+        padding: 10px 14px; max-width: 420px;
+        background: var(--paimon-panel);
+        border: 1px solid var(--paimon-border);
+        border-left-width: 3px;
+        border-radius: 6px;
+        color: var(--text-primary); font-size: 13px; line-height: 1.5;
+        box-shadow: 0 4px 12px rgba(0,0,0,.35);
+        z-index: 2000;
+        opacity: 0; transform: translateX(20px);
+        transition: opacity .2s, transform .2s;
+        pointer-events: none;
+    }
+    .flash-bar.active { opacity: 1; transform: translateX(0); }
+    .flash-bar.success { border-left-color: var(--status-success); }
+    .flash-bar.info    { border-left-color: var(--gold); }
+    .flash-bar.warn    { border-left-color: var(--status-warning); }
+    .flash-bar .flash-title { font-weight: 600; margin-bottom: 4px; }
+    .flash-bar .flash-reason { color: var(--text-muted); font-size: 12px; }
+
     .data-table { width: 100%; border-collapse: collapse; }
     .data-table th, .data-table td {
         padding: 12px 16px; border-bottom: 1px solid var(--paimon-border);
@@ -246,14 +268,18 @@ KNOWLEDGE_BODY = """
                     <div class="pill" data-mem="project" onclick="switchMemType('project',this)">项目事实</div>
                     <div class="pill" data-mem="reference" onclick="switchMemType('reference',this)">外部资源</div>
                 </div>
-                <button class="btn-add" onclick="openMemCreate()">+ 新建</button>
+                <div style="display:flex;gap:8px">
+                    <button class="btn-add" onclick="triggerHygiene()" id="btnHygiene" title="LLM 扫全部记忆，批量合并/去重。周一凌晨也会自动跑。">🧹 整理</button>
+                    <button class="btn-add" onclick="openMemCreate()">+ 新建</button>
+                </div>
             </div>
             <div id="memEl"><div class="empty-state">加载中...</div></div>
         </div>
 
         <div id="kb" class="tab-panel">
-            <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-                <button class="btn-add" onclick="openKbCreate()">+ 新建知识</button>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
+                <button class="btn-add" onclick="triggerKbHygiene()" id="btnKbHygiene" title="LLM 按分类扫知识库，批量合并/去重。周一凌晨也会自动跑。">🧹 整理</button>
+                <button class="btn-add" onclick="openKbCreate()">+ 新建</button>
             </div>
             <div id="kbEl"><div class="empty-state">加载中...</div></div>
         </div>
@@ -277,6 +303,9 @@ KNOWLEDGE_BODY = """
             <div class="modal-meta" id="modalMeta"></div>
         </div>
     </div>
+
+    <!-- Flash toast -->
+    <div id="flashBar" class="flash-bar"></div>
 
     <!-- 表单 modal（新建/编辑用） -->
     <div id="formModal" class="modal-backdrop" onclick="closeFormModal(event)">
@@ -453,8 +482,71 @@ KNOWLEDGE_SCRIPT = """
             }catch(e){}
         }
 
+        // ---------- 记忆整理（批量 LLM 聚合/去重）----------
+        var _hygienePollTimer = null;
+
+        window.triggerHygiene = async function(){
+            var btn = document.getElementById('btnHygiene');
+            if(btn && btn.disabled) return;
+            try{
+                var r = await fetch('/api/knowledge/memory/hygiene', {method:'POST'});
+                var d = await r.json();
+                if(!d.ok){ flashToast('启动整理失败', d.error || '', 'warn'); return; }
+                if(d.already_running){
+                    flashToast('整理中，请稍候', '', 'info');
+                }else{
+                    flashToast('开始整理记忆…', 'LLM 扫全部记忆，批量合并/去重', 'info');
+                }
+                if(btn){ btn.disabled = true; btn.textContent = '🧹 整理中…'; }
+                _pollHygieneStatus();
+            }catch(e){
+                flashToast('启动整理异常', String(e), 'warn');
+            }
+        };
+
+        function _pollHygieneStatus(){
+            if(_hygienePollTimer) clearTimeout(_hygienePollTimer);
+            _hygienePollTimer = setTimeout(async function(){
+                try{
+                    var r = await fetch('/api/knowledge/memory/hygiene/status');
+                    var d = await r.json();
+                    if(d.running){
+                        _pollHygieneStatus();   // 继续轮询
+                        return;
+                    }
+                    // 跑完了
+                    var btn = document.getElementById('btnHygiene');
+                    if(btn){ btn.disabled = false; btn.textContent = '🧹 整理'; }
+                    var rep = d.last_report || null;
+                    if(rep){
+                        var merged = rep.merged || 0;
+                        var deleted = rep.deleted || 0;
+                        if(merged || deleted){
+                            flashToast(
+                                '整理完成：合并 ' + merged + '、删除 ' + deleted,
+                                '详情见「📨 推送」收件箱的「草神」条目',
+                                'success',
+                            );
+                        }else{
+                            flashToast('整理完成：记忆已经很干净了', '', 'success');
+                        }
+                    }else{
+                        flashToast('整理完成', '', 'success');
+                    }
+                    // 刷新当前 pill
+                    loadMem(_currentMemType);
+                    loadMemCount();
+                }catch(e){
+                    var btn2 = document.getElementById('btnHygiene');
+                    if(btn2){ btn2.disabled = false; btn2.textContent = '🧹 整理'; }
+                    flashToast('整理状态查询失败', String(e), 'warn');
+                }
+            }, 3000);
+        }
+
         // ---------- 新建/编辑表单 modal（记忆 + 知识库共享）----------
-        // _currentForm.type: 'memory_remember' | 'kb_create' | 'kb_edit'
+        // _currentForm.type: 'memory_remember' | 'kb_remember' | 'kb_edit'
+        // （新建统一走 LLM 分类 + 冲突检测；编辑走已知 category/topic 改 body）
         var _currentForm = null;
 
         var _MEM_TYPE_LABELS = {
@@ -483,39 +575,81 @@ KNOWLEDGE_SCRIPT = """
             document.getElementById('formError').classList.remove('active');
         }
 
+        // 记忆新建：单 textarea + 轻量引导
         window.openMemCreate = function(){
             _currentForm = {type: 'memory_remember'};
-            var body = document.getElementById('formBody');
-            body.innerHTML = ''
+            document.getElementById('formBody').innerHTML = ''
                 + '<div class="form-field">'
                 +   '<label>说一句你想让我记住的事</label>'
-                +   '<textarea id="fContent" placeholder="例：我主要用 Python 和 TypeScript / 不要给总结 / 项目 DB 是 PostgreSQL"></textarea>'
-                +   '<div class="hint">会自动判定类型（画像偏好 / 行为规范 / 项目事实 / 外部资源）和标题。跟 <code>/remember</code> 同路径</div>'
+                +   '<textarea id="fContent" placeholder="例：我主要用 Python / 不要给总结 / 项目 DB 是 PostgreSQL"></textarea>'
+                +   '<div class="hint">会自动判类型和标题；跟已有冲突时自动合并</div>'
                 + '</div>';
             _showFormModal('新建记忆');
             setTimeout(function(){ document.getElementById('fContent').focus(); }, 50);
         };
 
+        // 知识库新建：同记忆对称（label + 示例 + 同样简短 hint）
         window.openKbCreate = function(){
-            _currentForm = {type: 'kb_create'};
-            var body = document.getElementById('formBody');
-            body.innerHTML = ''
+            _currentForm = {type: 'kb_remember'};
+            document.getElementById('formBody').innerHTML = ''
                 + '<div class="form-field">'
-                +   '<label>分类 category *</label>'
-                +   '<input type="text" id="fCategory" placeholder="architecture / tech / project / ...">'
-                +   '<div class="hint">不能含 / 或 .. （会拼文件系统路径）</div>'
-                + '</div>'
-                + '<div class="form-field">'
-                +   '<label>主题 topic *</label>'
-                +   '<input type="text" id="fTopic" placeholder="paimon / python-async / ...">'
-                + '</div>'
-                + '<div class="form-field">'
-                +   '<label>内容 *</label>'
-                +   '<textarea id="fBody" placeholder="知识正文，markdown 格式"></textarea>'
+                +   '<label>说一段你想记录的知识</label>'
+                +   '<textarea id="fContent" placeholder="例：Claude API 每分钟限流 50 次 / asyncio 的 gather 用法"></textarea>'
+                +   '<div class="hint">会自动判分类和主题；跟已有冲突时自动合并</div>'
                 + '</div>';
-            _showFormModal('新建知识条目');
-            setTimeout(function(){ document.getElementById('fCategory').focus(); }, 50);
+            _showFormModal('新建知识');
+            setTimeout(function(){ document.getElementById('fContent').focus(); }, 50);
         };
+
+        // 知识库整理：按钮 + 轮询状态（跟记忆整理同样的交互）
+        var _kbHygienePollTimer = null;
+        window.triggerKbHygiene = async function(){
+            var btn = document.getElementById('btnKbHygiene');
+            if(btn && btn.disabled) return;
+            try{
+                var r = await fetch('/api/knowledge/kb/hygiene', {method:'POST'});
+                var d = await r.json();
+                if(!d.ok){ flashToast('启动整理失败', d.error || '', 'warn'); return; }
+                if(d.already_running){
+                    flashToast('整理中，请稍候', '', 'info');
+                }else{
+                    flashToast('开始整理知识库…', 'LLM 按分类扫全部知识，批量合并/去重', 'info');
+                }
+                if(btn){ btn.disabled = true; btn.textContent = '🧹 整理中…'; }
+                _pollKbHygieneStatus();
+            }catch(e){
+                flashToast('启动整理异常', String(e), 'warn');
+            }
+        };
+        function _pollKbHygieneStatus(){
+            if(_kbHygienePollTimer) clearTimeout(_kbHygienePollTimer);
+            _kbHygienePollTimer = setTimeout(async function(){
+                try{
+                    var r = await fetch('/api/knowledge/kb/hygiene/status');
+                    var d = await r.json();
+                    if(d.running){ _pollKbHygieneStatus(); return; }
+                    var btn = document.getElementById('btnKbHygiene');
+                    if(btn){ btn.disabled = false; btn.textContent = '🧹 整理'; }
+                    var rep = d.last_report || null;
+                    if(rep){
+                        var merged = rep.merged || 0, deleted = rep.deleted || 0;
+                        if(merged || deleted){
+                            flashToast('整理完成：合并 ' + merged + '、删除 ' + deleted,
+                                       '详情见「📨 推送」收件箱的「草神」条目', 'success');
+                        }else{
+                            flashToast('整理完成：知识库已经很干净了', '', 'success');
+                        }
+                    }else{
+                        flashToast('整理完成', '', 'success');
+                    }
+                    window._kbLoaded = false; loadKb();
+                }catch(e){
+                    var btn2 = document.getElementById('btnKbHygiene');
+                    if(btn2){ btn2.disabled = false; btn2.textContent = '🧹 整理'; }
+                    flashToast('整理状态查询失败', String(e), 'warn');
+                }
+            }, 3000);
+        }
 
         window.openKbEdit = function(category, topic, body){
             _currentForm = {type: 'kb_edit', category: category, topic: topic};
@@ -542,6 +676,21 @@ KNOWLEDGE_SCRIPT = """
             }, 50);
         };
 
+        // Flash toast —— 显示 reconcile action 结果等短消息
+        var _flashTimer = null;
+        function flashToast(title, reason, kind){
+            kind = kind || 'info';
+            var bar = document.getElementById('flashBar');
+            if(!bar) return;
+            bar.innerHTML = '<div class="flash-title">'+esc(title)+'</div>'
+                + (reason ? '<div class="flash-reason">'+esc(reason)+'</div>' : '');
+            bar.className = 'flash-bar active ' + kind;
+            if(_flashTimer) clearTimeout(_flashTimer);
+            _flashTimer = setTimeout(function(){
+                bar.classList.remove('active');
+            }, 4000);
+        }
+
         // 防重入 flag：记忆 LLM 分类 1-5s，用户容易在等待期重复点击保存
         var _submitting = false;
 
@@ -566,26 +715,48 @@ KNOWLEDGE_SCRIPT = """
                     var d = await r.json();
                     if(!d.ok){ _showFormError('保存失败: ' + (d.error || '未知错误')); return; }
                     closeFormModal();
-                    // LLM 判的 mem_type 可能跟当前 pill 不同：切到对应 pill + 刷新
+                    var action = d.action || 'new';
+                    var title, kind = 'success';
+                    if(action === 'new'){ title = '已记住：' + (d.title || ''); }
+                    else if(action === 'merge'){ title = '已合并到原记忆「' + (d.target_title || '') + '」'; }
+                    else if(action === 'replace'){ title = '已替换旧记忆「' + (d.target_title || '') + '」'; kind = 'warn'; }
+                    else if(action === 'duplicate'){ title = '已存在相同记忆，未重复写入'; kind = 'info'; }
+                    else{ title = '完成'; }
+                    flashToast(title, d.reason || '', kind);
                     var new_type = d.mem_type || _currentMemType;
                     if(new_type !== _currentMemType){
                         var pillEl = document.querySelector('.pill[data-mem="'+new_type+'"]');
                         if(pillEl) switchMemType(new_type, pillEl);
                         else loadMem(new_type);
-                    }else{
-                        loadMem(new_type);
-                    }
+                    }else{ loadMem(new_type); }
                     loadMemCount();
-                }else if(f.type === 'kb_create' || f.type === 'kb_edit'){
+                }else if(f.type === 'kb_remember'){
+                    var content3 = document.getElementById('fContent').value.trim();
+                    if(!content3){ _showFormError('内容不能为空'); return; }
+                    var r3 = await fetch('/api/knowledge/kb/remember', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({content: content3}),
+                    });
+                    var d3 = await r3.json();
+                    if(!d3.ok){ _showFormError('保存失败: ' + (d3.error || '未知错误')); return; }
+                    closeFormModal();
+                    var act = d3.action || 'new';
+                    var title3, kind3 = 'success';
+                    if(act === 'new'){ title3 = '已记入知识库：' + (d3.category||'') + ' / ' + (d3.topic||''); }
+                    else if(act === 'merge'){ title3 = '已合并到原知识「' + (d3.target_topic||'') + '」'; }
+                    else if(act === 'replace'){ title3 = '已替换旧知识「' + (d3.target_topic||'') + '」'; kind3 = 'warn'; }
+                    else if(act === 'duplicate'){ title3 = '已存在相同知识「' + (d3.target_topic||'') + '」'; kind3 = 'info'; }
+                    else{ title3 = '完成'; }
+                    flashToast(title3, d3.reason || '', kind3);
+                    window._kbLoaded = false; loadKb();
+                }else if(f.type === 'kb_edit'){
+                    // 编辑：已知 category/topic 改 body（走原 kb_write）
                     var cat = document.getElementById('fCategory').value.trim();
                     var topic = document.getElementById('fTopic').value.trim();
-                    var body2 = document.getElementById('fBody').value;  // 不 trim body，保留末尾换行
+                    var body2 = document.getElementById('fBody').value;
                     if(!cat || !topic){ _showFormError('分类和主题不能为空'); return; }
                     if(!body2.trim()){ _showFormError('内容不能为空'); return; }
-                    if(cat.indexOf('/') >= 0 || cat.indexOf('..') >= 0
-                       || topic.indexOf('/') >= 0 || topic.indexOf('..') >= 0){
-                        _showFormError('分类/主题不能含 / 或 ..'); return;
-                    }
                     var r2 = await fetch('/api/knowledge/kb/write', {
                         method: 'POST',
                         headers: {'Content-Type':'application/json'},
@@ -594,6 +765,7 @@ KNOWLEDGE_SCRIPT = """
                     var d2 = await r2.json();
                     if(!d2.ok){ _showFormError('保存失败: ' + (d2.error || '未知错误')); return; }
                     closeFormModal();
+                    flashToast('已更新「' + cat + ' / ' + topic + '」', '', 'success');
                     window._kbLoaded = false; loadKb();
                 }
             }catch(e){

@@ -251,6 +251,8 @@ async def create_app(cfg: Config) -> list[Channel]:
     # 未来新神加周期任务的唯一接入点。
     _venti_reg()
     _zhongli_reg()
+    from paimon.core.memory_classifier import register_task_types as _hygiene_reg
+    _hygiene_reg()
 
     # 岩神·红利股定时任务：默认启用（dividend_auto_enable=True）
     # 单用户自用场景开箱即用；只创建缺失的 cron，不恢复被 /dividend off 过的
@@ -270,6 +272,28 @@ async def create_app(cfg: Config) -> list[Channel]:
                 logger.warning("[岩神·启动] 自动启用失败: {}", msg)
         except Exception as e:
             logger.warning("[岩神·启动] 自动启用异常（不阻塞）: {}", e)
+
+    # 草神·记忆 + 知识库整理 cron：周一 00:00 / 00:10 当地时间，错峰避免两个同时跑
+    try:
+        from paimon.channels.webui.channel import PUSH_CHAT_ID
+        existing = await state.march.list_tasks()
+        types_present = {t.task_type for t in existing}
+        if "memory_hygiene" not in types_present:
+            await state.march.create_task(
+                chat_id=PUSH_CHAT_ID, channel_name="webui", prompt="",
+                trigger_type="cron", trigger_value={"expr": "0 0 * * 1"},
+                task_type="memory_hygiene", source_entity_id="all",
+            )
+            logger.info("[草神·启动] 已创建记忆整理 cron（周一 00:00）")
+        if "kb_hygiene" not in types_present:
+            await state.march.create_task(
+                chat_id=PUSH_CHAT_ID, channel_name="webui", prompt="",
+                trigger_type="cron", trigger_value={"expr": "10 0 * * 1"},
+                task_type="kb_hygiene", source_entity_id="all",
+            )
+            logger.info("[草神·启动] 已创建知识库整理 cron（周一 00:10）")
+    except Exception as e:
+        logger.warning("[草神·启动] 创建整理 cron 异常（不阻塞）: {}", e)
 
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision

@@ -399,18 +399,15 @@ from paimon.core.safety import detect_sensitive as _detect_sensitive  # noqa: F4
 @command("remember")
 async def cmd_remember(ctx: CommandContext) -> str:
     """/remember <内容> — L1 记忆显式入口。
-    LLM 自动判别类型（user/feedback/project/reference）；失败降级到 user。
+    LLM 自动分类 + 冲突检测：跟已有记忆矛盾自动替换，可合并自动合并，重复自动跳过。
     """
-    from paimon.core.memory_classifier import (
-        MAX_REMEMBER_CHARS, classify_memory, sanitize_subject, default_title,
-    )
+    from paimon.core.memory_classifier import MAX_REMEMBER_CHARS, remember_with_reconcile
 
     content = ctx.args.strip()
     if not content:
         return "用法: /remember <要记住的内容>"
     if len(content) > MAX_REMEMBER_CHARS:
         return f"内容过长（{len(content)} 字），单条记忆上限 {MAX_REMEMBER_CHARS} 字；请拆分后分别 /remember"
-    # 敏感串拒绝：跨会话 memory 会每次注入 system prompt，不应包含密钥/隐私
     hit = _detect_sensitive(content)
     if hit:
         logger.warning("[派蒙·记忆] /remember 命中敏感串 (pattern={}) 已拒绝", hit)
@@ -421,26 +418,30 @@ async def cmd_remember(ctx: CommandContext) -> str:
     if not state.irminsul or not state.model:
         return "世界树 / 模型未就绪"
 
-    mem_type, title, subject = await classify_memory(content, state.model)
-    if mem_type is None:
-        mem_type, subject, title = "user", "default", default_title(content)
-    subject = sanitize_subject(subject)
+    outcome = await remember_with_reconcile(
+        content, state.irminsul, state.model,
+        source=f"cmd /remember @ {ctx.msg.channel_name}",
+        actor="派蒙",
+    )
+    if not outcome.ok:
+        return f"记忆写入失败: {outcome.error}"
 
-    try:
-        mem_id = await state.irminsul.memory_write(
-            mem_type=mem_type, subject=subject, title=title,
-            body=content,
-            source=f"cmd /remember @ {ctx.msg.channel_name}",
-            actor="派蒙",
+    tag = f"[{outcome.mem_type}/{outcome.subject}]"
+    if outcome.action == "new":
+        return f"已记住 {tag} {outcome.title} (id={outcome.mem_id[:8]})"
+    if outcome.action == "merge":
+        return (
+            f"已合并到原记忆 {tag}「{outcome.target_title}」→「{outcome.title}」\n"
+            f"理由：{outcome.reason}"
         )
-    except ValueError as e:
-        logger.warning("[派蒙·记忆] /remember 参数无效: {}", e)
-        return f"⚠️ 内容或参数无效: {e}"
-    except Exception as e:
-        logger.error("[派蒙·记忆] /remember 写入失败: {}", e)
-        return f"记忆写入失败: {e}"
-
-    return f"已记住 [{mem_type}/{subject}] {title} (id={mem_id[:8]})"
+    if outcome.action == "replace":
+        return (
+            f"已替换旧记忆 {tag}「{outcome.target_title}」为「{outcome.title}」\n"
+            f"理由：{outcome.reason}"
+        )
+    if outcome.action == "duplicate":
+        return f"已存在相同记忆「{outcome.target_title}」，未重复写入"
+    return f"未知动作 {outcome.action}"
 
 
 # --------------- 话题订阅（风神）---------------

@@ -109,10 +109,15 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/knowledge/memory/list", self.knowledge_memory_list_api)
         self.app.router.add_post("/api/knowledge/memory/remember", self.knowledge_memory_remember_api)
         self.app.router.add_post("/api/knowledge/memory/delete", self.knowledge_memory_delete_api)
+        self.app.router.add_post("/api/knowledge/memory/hygiene", self.knowledge_memory_hygiene_api)
+        self.app.router.add_get("/api/knowledge/memory/hygiene/status", self.knowledge_memory_hygiene_status_api)
         self.app.router.add_get("/api/knowledge/kb/list", self.knowledge_kb_list_api)
         self.app.router.add_get("/api/knowledge/kb/read", self.knowledge_kb_read_api)
+        self.app.router.add_post("/api/knowledge/kb/remember", self.knowledge_kb_remember_api)
         self.app.router.add_post("/api/knowledge/kb/write", self.knowledge_kb_write_api)
         self.app.router.add_post("/api/knowledge/kb/delete", self.knowledge_kb_delete_api)
+        self.app.router.add_post("/api/knowledge/kb/hygiene", self.knowledge_kb_hygiene_api)
+        self.app.router.add_get("/api/knowledge/kb/hygiene/status", self.knowledge_kb_hygiene_status_api)
         self.app.router.add_get("/api/knowledge/archives/list", self.knowledge_archives_list_api)
         self.app.router.add_get("/api/knowledge/archives/read", self.knowledge_archives_read_api)
         # 神之心·LLM Profile 管理（M1：只做存储 + 面板，不接路由）
@@ -267,66 +272,58 @@ class WebUIChannel(Channel):
         return web.json_response({"items": items})
 
     async def knowledge_memory_remember_api(self, request: web.Request) -> web.Response:
-        """面板"+ 新建记忆" 入口 —— 跟 /remember 指令同路径：一段自然语言
-        → LLM 自动判类型/标题/主题 → 落库。
+        """记忆新建：自然语言 → LLM 分类 → 冲突检测 → 落 memory 域。
 
-        body: {content: "一句话或一段话"}
-        resp: {ok, id, mem_type, subject, title}（便于前端切到对应 pill 刷新）
+        body: {content}
+        resp: {ok, action, mem_type, subject, title, id, target_id, target_title, reason, error?}
         """
         if self.require_auth:
             token = request.cookies.get("paimon_token")
             if not token or token not in self.valid_tokens:
                 return web.json_response({"error": "Unauthorized"}, status=401)
 
-        from paimon.core.memory_classifier import (
-            MAX_REMEMBER_CHARS, classify_memory, sanitize_subject, default_title,
-        )
+        from paimon.core.memory_classifier import MAX_REMEMBER_CHARS, remember_with_reconcile
         from paimon.core.safety import detect_sensitive
 
         try:
             data = await request.json()
             content = (data.get("content") or "").strip()
             if not content:
-                return web.json_response(
-                    {"ok": False, "error": "内容不能为空"}, status=400,
-                )
+                return web.json_response({"ok": False, "error": "内容不能为空"}, status=400)
             if len(content) > MAX_REMEMBER_CHARS:
                 return web.json_response(
                     {"ok": False, "error": f"内容过长（{len(content)} 字），上限 {MAX_REMEMBER_CHARS} 字"},
                     status=400,
                 )
-            # 敏感串拒绝（跟 /remember 同策略）
             hit = detect_sensitive(content)
             if hit:
-                logger.warning("[草神·世界树] 面板新建记忆命中敏感串 pattern={} 已拒绝", hit)
+                logger.warning("[草神·记忆] 新建命中敏感串 pattern={} 已拒绝", hit)
                 return web.json_response({
                     "ok": False,
-                    "error": f"检测到疑似敏感信息（{hit}）；L1 记忆会注入系统提示，请勿存储密钥/密码/身份证/银行卡等隐私",
+                    "error": f"检测到疑似敏感信息（{hit}）；请勿存储密钥/密码/身份证/银行卡等隐私",
                 }, status=400)
 
             irminsul = self.state.irminsul
             model = self.state.model
             if not irminsul or not model:
-                return web.json_response(
-                    {"ok": False, "error": "世界树 / 模型未就绪"}, status=500,
-                )
+                return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
 
-            mem_type, title, subject = await classify_memory(content, model)
-            if mem_type is None:
-                mem_type, subject, title = "user", "default", default_title(content)
-            subject = sanitize_subject(subject)
-
-            mem_id = await irminsul.memory_write(
-                mem_type=mem_type, subject=subject, title=title,
-                body=content,
-                source="草神面板·手动", actor="草神面板",
-            )
+            out = await remember_with_reconcile(content, irminsul, model, source="草神面板·手动", actor="草神面板")
+            if not out.ok:
+                return web.json_response({"ok": False, "error": out.error or "写入失败"}, status=500)
             return web.json_response({
-                "ok": True, "id": mem_id,
-                "mem_type": mem_type, "subject": subject, "title": title,
+                "ok": True,
+                "action": out.action,
+                "mem_type": out.mem_type,
+                "subject": out.subject,
+                "title": out.title,
+                "id": out.mem_id,
+                "target_id": out.target_id,
+                "target_title": out.target_title,
+                "reason": out.reason,
             })
         except Exception as e:
-            logger.error("[草神·世界树] 面板新建记忆异常: {}", e)
+            logger.error("[草神·记忆] 新建异常: {}", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     async def knowledge_memory_delete_api(self, request: web.Request) -> web.Response:
@@ -350,6 +347,61 @@ class WebUIChannel(Channel):
         except Exception as e:
             logger.error("[草神·世界树] 删除记忆异常: {}", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def knowledge_memory_hygiene_api(self, request: web.Request) -> web.Response:
+        """手动触发记忆整理。后台跑，立即返回 {ok, already_running?}。
+        结果经 push_archive 归档，前端轮询 hygiene/status 拿状态。
+        """
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        from paimon.core.memory_classifier import run_hygiene, is_hygiene_running
+
+        if is_hygiene_running():
+            return web.json_response({"ok": True, "already_running": True})
+
+        irminsul = self.state.irminsul
+        model = self.state.model
+        if not irminsul or not model:
+            return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
+
+        # fire-and-forget 后台跑；前端用 status 轮询
+        import asyncio as _asyncio
+        _asyncio.create_task(run_hygiene(irminsul, model, trigger="manual"))
+        return web.json_response({"ok": True, "started": True})
+
+    async def knowledge_memory_hygiene_status_api(self, request: web.Request) -> web.Response:
+        """前端用：是否在跑 + 最近一次报告（从 push_archive 拉）。"""
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        from paimon.core.memory_classifier import is_hygiene_running
+
+        irminsul = self.state.irminsul
+        running = is_hygiene_running()
+        last_report = None
+        if irminsul:
+            try:
+                recs = await irminsul.push_archive_list(actor="草神", limit=10)
+                # 找出 source 以"草神·记忆整理"开头的最新一条
+                for r in recs:
+                    if (r.source or "").startswith("草神·记忆整理"):
+                        last_report = {
+                            "id": r.id,
+                            "created_at": r.created_at,
+                            "source": r.source,
+                            "message": r.message_md,
+                            "merged": (r.extra or {}).get("merged", 0),
+                            "deleted": (r.extra or {}).get("deleted", 0),
+                        }
+                        break
+            except Exception as e:
+                logger.debug("[草神·整理] 查最近报告失败: {}", e)
+        return web.json_response({"running": running, "last_report": last_report})
 
     # ---------- 草神·知识库（world tree knowledge 域）----------
 
@@ -413,8 +465,61 @@ class WebUIChannel(Channel):
             "body": content,
         })
 
+    async def knowledge_kb_remember_api(self, request: web.Request) -> web.Response:
+        """知识库新建：自然语言 → LLM 判 category/topic + 冲突检测 → 落 knowledge 域。
+
+        body: {content}
+        resp: {ok, action, category, topic, title, target_topic, reason, error?}
+        """
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
+        from paimon.core.memory_classifier import MAX_REMEMBER_CHARS, remember_knowledge_with_reconcile
+        from paimon.core.safety import detect_sensitive
+
+        try:
+            data = await request.json()
+            content = (data.get("content") or "").strip()
+            if not content:
+                return web.json_response({"ok": False, "error": "内容不能为空"}, status=400)
+            if len(content) > MAX_REMEMBER_CHARS:
+                return web.json_response(
+                    {"ok": False, "error": f"内容过长（{len(content)} 字），上限 {MAX_REMEMBER_CHARS} 字"},
+                    status=400,
+                )
+            hit = detect_sensitive(content)
+            if hit:
+                logger.warning("[草神·知识] 新建命中敏感串 pattern={} 已拒绝", hit)
+                return web.json_response({
+                    "ok": False,
+                    "error": f"检测到疑似敏感信息（{hit}）；请勿存储密钥/密码/身份证/银行卡等隐私",
+                }, status=400)
+
+            irminsul = self.state.irminsul
+            model = self.state.model
+            if not irminsul or not model:
+                return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
+
+            out = await remember_knowledge_with_reconcile(content, irminsul, model, actor="草神面板")
+            if not out.ok:
+                return web.json_response({"ok": False, "error": out.error or "写入失败"}, status=500)
+            return web.json_response({
+                "ok": True,
+                "action": out.action,
+                "category": out.category,
+                "topic": out.topic,
+                "title": out.title,
+                "target_topic": out.target_topic,
+                "reason": out.reason,
+            })
+        except Exception as e:
+            logger.error("[草神·知识] 新建异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     async def knowledge_kb_write_api(self, request: web.Request) -> web.Response:
-        """面板直接新建 / 编辑知识条目（upsert：同 category/topic 覆盖）。
+        """已知 category/topic 的编辑入口（详情 modal「编辑」按钮用）。
 
         body: {category, topic, body}
         """
@@ -479,6 +584,51 @@ class WebUIChannel(Channel):
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     # ---------- 草神·文书归档（读 .paimon/workspace/<task_id>/ 产物）----------
+
+    async def knowledge_kb_hygiene_api(self, request: web.Request) -> web.Response:
+        """手动触发知识库整理。后台跑，立即返回；前端轮询 hygiene/status 拿结果。"""
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+        from paimon.core.memory_classifier import run_kb_hygiene, is_kb_hygiene_running
+        if is_kb_hygiene_running():
+            return web.json_response({"ok": True, "already_running": True})
+        irminsul = self.state.irminsul
+        model = self.state.model
+        if not irminsul or not model:
+            return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
+        import asyncio as _asyncio
+        _asyncio.create_task(run_kb_hygiene(irminsul, model, trigger="manual"))
+        return web.json_response({"ok": True, "started": True})
+
+    async def knowledge_kb_hygiene_status_api(self, request: web.Request) -> web.Response:
+        """知识库整理：是否在跑 + 最近一次报告。"""
+        if self.require_auth:
+            token = request.cookies.get("paimon_token")
+            if not token or token not in self.valid_tokens:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+        from paimon.core.memory_classifier import is_kb_hygiene_running
+        irminsul = self.state.irminsul
+        running = is_kb_hygiene_running()
+        last_report = None
+        if irminsul:
+            try:
+                recs = await irminsul.push_archive_list(actor="草神", limit=20)
+                for r in recs:
+                    if (r.source or "").startswith("草神·知识整理"):
+                        last_report = {
+                            "id": r.id,
+                            "created_at": r.created_at,
+                            "source": r.source,
+                            "message": r.message_md,
+                            "merged": (r.extra or {}).get("merged", 0),
+                            "deleted": (r.extra or {}).get("deleted", 0),
+                        }
+                        break
+            except Exception as e:
+                logger.debug("[草神·知识整理] 查最近报告失败: {}", e)
+        return web.json_response({"running": running, "last_report": last_report})
 
     async def knowledge_archives_list_api(self, request: web.Request) -> web.Response:
         """列所有任务 workspace 的产物汇总：task_id + 标题 + 创建时间 + 产物清单。"""
