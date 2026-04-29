@@ -67,6 +67,28 @@ TASKS_CSS = """
         font-size: 12px; color: var(--status-error);
     }
 
+    /* 方案 D：内部任务（周期采集 / 红利扫描等）视觉上区分 */
+    .task-card.internal {
+        border-left: 3px solid var(--gold-dark);
+        background: linear-gradient(90deg, rgba(245,158,11,.04), var(--paimon-panel) 40%);
+    }
+    .task-card.internal:hover { border-color: var(--gold); }
+    .task-source-chip {
+        display: inline-block; padding: 2px 8px; margin-right: 6px;
+        border-radius: 10px; font-size: 11px; font-weight: 600;
+        background: rgba(245,158,11,.15); color: var(--gold); border: 1px solid rgba(245,158,11,.3);
+    }
+    .task-source-chip.unknown {
+        background: rgba(239,68,68,.1); color: var(--status-error);
+        border-color: rgba(239,68,68,.3);
+    }
+    .task-source-hint {
+        margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--paimon-border);
+        font-size: 11px; color: var(--text-muted);
+    }
+    .task-source-hint a { color: var(--gold); text-decoration: none; }
+    .task-source-hint a:hover { text-decoration: underline; }
+
     .empty-state { text-align: center; padding: 80px 20px; color: var(--text-muted); font-size: 14px; }
     .empty-icon { font-size: 48px; margin-bottom: 16px; opacity: .5; }
 
@@ -198,12 +220,34 @@ TASKS_SCRIPT = """
                     return;
                 }
                 el.innerHTML=tasks.map(function(t){
-                    var cls='task-card'+(t.enabled?'':' disabled');
+                    var src=t.source||null;  // 方案 D：非 user 类型带 source 元信息
+                    var cls='task-card'+(t.enabled?'':' disabled')+(src?' internal clickable':'');
                     var badge=t.enabled?'<span class="task-badge badge-enabled">运行中</span>':'<span class="task-badge badge-disabled">已停止</span>';
                     var err=t.last_error?'<div class="task-error">'+esc(t.last_error.substring(0,100))+(t.consecutive_failures?' (连续'+t.consecutive_failures+'次)':'')+'</div>':'';
-                    return '<div class="'+cls+'">'
-                        +'<div class="task-header"><span class="task-id">'+esc(t.id)+'</span>'+badge+'</div>'
-                        +'<div class="task-prompt">'+esc(t.prompt)+'</div>'
+
+                    var headLeft='<span class="task-id">'+esc(t.id)+'</span>';
+                    var displayText='';
+                    var sourceHint='';
+                    if(src){
+                        var chipCls='task-source-chip'+(src.task_type && !src.jump_url?' unknown':'');
+                        headLeft='<span class="'+chipCls+'">'+esc(src.label||'?')+'</span>'+headLeft;
+                        displayText=esc(src.description||src.task_type||'-');
+                        if(src.jump_url){
+                            sourceHint='<div class="task-source-hint">💡 此任务由 <a href="'+esc(src.jump_url)+'">'+esc(src.manager_panel||src.jump_url)+'</a> 面板创建，启停/删除请到对应面板管理</div>';
+                        }else if(src.task_type){
+                            sourceHint='<div class="task-source-hint">⚠️ 未知任务类型 '+esc(src.task_type)+'（对应 archon 可能未注册或已移除）</div>';
+                        }
+                    }else{
+                        displayText=esc(t.prompt);
+                    }
+
+                    var onClick=src&&src.jump_url
+                        ? ' onclick="window.location=\\''+esc(src.jump_url)+'\\'"'
+                        : '';
+
+                    return '<div class="'+cls+'"'+onClick+'>'
+                        +'<div class="task-header"><span>'+headLeft+'</span>'+badge+'</div>'
+                        +'<div class="task-prompt">'+displayText+'</div>'
                         +'<div class="task-meta">'
                         +'<span class="task-meta-item">'+fmtTrigger(t)+'</span>'
                         +'<span class="task-meta-item">下次: '+fmtTime(t.next_run_at)+'</span>'
@@ -211,6 +255,7 @@ TASKS_SCRIPT = """
                         +'<span class="task-meta-item">创建: '+fmtTime(t.created_at)+'</span>'
                         +'</div>'
                         +err
+                        +sourceHint
                         +'</div>';
                 }).join('');
             }catch(e){

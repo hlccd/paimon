@@ -306,21 +306,37 @@ async def cmd_tasks(ctx: CommandContext) -> str:
     if not march:
         return "三月调度服务未启动"
     tasks = await march.list_tasks()
-    # 过滤订阅 / 红利股专用任务：归专属面板管理（/subs list、/dividend、/wealth）
-    tasks = [
-        t for t in tasks
-        if not t.task_prompt.startswith("[FEED_COLLECT] ")
-        and not t.task_prompt.startswith("[DIVIDEND_SCAN] ")
-    ]
     if not tasks:
-        return "暂无定时任务（订阅推送见 /subs list；红利股追踪见 /dividend）"
+        return "暂无定时任务"
     import time as _time
+    from paimon.foundation import task_types as _tt
     lines = ["定时任务列表:"]
     for t in tasks:
         status = "启用" if t.enabled else "禁用"
-        next_str = _time.strftime("%m-%d %H:%M", _time.localtime(t.next_run_at)) if t.next_run_at > 0 else "-"
+        next_str = _time.strftime(
+            "%m-%d %H:%M", _time.localtime(t.next_run_at),
+        ) if t.next_run_at > 0 else "-"
         err = f" [错误: {t.last_error[:30]}]" if t.last_error else ""
-        lines.append(f"  {t.id} | {status} | {t.trigger_type} | 下次: {next_str} | {t.task_prompt[:40]}{err}")
+        # 方案 D：内部类型优先按 registry 渲染来源 + 描述
+        if t.task_type and t.task_type != "user":
+            meta = _tt.get(t.task_type)
+            label = meta.display_label if meta else f"❓{t.task_type}"
+            desc = ""
+            if meta and meta.description_builder:
+                try:
+                    desc = await meta.description_builder(
+                        t.source_entity_id, state.irminsul,
+                    )
+                except Exception:
+                    desc = t.source_entity_id or ""
+            else:
+                desc = t.source_entity_id or ""
+            display = f"[{label}] {desc}"[:60]
+        else:
+            display = t.task_prompt[:40]
+        lines.append(
+            f"  {t.id} | {status} | {t.trigger_type} | 下次: {next_str} | {display}{err}"
+        )
     return "\n".join(lines)
 
 
@@ -596,9 +612,11 @@ async def create_subscription(
         task_id = await state.march.create_task(
             chat_id=chat_id,
             channel_name=channel_name,
-            prompt=f"[FEED_COLLECT] {sub_id}",
+            prompt="",  # 内部任务不需要 LLM prompt；UI 由 task_types.description_builder 实时构造
             trigger_type="cron",
             trigger_value={"expr": cron},
+            task_type="feed_collect",
+            source_entity_id=sub_id,
         )
     except Exception as e:
         await state.irminsul.subscription_delete(sub_id, actor="派蒙")
@@ -782,12 +800,12 @@ async def toggle_dividend_cron(
     if not state.irminsul or not state.march:
         return False, "世界树 / 三月未就绪"
 
-    # 找已有 [DIVIDEND_SCAN] 任务
+    # 找已有 dividend_scan 任务（方案 D：按 task_type 分类，不再按 prompt 前缀）
     tasks = await state.march.list_tasks()
     existing = {
-        t.task_prompt.split(" ", 1)[1]: t
+        t.source_entity_id: t
         for t in tasks
-        if t.task_prompt.startswith("[DIVIDEND_SCAN] ")
+        if t.task_type == "dividend_scan" and t.source_entity_id
     }
 
     if not enable:
@@ -818,9 +836,11 @@ async def toggle_dividend_cron(
             await state.march.create_task(
                 chat_id=chat_id,
                 channel_name=channel_name,
-                prompt=f"[DIVIDEND_SCAN] {mode}",
+                prompt="",  # 方案 D：路由靠 task_type + mode，prompt 不承担编码
                 trigger_type="cron",
                 trigger_value={"expr": cron},
+                task_type="dividend_scan",
+                source_entity_id=mode,
             )
             created.append(f"{mode} ({cron})")
         except Exception as e:

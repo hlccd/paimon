@@ -435,6 +435,10 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("feed_items", "event_id",         "TEXT NOT NULL DEFAULT ''"),
     ("feed_items", "sentiment_score",  "REAL NOT NULL DEFAULT 0.0"),
     ("feed_items", "sentiment_label",  "TEXT NOT NULL DEFAULT ''"),
+    # 定时任务类型化（方案 D）：把 task_prompt 里的 [PREFIX] 魔法编码
+    # 升级为 schema 字段，正式支持 archon 各自注册 task_type
+    ("scheduled_tasks", "task_type", "TEXT NOT NULL DEFAULT 'user'"),
+    ("scheduled_tasks", "source_entity_id", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -445,9 +449,44 @@ async def init_db(db_path) -> aiosqlite.Connection:
     await db.execute("PRAGMA journal_mode = WAL")  # 单用户仍有好处：读不阻塞写
     await db.executescript(SCHEMA_DDL)
     await _run_migrations(db)
+    await _backfill_scheduled_task_types(db)
     await _drop_legacy_tables(db)
     await db.commit()
     return db
+
+
+async def _backfill_scheduled_task_types(db: aiosqlite.Connection) -> None:
+    """把旧 [PREFIX] 编码的 scheduled_tasks 回填到 task_type/source_entity_id 字段。
+
+    幂等：只 UPDATE 还停留在 task_type='user' 且 task_prompt 是旧前缀格式的行；
+    首次启动后都已正确归位，后续启动 no-op。
+    保留 task_prompt 原值——即便代码回滚，旧 startswith 分派仍能工作。
+    """
+    backfills: list[tuple[str, str]] = [
+        ("feed_collect", "[FEED_COLLECT] "),
+        ("dividend_scan", "[DIVIDEND_SCAN] "),
+    ]
+    for task_type, prefix in backfills:
+        async with db.execute(
+            "SELECT COUNT(*) FROM scheduled_tasks "
+            "WHERE task_type = 'user' AND task_prompt LIKE ?",
+            (prefix + "%",),
+        ) as cur:
+            row = await cur.fetchone()
+        n = (row or (0,))[0]
+        if not n:
+            continue
+        await db.execute(
+            "UPDATE scheduled_tasks SET "
+            "  task_type = ?, "
+            "  source_entity_id = SUBSTR(task_prompt, ? + 1) "
+            "WHERE task_type = 'user' AND task_prompt LIKE ?",
+            (task_type, len(prefix), prefix + "%"),
+        )
+        logger.info(
+            "[世界树] schema 迁移  scheduled_tasks 回填 task_type={} 共 {} 条",
+            task_type, n,
+        )
 
 
 async def _drop_legacy_tables(db: aiosqlite.Connection) -> None:

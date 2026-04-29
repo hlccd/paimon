@@ -1227,8 +1227,9 @@ class WebUIChannel(Channel):
         cron_on = False
         if march:
             tasks = await march.list_tasks()
+            # 方案 D：按 task_type 分类（原 task_prompt.startswith("[DIVIDEND_SCAN] ") 2026-04-29 废弃）
             cron_on = any(
-                t.task_prompt.startswith("[DIVIDEND_SCAN] ") and t.enabled
+                t.task_type == "dividend_scan" and t.enabled
                 for t in tasks
             )
         # 近 7 天 P0 / P1 事件累计：从 push_archive(actor="岩神") 的 extra 读 p0/p1_count
@@ -1707,32 +1708,77 @@ class WebUIChannel(Channel):
         if not march:
             return web.json_response({"tasks": []})
 
+        # 方案 D：不再过滤内部任务；内部类型经 task_types registry 查元信息注入 source 段，
+        # 前端据此渲染 chip + 跳转链接 + 禁用启停，避免双写冲突同时保持可见性
+        from paimon.foundation import task_types as _tt
+
         tasks = await march.list_tasks()
-        # 过滤专用内部任务（归各自面板管理，避免冲突启停）：
-        # - [FEED_COLLECT]  → /feed 信息流面板
-        # - [DIVIDEND_SCAN] → /wealth 理财面板 + /dividend 指令
-        tasks = [
-            t for t in tasks
-            if not t.task_prompt.startswith("[FEED_COLLECT] ")
-            and not t.task_prompt.startswith("[DIVIDEND_SCAN] ")
-        ]
-        return web.json_response({
-            "tasks": [
-                {
-                    "id": t.id,
-                    "prompt": t.task_prompt,
-                    "trigger_type": t.trigger_type,
-                    "trigger_value": t.trigger_value,
-                    "enabled": t.enabled,
-                    "next_run_at": t.next_run_at,
-                    "last_run_at": t.last_run_at,
-                    "last_error": t.last_error,
-                    "consecutive_failures": t.consecutive_failures,
-                    "created_at": t.created_at,
-                }
-                for t in tasks
-            ]
-        })
+        rows: list[dict] = []
+        for t in tasks:
+            row = {
+                "id": t.id,
+                "prompt": t.task_prompt,
+                "trigger_type": t.trigger_type,
+                "trigger_value": t.trigger_value,
+                "enabled": t.enabled,
+                "next_run_at": t.next_run_at,
+                "last_run_at": t.last_run_at,
+                "last_error": t.last_error,
+                "consecutive_failures": t.consecutive_failures,
+                "created_at": t.created_at,
+                "task_type": t.task_type or "user",
+                "source_entity_id": t.source_entity_id or "",
+            }
+            if t.task_type and t.task_type != "user":
+                meta = _tt.get(t.task_type)
+                if meta:
+                    desc = ""
+                    if meta.description_builder:
+                        try:
+                            desc = await meta.description_builder(
+                                t.source_entity_id, self.state.irminsul,
+                            )
+                        except Exception as e:
+                            logger.debug(
+                                "[WebUI·tasks] description_builder 失败 {}: {}",
+                                t.task_type, e,
+                            )
+                            desc = t.source_entity_id or ""
+                    else:
+                        desc = t.source_entity_id or ""
+                    anchor = ""
+                    if meta.anchor_builder and t.source_entity_id:
+                        try:
+                            anchor = meta.anchor_builder(t.source_entity_id)
+                        except Exception:
+                            anchor = ""
+                    jump_url = (
+                        f"{meta.manager_panel}#{anchor}"
+                        if anchor else meta.manager_panel
+                    )
+                    row["source"] = {
+                        "task_type": t.task_type,
+                        "label": meta.display_label,
+                        "icon": meta.icon,
+                        "description": desc,
+                        "jump_url": jump_url,
+                        "manager_panel": meta.manager_panel,
+                        "editable": False,   # 内部类型统一禁止 /tasks 编辑
+                    }
+                else:
+                    # 未注册类型：展示 ❓ chip + 允许手动删除做孤儿清理
+                    row["source"] = {
+                        "task_type": t.task_type,
+                        "label": f"❓ {t.task_type}",
+                        "icon": "",
+                        "description": t.source_entity_id or "（未知来源）",
+                        "jump_url": "",
+                        "manager_panel": "",
+                        "editable": False,
+                    }
+            rows.append(row)
+
+        return web.json_response({"tasks": rows})
 
     async def tasks_complex_list_api(self, request: web.Request) -> web.Response:
         """四影任务列表（docs/interaction.md §四 WebUI tab）。

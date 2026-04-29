@@ -937,3 +937,54 @@ class VentiArchon(Archon):
             f"**信源**：{sources_str}\n"
             f"**最近更新**：{last_seen}"
         )
+
+
+def register_task_types() -> None:
+    """注册风神名下的周期任务类型（方案 D）。由 bootstrap 启动时调一次。
+
+    目前仅 `feed_collect`（话题订阅采集）；未来若风神再加新周期任务在此继续追加。
+    """
+    from paimon.foundation import task_types
+
+    async def _desc(sub_id: str, irminsul: "Irminsul") -> str:
+        try:
+            sub = await irminsul.subscription_get(sub_id)
+        except Exception as e:
+            return f"（查询订阅失败：{e}）"
+        if not sub:
+            return f"订阅已删除（{sub_id[:8]}）"
+        return sub.query or "未命名订阅"
+
+    async def _dispatch(task, state) -> None:
+        if not state.venti:
+            logger.error(
+                "[风神·订阅] archon 未就绪，跳过 sub={}", task.source_entity_id,
+            )
+            return
+        sub_id = task.source_entity_id
+        try:
+            await state.venti.collect_subscription(
+                sub_id,
+                irminsul=state.irminsul,
+                model=state.model,
+                march=state.march,
+            )
+        except Exception as e:
+            logger.exception("[风神·订阅] 采集异常 sub={}: {}", sub_id, e)
+            if state.irminsul:
+                try:
+                    await state.irminsul.subscription_update(
+                        sub_id, actor="风神", last_error=str(e)[:500],
+                    )
+                except Exception:
+                    pass
+
+    task_types.register(task_types.TaskTypeMeta(
+        task_type="feed_collect",
+        display_label="风神订阅",
+        manager_panel="/feed",
+        icon="rss",
+        description_builder=_desc,
+        anchor_builder=lambda sid: f"sub-{sid}",
+        dispatcher=_dispatch,
+    ))

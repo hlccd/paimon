@@ -238,12 +238,19 @@ async def create_app(cfg: Config) -> list[Channel]:
             state.skill_hot_loader = None
 
     # 风神单例（供三月 cron 触发订阅采集；四影管线另走 archon registry 路径）
-    from paimon.archons.venti import VentiArchon
+    from paimon.archons.venti import VentiArchon, register_task_types as _venti_reg
     state.venti = VentiArchon()
 
     # 岩神单例（红利股追踪 cron 触发；同上）
     from paimon.archons.zhongli import ZhongliArchon
+    from paimon.archons.zhongli.zhongli import register_task_types as _zhongli_reg
     state.zhongli = ZhongliArchon()
+
+    # 方案 D：注册各神名下的周期任务类型到中央 task_types registry。
+    # /tasks 面板可见 + bootstrap._on_march_ring 分派都走这套；
+    # 未来新神加周期任务的唯一接入点。
+    _venti_reg()
+    _zhongli_reg()
 
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision
@@ -338,58 +345,40 @@ async def create_app(cfg: Config) -> list[Channel]:
         channel_name = payload.get("channel_name", "")
         chat_id = payload.get("chat_id", "")
         prompt = payload.get("prompt", "")
+        task_id = payload.get("task_id", "")
 
-        # ---- 岩神红利股采集（前缀分派，不走频道投递）----
-        # scheduled_tasks.task_prompt 形如 "[DIVIDEND_SCAN] full|daily|rescore"
-        # 由 /dividend on 创建两个 cron（daily + full）；rescore 为手动触发。
-        if prompt.startswith("[DIVIDEND_SCAN] "):
-            mode = prompt.split(" ", 1)[1].strip()
-            if not state.zhongli:
-                logger.error("[岩神·采集] 岩神未就绪，跳过 mode={}", mode)
-                return
+        # ---- 方案 D：非 user 类型的周期任务经 task_types registry 分派 ----
+        # payload 需带 task_id（由 march._fire_task 注入），拉完整 ScheduledTask
+        # 读 task_type 和 source_entity_id；dispatcher 由各 archon 注册时注入。
+        if task_id and state.irminsul:
+            task = None
             try:
-                await state.zhongli.collect_dividend(
-                    mode=mode,
-                    irminsul=state.irminsul,
-                    march=state.march,
-                    chat_id=chat_id,
-                    channel_name=channel_name,
-                )
+                task = await state.irminsul.schedule_get(task_id)
             except Exception as e:
-                logger.exception("[岩神·采集] 异常 mode={}: {}", mode, e)
-            return
+                logger.debug("[三月·分派] 读任务失败 task_id={}: {}", task_id, e)
+            if task and task.task_type and task.task_type != "user":
+                from paimon.foundation import task_types as _tt
+                meta = _tt.get(task.task_type)
+                if meta is None:
+                    logger.warning(
+                        "[三月·分派] 未知 task_type={} task_id={}（未注册；"
+                        "不 fallback 到 LLM 以避免把内部任务误当用户 prompt）",
+                        task.task_type, task_id,
+                    )
+                    return
+                try:
+                    await meta.dispatcher(task, state)
+                except Exception as e:
+                    logger.exception(
+                        "[三月·{}] 分派异常 task_id={}: {}",
+                        meta.display_label, task_id, e,
+                    )
+                return
 
         # 三月·Deep 自检的 [SELFCHECK_DEEP] cron 分派已撤销（docs/todo.md §
         # 三月·自检·Deep 暂缓）。当前 LLM 模型对 check skill 跑不充分，
         # 周期性自动触发没意义；底层 SelfCheckService.run_deep 代码保留，
         # 只留手动入口（/selfcheck --deep，受 selfcheck_deep_hidden 开关）。
-
-        # ---- 风神订阅采集（前缀分派，不走频道投递）----
-        # scheduled_tasks.task_prompt 形如 "[FEED_COLLECT] <sub_id>"
-        # 由 /subscribe 指令创建；cron 到点触发后由风神采集 + 内部再 ring_event 推送。
-        # 无论 state.venti 是否就绪都必须拦截前缀 prompt，避免误发给 LLM。
-        if prompt.startswith("[FEED_COLLECT] "):
-            sub_id = prompt.split(" ", 1)[1].strip()
-            if not state.venti:
-                logger.error("[风神·订阅] 风神未就绪，跳过采集 sub={}", sub_id)
-                return
-            try:
-                await state.venti.collect_subscription(
-                    sub_id,
-                    irminsul=state.irminsul,
-                    model=state.model,
-                    march=state.march,
-                )
-            except Exception as e:
-                logger.exception("[风神·订阅] 采集异常 sub={}: {}", sub_id, e)
-                if state.irminsul:
-                    try:
-                        await state.irminsul.subscription_update(
-                            sub_id, actor="风神", last_error=str(e)[:500],
-                        )
-                    except Exception:
-                        pass
-            return
 
         channel = state.channels.get(channel_name)
         if not channel:

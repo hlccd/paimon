@@ -16,7 +16,7 @@ class ScheduledTask:
     id: str = ""
     chat_id: str = ""
     channel_name: str = ""
-    task_prompt: str = ""
+    task_prompt: str = ""           # type='user' 时是喂 LLM 的自然语言；内部类型此字段无语义
     trigger_type: str = ""          # "once" | "interval" | "cron"
     trigger_value: dict = field(default_factory=dict)
     enabled: bool = True
@@ -26,6 +26,9 @@ class ScheduledTask:
     consecutive_failures: int = 0
     created_at: float = 0.0
     updated_at: float = 0.0
+    # 方案 D：task_type 一等公民（替代旧 task_prompt 里的 [PREFIX] 编码）
+    task_type: str = "user"         # 'user' | 'feed_collect' | 'dividend_scan' | ...
+    source_entity_id: str = ""      # 业务实体 id（sub_id / mode 等）；'user' 类型下为空
 
 
 class ScheduleRepo:
@@ -44,13 +47,15 @@ class ScheduleRepo:
             "INSERT INTO scheduled_tasks "
             "(id, chat_id, channel_name, task_prompt, trigger_type, trigger_value, "
             "enabled, next_run_at, last_run_at, last_error, consecutive_failures, "
-            "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "created_at, updated_at, task_type, source_entity_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task.id, task.chat_id, task.channel_name, task.task_prompt,
                 task.trigger_type, json.dumps(task.trigger_value, ensure_ascii=False),
                 1 if task.enabled else 0, task.next_run_at, task.last_run_at,
                 task.last_error, task.consecutive_failures,
                 task.created_at, task.updated_at,
+                task.task_type or "user", task.source_entity_id or "",
             ),
         )
         await self._db.commit()
@@ -114,11 +119,14 @@ class ScheduleRepo:
         return deleted
 
     def _row_to_task(self, row) -> ScheduledTask:
+        # 用 SELECT * 取行，列顺序跟 CREATE TABLE + 后续 ALTER 一致：
+        # 前 13 列为初始 schema，后 2 列为方案 D 加的 task_type / source_entity_id
         cols = [
             "id", "chat_id", "channel_name", "task_prompt",
             "trigger_type", "trigger_value", "enabled",
             "next_run_at", "last_run_at", "last_error",
             "consecutive_failures", "created_at", "updated_at",
+            "task_type", "source_entity_id",
         ]
         d = dict(zip(cols, row))
         try:
@@ -126,4 +134,7 @@ class ScheduleRepo:
         except (json.JSONDecodeError, TypeError):
             d["trigger_value"] = {}
         d["enabled"] = bool(d["enabled"])
+        # 兜底：旧数据行可能比新 schema 少字段
+        d.setdefault("task_type", "user")
+        d.setdefault("source_entity_id", "")
         return ScheduledTask(**d)

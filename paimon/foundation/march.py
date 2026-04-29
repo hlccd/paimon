@@ -307,7 +307,15 @@ class MarchService:
         prompt: str,
         trigger_type: str,
         trigger_value: dict,
+        *,
+        task_type: str = "user",
+        source_entity_id: str = "",
     ) -> str:
+        """创建定时任务。
+
+        task_type='user' 时 `prompt` 作自然语言喂给 LLM；非 user 类型（方案 D）
+        prompt 仅用作 UI 回退显示文本，真正的路由靠 task_type + source_entity_id。
+        """
         now = time.time()
         next_run = self._calc_initial_next_run(trigger_type, trigger_value, now)
 
@@ -319,9 +327,14 @@ class MarchService:
             trigger_value=trigger_value,
             next_run_at=next_run,
             created_at=now,
+            task_type=task_type,
+            source_entity_id=source_entity_id,
         )
         task_id = await self._irminsul.schedule_create(task, actor="三月")
-        logger.info("[三月] 创建任务 {} type={} next={:.0f}", task_id, trigger_type, next_run)
+        logger.info(
+            "[三月] 创建任务 {} type={} kind={} next={:.0f}",
+            task_id, trigger_type, task_type, next_run,
+        )
         return task_id
 
     async def delete_task(self, task_id: str) -> bool:

@@ -1412,3 +1412,55 @@ class ZhongliArchon(Archon):
 def _extract_code(text: str) -> str | None:
     m = re.search(r'(\d{6})', text)
     return m.group(1) if m else None
+
+
+# ============================================================
+# 周期任务类型注册（方案 D）
+# ============================================================
+
+
+def register_task_types() -> None:
+    """注册岩神名下的周期任务类型。由 bootstrap 启动时调一次。
+
+    目前仅 `dividend_scan`（红利股扫描，三种 mode：full/daily/rescore）；
+    source_entity_id 存 mode 字符串。/wealth 是单大面板，无 anchor 需求。
+    """
+    from paimon.foundation import task_types
+
+    _MODE_LABELS = {
+        "full": "全市场全扫描",
+        "daily": "每日增量更新",
+        "rescore": "当日重评分",
+    }
+
+    async def _desc(mode: str, irminsul) -> str:
+        label = _MODE_LABELS.get(mode, mode or "未知模式")
+        return f"{label}"
+
+    async def _dispatch(task, state) -> None:
+        if not state.zhongli:
+            logger.error(
+                "[岩神·采集] archon 未就绪，跳过 mode={}", task.source_entity_id,
+            )
+            return
+        mode = task.source_entity_id
+        try:
+            await state.zhongli.collect_dividend(
+                mode=mode,
+                irminsul=state.irminsul,
+                march=state.march,
+                chat_id=task.chat_id,
+                channel_name=task.channel_name,
+            )
+        except Exception as e:
+            logger.exception("[岩神·采集] 异常 mode={}: {}", mode, e)
+
+    task_types.register(task_types.TaskTypeMeta(
+        task_type="dividend_scan",
+        display_label="岩神理财",
+        manager_panel="/wealth",
+        icon="chart",
+        description_builder=_desc,
+        anchor_builder=None,  # /wealth 单面板，不需要 anchor
+        dispatcher=_dispatch,
+    ))

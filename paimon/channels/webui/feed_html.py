@@ -68,6 +68,15 @@ FEED_CSS = """
         display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center;
     }
     .sub-card.disabled { opacity: .5; }
+    /* 方案 D：从 /tasks 面板跳来时高亮对应订阅卡 2 秒 */
+    .sub-card.highlight-flash {
+        animation: sub-flash 2s ease-out;
+        border-color: var(--gold);
+    }
+    @keyframes sub-flash {
+        0%   { background: rgba(245,158,11,.18); box-shadow: 0 0 0 3px rgba(245,158,11,.35); }
+        100% { background: var(--paimon-panel); box-shadow: none; }
+    }
     .sub-info .sub-query { font-size: 16px; color: var(--text-primary); font-weight: 500; margin-bottom: 4px; }
     .sub-info .sub-meta { font-size: 12px; color: var(--text-muted); }
     .sub-info .sub-meta span { margin-right: 12px; }
@@ -276,7 +285,7 @@ FEED_SCRIPT = """
                     var runBtn=s.running
                         ? '<button class="btn-action" disabled>采集中…</button>'
                         : '<button class="btn-action" onclick="runSub(\\''+s.id+'\\')">运行</button>';
-                    return '<div class="'+cls+'">'
+                    return '<div class="'+cls+'" id="sub-'+esc(s.id)+'" data-sub-id="'+esc(s.id)+'">'
                         + '<div class="sub-info">'
                         +   '<div class="sub-query">'+esc(s.query)+' '+badge+' '+runBadge+'</div>'
                         +   '<div class="sub-meta">'
@@ -419,7 +428,30 @@ FEED_SCRIPT = """
             }catch(e){ el.innerHTML='<div class="empty-state">加载失败: '+esc(String(e))+'</div>'; }
         };
 
-        window.onload=function(){ loadStats(); loadSubs(); };
+        // 方案 D：从 /tasks 点内部任务跳过来时 URL 带 #sub-<id>，定位到对应订阅卡
+        function _scrollToSubFromHash(){
+            var m=location.hash.match(/^#sub-(.+)$/);
+            if(!m) return;
+            var id=m[1];
+            var tryScroll=function(retriesLeft){
+                var card=document.getElementById('sub-'+id);
+                if(card){
+                    card.scrollIntoView({behavior:'smooth',block:'center'});
+                    card.classList.add('highlight-flash');
+                    setTimeout(function(){ card.classList.remove('highlight-flash'); }, 2000);
+                }else if(retriesLeft>0){
+                    // loadSubs 异步，render 未完成前再试
+                    setTimeout(function(){ tryScroll(retriesLeft-1); }, 250);
+                }
+            };
+            tryScroll(8);  // 最多等 2s
+        }
+        window.onload=function(){
+            loadStats();
+            loadSubs();
+            _scrollToSubFromHash();
+        };
+        window.addEventListener('hashchange', _scrollToSubFromHash);
     })();
     </script>
 """
