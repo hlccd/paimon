@@ -58,15 +58,33 @@ def _rule_classify(user_input: str, skill_registry: SkillRegistry) -> IntentResu
             logger.info("[派蒙·意图·规则] 命中定时模式 '{}' → chat", pat.pattern[:30])
             return IntentResult(kind="chat")
 
-    # 2) Skill 触发特征（URL 直匹配）→ skill:<name>
+    # 2) Skill 触发特征 → skill:<name>
+    # URL/域名类 trigger 优先于关键词类。同层内取最具体（最长）的。
+    # 旧版「字母序遍历 + 先命中先 return」会让消息含「搜索」时 web-search 截胡 xhs 的 xhslink.com。
+    t_lower = t.lower()
+
+    def _is_url_trigger(trig: str) -> bool:
+        tl = trig.lower()
+        return any(marker in tl for marker in (".com", ".cn", ".tv", ".net", "://", "http"))
+
+    url_hits: list = []  # [(trigger_len, skill, trigger)]
+    kw_hits: list = []
     for s in skill_registry.list_all():
         if not s.triggers:
             continue
-        triggers = [tr.strip() for tr in s.triggers.split(",") if tr.strip()]
-        for trig in triggers:
-            if trig.lower() in t.lower():
-                logger.info("[派蒙·意图·规则] 命中 skill triggers '{}' → skill:{}", trig, s.name)
-                return IntentResult(kind="skill", skill_name=s.name)
+        for trig in (tr.strip() for tr in s.triggers.split(",") if tr.strip()):
+            if trig.lower() in t_lower:
+                bucket = url_hits if _is_url_trigger(trig) else kw_hits
+                bucket.append((len(trig), s, trig))
+                break
+
+    chosen = url_hits or kw_hits
+    if chosen:
+        chosen.sort(key=lambda x: -x[0])
+        _, s, trig = chosen[0]
+        tier = "URL" if url_hits else "关键词"
+        logger.info("[派蒙·意图·规则] 命中 skill triggers '{}'({}) → skill:{}", trig, tier, s.name)
+        return IntentResult(kind="skill", skill_name=s.name)
 
     return None
 
