@@ -47,6 +47,7 @@ class TsaritsaArchon(Archon):
             system += "\n\n## 前序子任务结果\n"
             for i, pr in enumerate(prior_results, 1):
                 system += f"\n### 子任务 {i}\n{pr[:2000]}\n"
+        system += await self._load_feedback_memories_block(irminsul)
         system += FINAL_OUTPUT_RULE
 
         temp_session = Session(id=f"tsaritsa-{task.id[:8]}", name="冰神管理")

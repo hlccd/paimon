@@ -209,6 +209,7 @@ class FurinaArchon(Archon):
             system += "\n\n## 需要评审的内容\n"
             for i, pr in enumerate(prior_results, 1):
                 system += f"\n### 子任务 {i} 产物\n{pr[:3000]}\n"
+        system += await self._load_feedback_memories_block(irminsul)
         system += FINAL_OUTPUT_RULE
 
         temp_session = Session(id=f"furina-{task.id[:8]}", name="水神评审")

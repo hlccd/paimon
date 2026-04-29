@@ -5,7 +5,6 @@
 """
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -402,13 +401,15 @@ async def cmd_remember(ctx: CommandContext) -> str:
     """/remember <内容> — L1 记忆显式入口。
     LLM 自动判别类型（user/feedback/project/reference）；失败降级到 user。
     """
+    from paimon.core.memory_classifier import (
+        MAX_REMEMBER_CHARS, classify_memory, sanitize_subject, default_title,
+    )
+
     content = ctx.args.strip()
     if not content:
         return "用法: /remember <要记住的内容>"
-    # 防御：单条 /remember 内容上限 2000 字符（符合 memory 域设计）
-    _MAX_REMEMBER_CHARS = 2000
-    if len(content) > _MAX_REMEMBER_CHARS:
-        return f"内容过长（{len(content)} 字），单条记忆上限 {_MAX_REMEMBER_CHARS} 字；请拆分后分别 /remember"
+    if len(content) > MAX_REMEMBER_CHARS:
+        return f"内容过长（{len(content)} 字），单条记忆上限 {MAX_REMEMBER_CHARS} 字；请拆分后分别 /remember"
     # 敏感串拒绝：跨会话 memory 会每次注入 system prompt，不应包含密钥/隐私
     hit = _detect_sensitive(content)
     if hit:
@@ -420,15 +421,10 @@ async def cmd_remember(ctx: CommandContext) -> str:
     if not state.irminsul or not state.model:
         return "世界树 / 模型未就绪"
 
-    mem_type, title, subject = await _classify_memory(content, state.model)
+    mem_type, title, subject = await classify_memory(content, state.model)
     if mem_type is None:
-        # LLM 失败降级：默认 user / default / 前 30 字标题（并清理控制字符）
-        mem_type, subject = "user", "default"
-        safe = content.replace("\n", " ").replace("\r", " ").replace("\t", " ")
-        title = safe[:30]
-
-    # subject 防 injection：只保留字母数字/中文/_-；可能含路径穿越的降级 default
-    subject = _sanitize_subject(subject)
+        mem_type, subject, title = "user", "default", default_title(content)
+    subject = sanitize_subject(subject)
 
     try:
         mem_id = await state.irminsul.memory_write(
@@ -445,76 +441,6 @@ async def cmd_remember(ctx: CommandContext) -> str:
         return f"记忆写入失败: {e}"
 
     return f"已记住 [{mem_type}/{subject}] {title} (id={mem_id[:8]})"
-
-
-_SUBJECT_SAFE_RE = re.compile(r"^[\w\u4e00-\u9fff\-]+$")
-
-
-def _sanitize_subject(subject: str) -> str:
-    """subject 必须是简单标识符（字母/数字/下划线/中文/短横）。
-    含路径字符 / 空格 / 特殊字符的一律降级到 'default'，避免 resolve_safe 抛 + 文件系统问题。
-    """
-    s = (subject or "").strip() or "default"
-    if ".." in s or "/" in s or "\\" in s:
-        return "default"
-    if not _SUBJECT_SAFE_RE.match(s):
-        return "default"
-    return s[:80]
-
-
-_CLASSIFY_MEMORY_PROMPT = """\
-你是记忆分类器。用户用 /remember 命令告诉派蒙一段要记住的内容。
-请把内容归入以下类型之一：
-- user: 用户画像 / 偏好 / 角色（"我主要用 Go"、"偏好简洁"）
-- feedback: 对派蒙行为的纠正 / 规范（"不要给总结"、"用中文"）
-- project: 当前项目的持久事实（"这个项目在 /xxx"、"DB 是 PostgreSQL"）
-- reference: 外部资源指针（"bugs 在 Linear INGEST"、"面板 grafana.xx"）
-
-只输出 JSON 对象，严格格式：
-{"type": "user|feedback|project|reference", "title": "短标题(<=20字)", "subject": "主题词(user/feedback 用 default, project 用项目名, reference 用简短关键词)"}
-
-不要输出任何其他文字、不要 markdown 代码块。
-"""
-
-
-async def _classify_memory(content: str, model) -> tuple:
-    """LLM 分类 /remember 内容。返回 (type, title, subject)，全部为 None 表示失败。"""
-    messages = [
-        {"role": "system", "content": _CLASSIFY_MEMORY_PROMPT},
-        {"role": "user", "content": f"内容：\n{content}"},
-    ]
-    try:
-        raw, usage = await model._stream_text(messages, component="remember", purpose="记忆分类")
-        await model._record_primogem(
-            "", "remember", usage, purpose="记忆分类",
-        )
-    except Exception as e:
-        logger.warning("[派蒙·记忆] /remember 分类 LLM 失败: {}", e)
-        return None, None, None
-
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if len(lines) >= 2 and lines[-1].strip() == "```":
-            text = "\n".join(lines[1:-1]).strip()
-
-    try:
-        obj = json.loads(text)
-    except Exception as e:
-        logger.warning("[派蒙·记忆] /remember JSON 解析失败: {} 原始={}", e, text[:200])
-        return None, None, None
-
-    # 必须是 dict（防御 null/list/数字/字符串等 JSON 合法但结构错误的情况）
-    if not isinstance(obj, dict):
-        logger.warning("[派蒙·记忆] /remember 输出非对象: {}", type(obj).__name__)
-        return None, None, None
-
-    mem_type = obj.get("type", "")
-    title = (obj.get("title") or "").strip()
-    subject = (obj.get("subject") or "").strip() or "default"
-    if mem_type not in ("user", "feedback", "project", "reference") or not title:
-        return None, None, None
-    return mem_type, title[:80], subject[:80]
 
 
 # --------------- 话题订阅（风神）---------------

@@ -126,6 +126,102 @@ def diff_against_cwd(task_id: str, cwd: Path | None = None) -> str:
     return header + "\n" + "\n".join(lines) if lines else header
 
 
+# ---------- 草神·文书归档面板用 ----------
+
+# 归档面板感兴趣的顶层产物（code/ 走 list_workspace_files 单独处理）
+_ARCHIVE_ARTIFACTS = [
+    "spec.md", "design.md", "summary.md", "self-check.log",
+    "spec.check.json", "design.check.json", "code.check.json",
+]
+
+
+def list_workspaces() -> list[dict]:
+    """扫 workspace 根下所有 task_id 目录，列出每个的 task_id + 产物清单 + 创建时间。
+
+    返回 [{task_id, created_at, artifacts: [{name, size, mtime}]}]。
+    artifacts 包含顶层产物 + code/ 下的文件数汇总。
+    """
+    root = _workspace_root()
+    if not root.exists():
+        return []
+    results: list[dict] = []
+    for d in sorted(root.iterdir()):
+        if not d.is_dir():
+            continue
+        task_id = d.name  # 12 字符前缀
+        artifacts: list[dict] = []
+        for name in _ARCHIVE_ARTIFACTS:
+            f = d / name
+            if f.exists() and f.is_file():
+                stat = f.stat()
+                artifacts.append({
+                    "name": name,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                })
+        # code/ 汇总成一条
+        code_files = list_workspace_files(task_id)
+        if code_files:
+            artifacts.append({
+                "name": "code/",
+                "size": sum(p.stat().st_size for p in code_files if p.exists()),
+                "mtime": max((p.stat().st_mtime for p in code_files if p.exists()), default=0),
+                "file_count": len(code_files),
+            })
+        if not artifacts:
+            continue  # 空目录跳过
+        # 创建时间取目录 mtime
+        try:
+            created_at = d.stat().st_mtime
+        except OSError:
+            created_at = 0
+        results.append({
+            "task_id": task_id,
+            "created_at": created_at,
+            "artifacts": artifacts,
+        })
+    return results
+
+
+def read_artifact(task_id: str, artifact: str) -> str | None:
+    """读单个产物的文本内容；非文本或不存在返回 None。
+
+    artifact 是相对 workspace 的路径，如 "spec.md" / "code/paimon/foo.py"。
+
+    路径安全：用 resolve() 比较 is_relative_to，防 `..` / 绝对路径 / 符号链接
+    越界；null byte 在更早位置拒绝。
+    """
+    if not artifact or "\x00" in artifact:
+        return None
+    workspace = get_workspace_path(task_id).resolve()
+    try:
+        path = (workspace / artifact).resolve()
+    except (OSError, ValueError):
+        return None
+    # is_relative_to 严格判定 path 位于 workspace 目录内；符号链接经 resolve
+    # 后的真实路径必须仍在 workspace 里，否则拒绝
+    try:
+        if not path.is_relative_to(workspace):
+            return None
+    except AttributeError:
+        # 兜底：老 Python < 3.9
+        try:
+            path.relative_to(workspace)
+        except ValueError:
+            return None
+    if not path.exists() or not path.is_file():
+        return None
+    # 限 2MB 上限，避免前端卡死
+    if path.stat().st_size > 2 * 1024 * 1024:
+        return f"(文件过大 > 2MB，不支持在面板内预览；路径: {path})"
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return "(二进制文件，不支持预览)"
+    except Exception as e:
+        return f"(读取失败: {e})"
+
+
 def merge_to_cwd(
     task_id: str, cwd: Path | None = None, *, overwrite: bool = False,
 ) -> dict:

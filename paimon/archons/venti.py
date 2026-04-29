@@ -208,6 +208,7 @@ class VentiArchon(Archon):
                     "[风神·预搜索] 失败（不阻塞，LLM 回退 web_fetch tool loop）: {}", e,
                 )
 
+        system += await self._load_feedback_memories_block(irminsul)
         system += FINAL_OUTPUT_RULE
 
         temp_session = Session(id=f"venti-{task.id[:8]}", name="风神采集")

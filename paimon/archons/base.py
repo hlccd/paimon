@@ -172,6 +172,70 @@ class Archon(abc.ABC):
     def _project_root() -> str:
         return str(Path(__file__).resolve().parent.parent.parent)
 
+    @staticmethod
+    async def _load_feedback_memories_block(
+        irminsul: "Irminsul | None",
+        limit: int = 15,
+        body_max: int = 400,
+    ) -> str:
+        """拉 feedback 类记忆 → 拼成 markdown 段落注入 archon system prompt 末尾。
+
+        背景：
+        派蒙闲聊路径的 _build_system_prompt 早就注入了 feedback 记忆（chat.py
+        _load_l1_memories），但 7 个 archon 的 _SYSTEM_PROMPT 长期是静态字符串，
+        用户反馈（`/remember 不要给总结` 这类）对复杂任务路径完全失效——这是
+        草神增强 (3) "Archon prompt 调优"的主要缺口。此方法把闲聊路径已有的
+        feedback 注入能力复用到所有 archon。
+
+        使用时机：
+        仅四影管线的 `execute()` 路径调用——处理用户真实对话意图时注入。
+        后台 cron 路径（collect_subscription / collect_dividend）**不调**——
+        那些是系统行为，feedback 规则对其无意义（甚至可能污染采集逻辑）。
+
+        返回空串 = 无 feedback 记忆 / irminsul 未就绪 / 读取失败（不阻塞 execute）。
+        """
+        if irminsul is None:
+            return ""
+        try:
+            metas = await irminsul.memory_list(mem_type="feedback", limit=limit)
+        except Exception as e:
+            logger.debug("[archon·feedback 注入] 读记忆失败（忽略）: {}", e)
+            return ""
+        if not metas:
+            return ""
+
+        # prompt cache 稳定性：memory_list 按 updated_at DESC，任何一条 body
+        # 被改都会让整段文本顺序抖动 → provider 侧 prompt cache 失效。
+        # 这里重排成 created_at ASC，稳态下（只新增、只删除）顺序永远稳定，
+        # 只有新增才会在段末尾追加，不会冲掉前缀 cache
+        metas.sort(key=lambda m: (m.created_at or 0, m.id))
+
+        items: list[str] = []
+        for meta in metas[:limit]:
+            try:
+                mem = await irminsul.memory_get(meta.id)
+            except Exception:
+                continue
+            if mem is None:
+                continue
+            body = (mem.body or "").strip()
+            if not body:
+                continue
+            body = body.replace("\r\n", " ").replace("\n", " ").replace("\t", " ")
+            if len(body) > body_max:
+                body = body[:body_max].rstrip() + "..."
+            items.append(f"- {body}")
+        if not items:
+            return ""
+
+        return (
+            "\n\n## 用户行为反馈（跨会话 feedback 记忆，视为硬约束）\n"
+            "以下来自 `/remember` 或时执自动反思，代表用户对助手行为的明确纠正。"
+            "适用于你所有的回复风格、产出形态、交互方式：\n"
+            + "\n".join(items)
+            + "\n\n（这些是背景约束，不要主动复述、不要把它们当成当前任务描述。）"
+        )
+
     async def _invoke_skill_workflow(
         self,
         *,
