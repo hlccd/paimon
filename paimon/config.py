@@ -113,6 +113,12 @@ class Config(BaseSettings):
     sentiment_llm_calls_per_run_max: int = 30     # 单批最多 LLM 调用次数（防成本飞）
     sentiment_fallback_on_llm_fail: bool = True   # LLM 故障时是否允许批次完成（False 则 abort）
 
+    # 岩神·红利股追踪（docs/archons/zhongli.md）
+    # True（默认）= 启动时自动创建 daily + full 两条 cron（仅创建缺失的，
+    # 不覆盖用户 /dividend off 意图）。自用场景开箱即用；如不需要自动扫描，
+    # 可设为 False（此时仍可 /dividend on 手动启用）
+    dividend_auto_enable: bool = True
+
     # 三月·自检系统（docs/foundation/march.md §自检体系）
     # Quick：秒级组件探针；Deep：调 check skill 跑代码体检
     selfcheck_enabled: bool = True

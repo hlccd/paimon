@@ -439,7 +439,7 @@ WEALTH_SCRIPT = """
                         tip = '采集中，请稍候…<br><small>完成后这里会自动展开当日日报</small>';
                     }else{
                         tip = isToday
-                            ? '今天还没有日报<br><small>定时任务会在 19:00 / 月初 21:00 生成，也可点顶部"日更/全扫描"按钮手动触发</small>'
+                            ? '今天还没有日报<br><small>启用定时后会在 19:00 / 月初 21:00 自动生成（见顶部 stat 卡"定时任务"状态），也可随时点顶部"日更/全扫描"按钮手动触发</small>'
                             : '该日无日报<br><small>用 ← / → 切换其它日期</small>';
                     }
                     el.innerHTML = '<div class="digest-bulletins-empty">' + tip + '</div>';

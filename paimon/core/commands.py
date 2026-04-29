@@ -795,8 +795,14 @@ _DIVIDEND_CRON_FULL = "0 21 1 * *"
 
 async def toggle_dividend_cron(
     *, enable: bool, channel_name: str, chat_id: str,
+    restore_disabled: bool = True,
 ) -> tuple[bool, str]:
-    """helper：开启/关闭红利股 daily + full 两个 cron。幂等。"""
+    """helper：开启/关闭红利股 daily + full 两个 cron。幂等。
+
+    restore_disabled: True（默认，/dividend on 路径用）= 把已存在但被三月退避
+    禁用的 task 恢复；False（启动时自动启用路径用）= 遵循用户的 /dividend off
+    意图，不把被 disable 的任务重新开起来，只补缺失的。
+    """
     if not state.irminsul or not state.march:
         return False, "世界树 / 三月未就绪"
 
@@ -819,13 +825,16 @@ async def toggle_dividend_cron(
                 logger.warning("[岩神·cron] 删任务 {} 失败: {}", t.id, e)
         return True, f"已关闭红利股定时任务（删 {removed} 条）"
 
-    # enable：确保两个 cron 都在；已存在但被三月退避禁用的要重启
+    # enable：确保两个 cron 都在
     created: list[str] = []
     resumed: list[str] = []
     for mode, cron in [("daily", _DIVIDEND_CRON_DAILY), ("full", _DIVIDEND_CRON_FULL)]:
         if mode in existing:
             t = existing[mode]
-            if not t.enabled:
+            # disabled 可能来自两个原因：(a) 三月退避熔断 (b) 用户主动 /dividend off
+            # 自启动路径（restore_disabled=False）不区分这两种——宁可让用户再
+            # /dividend on 一次，也不擅自把用户关掉的重新打开
+            if not t.enabled and restore_disabled:
                 try:
                     if await state.march.resume_task(t.id):
                         resumed.append(mode)

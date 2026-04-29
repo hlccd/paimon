@@ -252,6 +252,25 @@ async def create_app(cfg: Config) -> list[Channel]:
     _venti_reg()
     _zhongli_reg()
 
+    # 岩神·红利股定时任务：默认启用（dividend_auto_enable=True）
+    # 单用户自用场景开箱即用；只创建缺失的 cron，不恢复被 /dividend off 过的
+    if cfg.dividend_auto_enable:
+        try:
+            from paimon.core.commands import toggle_dividend_cron
+            from paimon.channels.webui.channel import PUSH_CHAT_ID
+            ok, msg = await toggle_dividend_cron(
+                enable=True,
+                channel_name="webui",
+                chat_id=PUSH_CHAT_ID,
+                restore_disabled=False,   # 尊重用户的 /dividend off
+            )
+            if ok:
+                logger.info("[岩神·启动] {}（可用 DIVIDEND_AUTO_ENABLE=false 关闭）", msg)
+            else:
+                logger.warning("[岩神·启动] 自动启用失败: {}", msg)
+        except Exception as e:
+            logger.warning("[岩神·启动] 自动启用异常（不阻塞）: {}", e)
+
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision
     state.authz_cache = AuthzCache()
