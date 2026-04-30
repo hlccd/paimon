@@ -335,8 +335,9 @@ CREATE INDEX IF NOT EXISTS idx_character_by_uid ON mihoyo_character(game, uid, r
 
 CREATE TABLE IF NOT EXISTS mihoyo_gacha (
     id           TEXT PRIMARY KEY,       -- 米游社返回的全局唯一 gacha id
+    game         TEXT NOT NULL DEFAULT 'gs',  -- gs/sr/zzz
     uid          TEXT NOT NULL,
-    gacha_type   TEXT NOT NULL,          -- 301/302/200/100/500
+    gacha_type   TEXT NOT NULL,          -- gs:301/302/200/100/500 sr:1/2/11/12 zzz:1/2/3/5
     item_id      TEXT NOT NULL DEFAULT '',
     item_type    TEXT NOT NULL DEFAULT '',-- 角色 | 武器
     name         TEXT NOT NULL DEFAULT '',
@@ -345,8 +346,8 @@ CREATE TABLE IF NOT EXISTS mihoyo_gacha (
     time_ts      REAL NOT NULL DEFAULT 0,
     raw_json     TEXT NOT NULL DEFAULT '{}'
 );
-CREATE INDEX IF NOT EXISTS idx_gacha_uid_type ON mihoyo_gacha(uid, gacha_type, time_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_gacha_rank ON mihoyo_gacha(uid, gacha_type, rank_type, time_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_gacha_uid_type ON mihoyo_gacha(game, uid, gacha_type, time_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_gacha_rank ON mihoyo_gacha(game, uid, gacha_type, rank_type, time_ts DESC);
 
 -- ============ 域 10: 定时任务（三月）============
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -555,6 +556,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     # 升级为 schema 字段，正式支持 archon 各自注册 task_type
     ("scheduled_tasks", "task_type", "TEXT NOT NULL DEFAULT 'user'"),
     ("scheduled_tasks", "source_entity_id", "TEXT NOT NULL DEFAULT ''"),
+    # 水神·抽卡三游戏化：旧数据全归原神（gs）
+    ("mihoyo_gacha", "game", "TEXT NOT NULL DEFAULT 'gs'"),
 ]
 
 

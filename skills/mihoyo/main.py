@@ -19,8 +19,9 @@
   daily-note              stdin: {uid, cookie, fp, device_id}
   spiral-abyss            stdin: {uid, cookie, fp, device_id, schedule?}
   poetry-abyss            stdin: {uid, cookie, fp, device_id}
-  gacha-log               stdin: {authkey, gacha_type, is_os?, since_id?, max_pages?}
-  parse-authkey           stdin: {url}
+  gen-authkey             stdin: {game, uid, stoken, mys_id, mid, is_os?, device_id?}
+  gacha-log               stdin: {authkey, gacha_type, game?, is_os?, since_id?, max_pages?}
+  parse-authkey           stdin: {url}  # SR fallback：从游戏内复制的 URL 提 authkey
 """
 from __future__ import annotations
 
@@ -163,15 +164,23 @@ async def _dispatch(cmd: str, payload: dict) -> dict:
             payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
             schedule=int(payload.get("schedule", 1)),
         )
+    if cmd == "gen-authkey":
+        return await actions.gen_authkey(
+            payload["game"], payload["uid"],
+            payload["stoken"], payload["mys_id"], payload["mid"],
+            is_os=bool(payload.get("is_os", False)),
+            device_id=payload.get("device_id"),
+        )
     if cmd == "gacha-log":
-        items = await actions.gacha_log_all(
+        items, error = await actions.gacha_log_all(
             payload["authkey"],
             gacha_type=str(payload.get("gacha_type", "301")),
+            game=str(payload.get("game", "gs")),
             is_os=bool(payload.get("is_os", False)),
             max_pages=int(payload.get("max_pages", 100)),
             since_id=str(payload.get("since_id", "")),
         )
-        return {"items": items, "count": len(items)}
+        return {"items": items, "count": len(items), "error": error}
     if cmd == "parse-authkey":
         r = actions.parse_authkey_from_url(payload["url"])
         if r is None:
@@ -221,7 +230,7 @@ def main() -> int:
         "spiral-abyss", "poetry-abyss", "hard-challenge", "gs-characters",
         "sr-note", "sr-forgotten-hall", "sr-pure-fiction", "sr-apocalyptic", "sr-avatars",
         "zzz-note", "zzz-shiyu", "zzz-mem", "zzz-avatars",
-        "gacha-log", "parse-authkey",
+        "gen-authkey", "gacha-log", "parse-authkey",
     ])
     args = p.parse_args()
     return asyncio.run(_async_main(args.cmd))

@@ -74,9 +74,19 @@ URL_ZZZ_AVATAR_BASIC_OS = f"{URL_ZZZ_BASE_OS}/avatar/basic"
 URL_MYS_GAME_RECORD = f"{RECORD_BASE}/game_record/card/wapi/getGameRecordCard"
 URL_MYS_GAME_RECORD_OS = f"{RECORD_BASE_OS}/game_record/card/wapi/getGameRecordCard"
 
-# 抽卡（authkey 方式，原神）
+# 抽卡（authkey 方式）
+# 原神
 URL_GACHA_LOG = "https://public-operation-hk4e.mihoyo.com/gacha_info/api/getGachaLog"
 URL_GACHA_LOG_OS = f"{HK4_URL_OS}/gacha_info/api/getGachaLog"
+# 崩坏星穹铁道
+URL_SR_GACHA_LOG = "https://public-operation-hkrpg.mihoyo.com/common/gacha_record/api/getGachaLog"
+URL_SR_GACHA_LOG_OS = "https://public-operation-hkrpg-sg.hoyoverse.com/common/gacha_record/api/getGachaLog"
+# 绝区零
+URL_ZZZ_GACHA_LOG = "https://public-operation-nap.mihoyo.com/common/gacha_record/api/getGachaLog"
+URL_ZZZ_GACHA_LOG_OS = "https://public-operation-nap-sg.hoyoverse.com/common/gacha_record/api/getGachaLog"
+
+# stoken → authkey 自动换（参考 gsuid_core get_authkey_by_cookie）
+URL_GEN_AUTHKEY = f"{GS_BASE}/binding/api/genAuthKey"
 
 # 签到 —— 路径拼 SIGN_BASE_CN/OS
 SIGN_BASE_CN_GS = "https://api-takumi.mihoyo.com"  # 原神签到走这个域

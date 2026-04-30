@@ -47,6 +47,8 @@ class FurinaGameService:
         self._ir = irminsul
         # 扫码登录的中间态（ticket → {device, started_at}）
         self._pending_qr: dict[str, dict[str, Any]] = {}
+        # 抽卡 background sync 状态机（key='game::uid' → {state, progress, ...}）
+        self._gacha_sync_state: dict[str, dict[str, Any]] = {}
 
     # ===================== skill 桥接 =====================
 
@@ -921,59 +923,141 @@ class FurinaGameService:
 
     # ===================== 抽卡（authkey） =====================
 
-    async def import_gacha_from_url(
-        self, game_url: str, *, game: str = "gs", gacha_types: list[str] | None = None,
-    ) -> dict[str, Any]:
-        """用户从游戏内"祈愿历史"复制链接 → 提 authkey → 拉全量 → 入库。
+    # 三游戏卡池配置 (db_type, api_type)：入库时存 db_type，调米游社 API 时传 api_type
+    # 通常两者相同；ZZZ 例外——nap 接口要 4 位（具体期号），但入库统一存 1 位 base_type
+    # （池子大类）方便前端展示+多期合并。base_type ∈ 1常驻 2独家 3音擎 5邦布
+    _GACHA_POOLS_BY_GAME: dict[str, list[tuple[str, str]]] = {
+        "gs":  [("301", "301"), ("302", "302"), ("200", "200"), ("500", "500")],
+        "sr":  [("11", "11"), ("12", "12"), ("1", "1"), ("2", "2")],
+        "zzz": [("2", "2001"), ("3", "3001"), ("1", "1001"), ("5", "5001")],
+    }
 
-        gacha_types 默认 ['301','302','200','500']（角色/武器/常驻/集录）。
+    @staticmethod
+    def _is_os(uid: str, game: str) -> bool:
+        """国服/国际服判定，对齐 mihoyo/server.is_os。"""
+        uid = str(uid).strip()
+        if not uid:
+            return False
+        if game == "zzz":
+            return len(uid) >= 10 and uid[:2] in ("17", "18", "19", "20")
+        try:
+            return int(uid[0]) >= 6
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _mid_from_cookie(cookie: str) -> str:
+        if not cookie:
+            return ""
+        for part in cookie.split(";"):
+            kv = part.strip()
+            if kv.startswith("mid="):
+                return kv[4:]
+        return ""
+
+    async def auto_sync_gacha(
+        self, uid: str, game: str = "gs",
+        *, override_authkey: str | None = None, override_is_os: bool | None = None,
+    ) -> dict[str, Any]:
+        """拉抽卡全量 → 入库。
+
+        - 默认路径：从已绑账号 stoken 自动换 authkey（参考 gsuid_core get_authkey_by_cookie）。
+          GS/ZZZ 米哈游放行；SR 在 getGachaLog 接口被拒（米哈游限制）。
+        - override_authkey：调用方直接提供 authkey（如从用户复制的 URL 解析），跳过 gen-authkey。
+          SR 必走这条；GS/ZZZ 也可作 fallback。
         """
         from paimon.foundation.irminsul import MihoyoGacha as G
+        from datetime import datetime as _dt
 
-        # 提 authkey + is_os
-        r = await self._run_skill("parse-authkey", {"url": game_url})
-        if not r.get("ok"):
-            return {"ok": False, "msg": "URL 里没解析到 authkey"}
-        authkey = r["authkey"]; is_os = r.get("is_os", False)
+        logger.info(
+            "[水神·游戏] 抽卡同步 auto_sync_gacha 进入 {}/{}  source={}",
+            game, uid, "url" if override_authkey else "stoken",
+        )
 
-        types = gacha_types or ["301", "302", "200", "500"]
+        if override_authkey:
+            authkey = override_authkey
+            is_os = override_is_os if override_is_os is not None else self._is_os(uid, game)
+        else:
+            acc = await self._ir.mihoyo_account_get(game, uid)
+            if not acc:
+                return {"ok": False, "msg": f"未绑定 {game}/{uid}"}
+            if not acc.stoken or not acc.mys_id:
+                return {"ok": False, "msg": "账号缺 stoken/mys_id，请重新扫码绑定"}
+            mid = self._mid_from_cookie(acc.cookie)
+            if not mid:
+                return {"ok": False, "msg": "cookie 缺 mid，请重新扫码绑定"}
+            is_os = self._is_os(uid, game)
+            logger.info("[水神·游戏] 抽卡同步换 authkey {}/{}  is_os={}", game, uid, is_os)
+            ak = await self._run_skill("gen-authkey", {
+                "game": game, "uid": uid, "stoken": acc.stoken,
+                "mys_id": acc.mys_id, "mid": mid, "is_os": is_os,
+                "device_id": acc.device_id or None,
+            })
+            if not ak.get("ok"):
+                logger.warning(
+                    "[水神·游戏] 抽卡同步换 authkey 失败 {}/{}  retcode={} msg={}",
+                    game, uid, ak.get('retcode'), ak.get('msg'),
+                )
+                return {"ok": False, "msg": f"换 authkey 失败 retcode={ak.get('retcode')} {ak.get('msg', '')}"}
+            authkey = ak["authkey"]
+
+        pools = self._GACHA_POOLS_BY_GAME.get(game) or []
+        if not pools:
+            return {"ok": False, "msg": f"未知 game: {game}"}
+        logger.info(
+            "[水神·游戏] 抽卡同步开始拉取 {}/{}  pools={}",
+            game, uid, [p[0] for p in pools],
+        )
+
         summary: dict[str, int] = {}
-        target_uid: str | None = None
-
-        for gt in types:
-            since_id = ""
-            # 首抓先不给 since_id 拉全量，后续增量 scan 才用 since_id
-            # 这里检测已有 max_id → 增量
-            if target_uid:
-                since_id = await self._ir.mihoyo_gacha_max_id(target_uid, gt)
-
+        errors: dict[str, str] = {}
+        # 状态机进度记录（前端轮询）
+        sync_state = self._gacha_sync_state.get(self._gacha_sync_key(game, uid))
+        for db_type, api_type in pools:
+            since_id = await self._ir.mihoyo_gacha_max_id(game, uid, db_type)
             try:
                 data = await self._run_skill("gacha-log", {
-                    "authkey": authkey, "gacha_type": gt,
-                    "is_os": is_os, "since_id": since_id,
+                    "authkey": authkey, "gacha_type": api_type,
+                    "game": game, "is_os": is_os, "since_id": since_id,
                 }, timeout=300)
             except Exception as e:
-                summary[gt] = -1
-                logger.warning("[水神·游戏] 抽卡抓取失败 type={} : {}", gt, e)
+                summary[db_type] = -1
+                errors[db_type] = str(e)
+                logger.warning(
+                    "[水神·游戏] 抽卡抓取失败 {}/{} api_type={}: {}",
+                    game, uid, api_type, e,
+                )
+                if sync_state is not None:
+                    sync_state["progress"] = dict(summary)
+                    sync_state["errors"] = dict(errors)
+                continue
+
+            err = data.get("error")
+            if err:
+                summary[db_type] = -1
+                errors[db_type] = f"retcode={err.get('retcode')} {err.get('message', '')}"
+                logger.warning(
+                    "[水神·游戏] 抽卡接口拒绝 {}/{} api_type={} retcode={} msg={!r}",
+                    game, uid, api_type, err.get("retcode"), err.get("message"),
+                )
+                if sync_state is not None:
+                    sync_state["progress"] = dict(summary)
+                    sync_state["errors"] = dict(errors)
                 continue
 
             items = data.get("items") or []
             to_save: list[G] = []
             for it in items:
-                if not target_uid:
-                    target_uid = str(it.get("uid", ""))
-                # 时间戳解析
                 tstr = it.get("time", "")
-                ts = 0.0
                 try:
-                    from datetime import datetime as _dt
                     ts = _dt.strptime(tstr, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     ts = 0.0
                 to_save.append(G(
                     id=str(it.get("id", "")),
-                    uid=str(it.get("uid", "")),
-                    gacha_type=str(gt),
+                    game=game,
+                    uid=str(it.get("uid", uid)),
+                    gacha_type=db_type,   # 入库统一用 base_type，避免 ZZZ 多期号脏数据
                     item_id=str(it.get("item_id", "")),
                     item_type=str(it.get("item_type", "")),
                     name=str(it.get("name", "")),
@@ -982,19 +1066,108 @@ class FurinaGameService:
                     raw=it,
                 ))
             n = await self._ir.mihoyo_gacha_insert(to_save, actor="水神")
-            summary[gt] = n
+            summary[db_type] = n
+            if sync_state is not None:
+                sync_state["progress"] = dict(summary)
 
-            # 保存 authkey 到 account（以备增量复用）
-            if target_uid and authkey:
-                await self._ir.mihoyo_account_update_authkey(
-                    target_uid, authkey, game=game, actor="水神",
-                )
+        # 缓存 authkey（24h），后续增量同步可省一次换签
+        await self._ir.mihoyo_account_update_authkey(
+            uid, authkey, game=game, actor="水神",
+        )
+        result = {"ok": True, "uid": uid, "game": game, "summary": summary}
+        if errors:
+            result["errors"] = errors
+        return result
 
-        return {"ok": True, "uid": target_uid, "summary": summary}
+    # ---------- 抽卡 background sync 状态机 ----------
+    # 前端「同步抽卡」按钮 → start_gacha_sync 立即返回 → 前端轮询 status
+    # 解决：旧版 fetch 阻塞 30s+ 导致刷新中断 + 看起来卡死
 
-    async def gacha_stats(self, uid: str, gacha_type: str = "301") -> dict[str, Any]:
+    @staticmethod
+    def _gacha_sync_key(game: str, uid: str) -> str:
+        return f"{game}::{uid}"
+
+    async def start_gacha_sync(self, uid: str, game: str = "gs") -> dict[str, Any]:
+        """启动后台同步任务（stoken→authkey 路径）。重复触发返 conflict。"""
+        key = self._gacha_sync_key(game, uid)
+        st = self._gacha_sync_state.get(key)
+        if st and st.get("state") == "running":
+            logger.info("[水神·游戏] 抽卡同步重复触发 {}/{}（已在跑，忽略）", game, uid)
+            return {"ok": False, "msg": "已在同步中，请稍候"}
+        acc = await self._ir.mihoyo_account_get(game, uid)
+        if not acc:
+            logger.warning("[水神·游戏] 抽卡同步预检失败 {}/{} 未绑定", game, uid)
+            return {"ok": False, "msg": f"未绑定 {game}/{uid}"}
+        if not acc.stoken or not acc.mys_id:
+            logger.warning("[水神·游戏] 抽卡同步预检失败 {}/{} stoken/mys_id 缺失", game, uid)
+            return {"ok": False, "msg": "账号缺 stoken/mys_id，请重新扫码绑定"}
+        self._gacha_sync_state[key] = {
+            "state": "running", "progress": {}, "errors": {},
+            "started_at": time.time(),
+        }
+        logger.info("[水神·游戏] 抽卡同步启动 {}/{}（stoken）", game, uid)
+        asyncio.create_task(self._gacha_sync_worker(uid, game, key))
+        return {"ok": True}
+
+    async def start_gacha_sync_from_url(
+        self, uid: str, game: str, gacha_url: str,
+    ) -> dict[str, Any]:
+        """启动后台同步任务（URL 路径）。SR 必走，GS/ZZZ 也可作 fallback。"""
+        key = self._gacha_sync_key(game, uid)
+        st = self._gacha_sync_state.get(key)
+        if st and st.get("state") == "running":
+            return {"ok": False, "msg": "已在同步中，请稍候"}
+        # 解析 authkey
+        parsed = await self._run_skill("parse-authkey", {"url": gacha_url})
+        if not parsed.get("ok"):
+            return {"ok": False, "msg": "URL 中没解析到 authkey，请检查链接是否含 authkey=... 参数"}
+        authkey = parsed["authkey"]
+        is_os = bool(parsed.get("is_os", False))
+        self._gacha_sync_state[key] = {
+            "state": "running", "progress": {}, "errors": {},
+            "started_at": time.time(),
+        }
+        logger.info(
+            "[水神·游戏] 抽卡同步启动 {}/{}（URL 导入）  authkey_len={} is_os={}",
+            game, uid, len(authkey), is_os,
+        )
+        asyncio.create_task(self._gacha_sync_worker(
+            uid, game, key, override_authkey=authkey, override_is_os=is_os,
+        ))
+        return {"ok": True}
+
+    async def _gacha_sync_worker(
+        self, uid: str, game: str, key: str,
+        *, override_authkey: str | None = None, override_is_os: bool | None = None,
+    ) -> None:
+        try:
+            result = await self.auto_sync_gacha(
+                uid, game=game,
+                override_authkey=override_authkey,
+                override_is_os=override_is_os,
+            )
+            self._gacha_sync_state[key].update({
+                "state": "done", "result": result, "ended_at": time.time(),
+            })
+            logger.info(
+                "[水神·游戏] 抽卡同步完成 {}/{}  summary={} errors={}",
+                game, uid, result.get("summary"), result.get("errors"),
+            )
+        except Exception as e:
+            logger.exception("[水神·游戏] 抽卡同步异常 {}/{}", game, uid)
+            self._gacha_sync_state[key].update({
+                "state": "failed", "error": str(e), "ended_at": time.time(),
+            })
+
+    def get_gacha_sync_state(self, uid: str, game: str = "gs") -> dict[str, Any]:
+        key = self._gacha_sync_key(game, uid)
+        return self._gacha_sync_state.get(key) or {"state": "idle"}
+
+    async def gacha_stats(
+        self, game: str, uid: str, gacha_type: str,
+    ) -> dict[str, Any]:
         """取抽卡统计（小保底/总数/历次 5 星）。"""
-        return await self._ir.mihoyo_gacha_stats(uid, gacha_type)
+        return await self._ir.mihoyo_gacha_stats(game, uid, gacha_type)
 
     # ===================== 聚合视图（给面板用）=====================
 
@@ -1004,9 +1177,6 @@ class FurinaGameService:
         items = []
         for a in accs:
             note = await self._ir.mihoyo_note_get(a.game, a.uid)
-            gacha_301_stats = None
-            if a.game == "gs":
-                gacha_301_stats = await self._ir.mihoyo_gacha_stats(a.uid, "301")
             items.append({
                 "game": a.game, "uid": a.uid, "mys_id": a.mys_id,
                 "note": a.note, "added_date": a.added_date,
@@ -1031,7 +1201,6 @@ class FurinaGameService:
                     "max_expedition": note.max_expedition,
                     "transformer_ready": note.transformer_ready,
                 } if note else None,
-                "gacha_301": gacha_301_stats,
             })
         return {"accounts": items}
 

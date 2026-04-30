@@ -548,16 +548,16 @@ class Irminsul:
     ) -> int:
         return await self._mihoyo.gacha_insert(items, actor=actor)
 
-    async def mihoyo_gacha_max_id(self, uid: str, gacha_type: str) -> str:
-        return await self._mihoyo.gacha_max_id(uid, gacha_type)
+    async def mihoyo_gacha_max_id(self, game: str, uid: str, gacha_type: str) -> str:
+        return await self._mihoyo.gacha_max_id(game, uid, gacha_type)
 
     async def mihoyo_gacha_list(
-        self, uid: str, gacha_type: str, *, limit: int = 500,
+        self, game: str, uid: str, gacha_type: str, *, limit: int = 500,
     ) -> list[MihoyoGacha]:
-        return await self._mihoyo.gacha_list(uid, gacha_type, limit=limit)
+        return await self._mihoyo.gacha_list(game, uid, gacha_type, limit=limit)
 
-    async def mihoyo_gacha_stats(self, uid: str, gacha_type: str) -> dict:
-        return await self._mihoyo.gacha_stats(uid, gacha_type)
+    async def mihoyo_gacha_stats(self, game: str, uid: str, gacha_type: str) -> dict:
+        return await self._mihoyo.gacha_stats(game, uid, gacha_type)
 
     async def mihoyo_character_upsert(
         self, items: list[MihoyoCharacter], *, actor: str,

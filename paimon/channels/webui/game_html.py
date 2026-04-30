@@ -207,14 +207,58 @@ GAME_CSS = """
     .gfive-name  { color: var(--text-primary); }
     .gfive-type  { color: var(--text-muted); font-size: 11px; text-align: center; }
     .gfive-time  { color: var(--text-muted); font-family: monospace; font-size: 11px; text-align: right; }
-    .gacha-url-row {
-        display: flex; gap: 6px; margin-top: 10px;
+    .gacha-sync-row {
+        display: flex; justify-content: flex-end; align-items: center;
+        gap: 8px; margin-top: 10px;
     }
-    .gacha-url-row input {
-        flex: 1; padding: 6px 10px; background: var(--paimon-bg);
-        color: var(--text-primary); border: 1px solid var(--paimon-border);
-        border-radius: 4px; font-size: 11px; font-family: monospace;
+    .gacha-sync-status {
+        font-size: 11px; color: var(--text-muted); font-family: monospace;
     }
+    .gacha-sync-status.running { color: var(--gold); }
+    .gacha-sync-status.failed  { color: var(--status-error); }
+    .gacha-sync-status.done    { color: var(--status-ok, #4caf50); }
+
+    /* ========= URL 导入 modal ========= */
+    .urlimport-modal {
+        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
+        border-radius: 12px; padding: 24px; max-width: 600px; width: 92%;
+    }
+    .urlimport-modal h3 { color: var(--gold); font-size: 15px; margin-bottom: 12px; }
+    .urlimport-modal .tutorial {
+        background: var(--paimon-bg); border-left: 3px solid var(--gold);
+        padding: 10px 14px; border-radius: 4px; margin-bottom: 12px;
+        font-size: 12px; color: var(--text-secondary); line-height: 1.7;
+    }
+    .urlimport-modal .tutorial b { color: var(--text-primary); }
+    .urlimport-modal .tutorial code {
+        background: rgba(0,0,0,.25); padding: 1px 6px; border-radius: 3px;
+        font-family: monospace; font-size: 11px;
+    }
+    .urlimport-modal textarea {
+        width: 100%; min-height: 90px; padding: 8px 10px; box-sizing: border-box;
+        background: var(--paimon-bg); color: var(--text-primary);
+        border: 1px solid var(--paimon-border); border-radius: 4px;
+        font-family: monospace; font-size: 11px; resize: vertical;
+    }
+    .urlimport-modal .actions {
+        display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;
+    }
+    /* 教程里的 PowerShell 命令块 */
+    .ps-cmd-box { position: relative; margin-top: 4px; }
+    .ps-cmd-box textarea {
+        width: 100%; height: 64px; box-sizing: border-box;
+        padding: 6px 70px 6px 8px; font-size: 10px; font-family: monospace;
+        background: rgba(0,0,0,.35); color: var(--text-primary);
+        border: 1px solid var(--paimon-border); border-radius: 4px; resize: none;
+    }
+    .ps-cmd-copy {
+        position: absolute; top: 4px; right: 4px;
+        padding: 3px 10px; font-size: 11px; cursor: pointer;
+        background: var(--paimon-panel); color: var(--gold);
+        border: 1px solid var(--gold); border-radius: 4px;
+    }
+    .ps-cmd-copy:hover { background: var(--gold); color: var(--paimon-panel); }
+    .ps-cmd-copy.done { color: var(--status-ok, #4caf50); border-color: var(--status-ok, #4caf50); }
     .gacha-empty {
         color: var(--text-muted); font-size: 12px; text-align: center; padding: 16px 0;
     }
@@ -398,6 +442,22 @@ GAME_BODY = """
             <div class="qr-status" id="qrStatus"></div>
         </div>
     </div>
+
+    <!-- 抽卡 URL 导入 modal -->
+    <div class="qr-modal-backdrop" id="urlImportModal" onclick="if(event.target.id==='urlImportModal')closeUrlImportModal()">
+        <div class="urlimport-modal">
+            <div class="qr-modal-head">
+                <h3 id="urlImportTitle">导入抽卡 URL</h3>
+                <button class="qr-close" onclick="closeUrlImportModal()">&times;</button>
+            </div>
+            <div class="tutorial" id="urlImportTutorial"></div>
+            <textarea id="urlImportInput" placeholder="粘贴含 authkey=... 的完整 URL"></textarea>
+            <div class="actions">
+                <button class="btn tiny" onclick="closeUrlImportModal()">取消</button>
+                <button class="btn primary tiny" onclick="submitUrlImport()">导入</button>
+            </div>
+        </div>
+    </div>
 """
 
 
@@ -450,7 +510,11 @@ GAME_SCRIPT = """
                 {type:'mem',   name:'危局强袭战'},
             ],
         };
-        var POOL_LABELS = {'301':'角色','302':'武器','200':'常驻','500':'集录'};
+        var POOL_LABELS_BY_GAME = {
+            'gs':  {'301':'角色','302':'武器','200':'常驻','500':'集录'},
+            'sr':  {'11':'角色','12':'光锥','1':'常驻','2':'新手'},
+            'zzz': {'2':'独家','3':'音擎','1':'常驻','5':'邦布'},
+        };
 
         var _allAccs = [];
         var _currentPool = {};  // uid -> pool id
@@ -687,13 +751,11 @@ GAME_SCRIPT = """
                 + '<div class="abyss-rows" id="abyss-'+esc(k)+'">加载中...</div>'
                 + '</div>');
 
-            // 抽卡（仅原神）
-            if(a.game === 'gs'){
-                parts.push('<div class="detail-section">'
-                    + '<div class="detail-title">抽卡记录</div>'
-                    + '<div id="gacha-'+esc(k)+'">加载中...</div>'
-                    + '</div>');
-            }
+            // 抽卡（三游戏统一）
+            parts.push('<div class="detail-section">'
+                + '<div class="detail-title">抽卡记录</div>'
+                + '<div id="gacha-'+esc(k)+'">加载中...</div>'
+                + '</div>');
 
             // 角色 / 养成（三游戏统一渲染，字段映射在后端 collect 时已归一到 MihoyoCharacter）
             parts.push('<div class="detail-section">'
@@ -713,7 +775,7 @@ GAME_SCRIPT = """
 
             // 异步填战报 + 抽卡 + 角色
             _fillAbyss(a, k);
-            if(a.game === 'gs') _fillGacha(a, k);
+            _fillGacha(a, k);
             _fillCharacters(a, k);
         }
 
@@ -847,19 +909,30 @@ GAME_SCRIPT = """
         async function _fillGacha(a, k){
             var slot = document.getElementById('gacha-'+k);
             if(!slot) return;
-            var pool = _currentPool[a.uid] || '301';
+            var labels = POOL_LABELS_BY_GAME[a.game] || {};
+            var poolKeys = Object.keys(labels);
+            if(poolKeys.length === 0){
+                slot.innerHTML = '<div class="gacha-empty">暂不支持此游戏</div>';
+                return;
+            }
+            var pool = _currentPool[k];
+            if(!pool || !labels[pool]) pool = poolKeys[0];
+            _currentPool[k] = pool;
+
             var poolsHtml = '<div class="gacha-head">'
-                + Object.keys(POOL_LABELS).map(function(p){
-                    return '<span class="gpool '+(p===pool?'active':'')+'" onclick="gameSelectPool(\\''+esc(a.uid)+'\\',\\''+p+'\\')">'+POOL_LABELS[p]+'</span>';
+                + poolKeys.map(function(p){
+                    return '<span class="gpool '+(p===pool?'active':'')+'" onclick="gameSelectPool(\\''+esc(k)+'\\',\\''+p+'\\')">'+labels[p]+'</span>';
                 }).join('') + '</div>';
 
-            var r = await fetch('/api/game/gacha/stats?uid='+encodeURIComponent(a.uid)+'&gacha_type='+pool);
+            var r = await fetch('/api/game/gacha/stats?game='+a.game+'&uid='+encodeURIComponent(a.uid)+'&gacha_type='+pool);
             var d = await r.json();
             var s = d.stats || {total:0};
+            var syncBtn = _gachaSyncBtn(a);
             if(!s.total){
                 slot.innerHTML = poolsHtml
-                    + '<div class="gacha-empty">暂无数据</div>'
-                    + _gachaUrlInput();
+                    + '<div class="gacha-empty">暂无数据，点右下角"同步抽卡"</div>'
+                    + syncBtn;
+                _resumeGachaSyncIfRunning(a, slot);
                 return;
             }
             var pityCls = s.pity_5 >= 70 ? 'warn' : '';
@@ -880,13 +953,30 @@ GAME_SCRIPT = """
                 + '</span><span class="sep">·</span>5 星 <span class="pity">'+s.count_5
                 + '</span><span class="sep">·</span>平均 <span class="pity">'+s.avg_pity_5+'</span></div>'
                 + '<div class="gacha-five-list">'+fivesHtml+'</div>'
-                + _gachaUrlInput();
+                + syncBtn;
+            _resumeGachaSyncIfRunning(a, slot);
         }
 
-        function _gachaUrlInput(){
-            return '<div class="gacha-url-row">'
-                + '<input type="text" placeholder="粘贴祈愿历史 URL 增量导入" />'
-                + '<button class="btn tiny" onclick="gameImportGacha(this)">导入</button>'
+        async function _resumeGachaSyncIfRunning(a, slot){
+            try{
+                var sr = await fetch('/api/game/gacha/sync/status?game='+a.game+'&uid='+encodeURIComponent(a.uid));
+                var sd = await sr.json();
+                if(sd.state === 'running'){
+                    var btn = slot.querySelector('button[onclick*="gameSyncGacha"]');
+                    _pollGachaSync(a.game, a.uid, btn);
+                }
+            }catch(_){}
+        }
+
+        function _gachaSyncBtn(a, label){
+            label = label || '同步抽卡';
+            // SR 米哈游限制 stoken→authkey，必须走 URL 导入；GS/ZZZ 自动同步即可
+            var btns = a.game === 'sr'
+                ? '<button class="btn primary tiny" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameImportGachaUrl(this.dataset.game, this.dataset.uid)">URL 导入</button>'
+                : '<button class="btn primary tiny" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameSyncGacha(this)">'+esc(label)+'</button>';
+            return '<div class="gacha-sync-row">'
+                + '<span class="gacha-sync-status" id="gsync-status-'+esc(keyOf(a))+'"></span>'
+                + btns
                 + '</div>';
         }
 
@@ -942,29 +1032,144 @@ GAME_SCRIPT = """
             setTimeout(loadOverview, 25000);
         };
 
-        window.gameSelectPool = function(uid, pool){
-            _currentPool[uid] = pool;
-            var a = _allAccs.find(function(x){return x.uid === uid;});
-            if(a) _fillGacha(a, keyOf(a));
+        window.gameSelectPool = function(k, pool){
+            _currentPool[k] = pool;
+            var parts = k.split('::'); var g = parts[0]; var u = parts[1];
+            var a = _allAccs.find(function(x){return x.uid === u && x.game === g;});
+            if(a) _fillGacha(a, k);
         };
 
-        window.gameImportGacha = async function(btn){
-            var input = btn.parentElement.querySelector('input');
-            if(!input){ alert('未找到输入框'); return; }
-            var url = input.value.trim();
-            if(!url){ alert('请粘贴 URL'); return; }
-            btn.disabled = true; var old = btn.textContent; btn.textContent = '导入中...';
+        // 抽卡同步：异步任务 + 轮询。刷新页面不会中断后端任务。
+        var _gachaPollTimers = {};   // key -> interval id
+
+        function _formatGachaProgress(prog){
+            if(!prog) return '';
+            var keys = Object.keys(prog);
+            if(keys.length === 0) return '准备中...';
+            return keys.map(function(p){
+                var v = prog[p];
+                return p+':'+(v < 0 ? '✗' : v);
+            }).join(' / ');
+        }
+
+        function _stopGachaPoll(k){
+            if(_gachaPollTimers[k]){
+                clearInterval(_gachaPollTimers[k]);
+                delete _gachaPollTimers[k];
+            }
+        }
+
+        async function _pollGachaSync(game, uid, btn){
+            var k = game+'::'+uid;
+            _stopGachaPoll(k);
+            console.log('[水神·抽卡] 开始轮询 sync state', k);
+            var poll = async function(){
+                try{
+                    var r = await fetch('/api/game/gacha/sync/status?game='+game+'&uid='+encodeURIComponent(uid));
+                    var s = await r.json();
+                    var statusEl = document.getElementById('gsync-status-'+k);
+                    if(s.state === 'running'){
+                        var progressText = _formatGachaProgress(s.progress);
+                        console.log('[水神·抽卡] '+k+' running '+progressText);
+                        if(statusEl){ statusEl.className = 'gacha-sync-status running'; statusEl.textContent = progressText; }
+                        if(btn){ btn.disabled = true; btn.textContent = '同步中...'; }
+                    }else if(s.state === 'done'){
+                        _stopGachaPoll(k);
+                        var res = s.result || {};
+                        var sum = res.summary || {};
+                        var errs = res.errors || null;
+                        var added = Object.keys(sum).map(function(p){return p+':'+sum[p];}).join(' / ') || '0';
+                        console.log('[水神·抽卡] '+k+' DONE  summary='+added+'  errors='+JSON.stringify(errs));
+                        if(btn){ btn.disabled = false; btn.textContent = '同步抽卡'; }
+                        // 先重渲卡池数据，再把完成消息写到新 statusEl（重渲会换掉旧 DOM）
+                        var a = _allAccs.find(function(x){return x.uid === uid && x.game === game;});
+                        if(a){
+                            await _fillGacha(a, keyOf(a));
+                            var newStatus = document.getElementById('gsync-status-'+k);
+                            var hasErr = errs && Object.keys(errs).length > 0;
+                            if(newStatus){
+                                newStatus.className = 'gacha-sync-status ' + (hasErr ? 'failed' : 'done');
+                                newStatus.textContent = (hasErr ? '✗ ' : '✓ ') + added;
+                            }
+                        }
+                        // 弹窗：分级诊断
+                        if(errs){
+                            var keys = Object.keys(errs);
+                            var allFail = Object.keys(sum).every(function(p){ return sum[p] === -1; });
+                            var lines = keys.map(function(p){return p+': '+errs[p];}).join('\\n');
+                            var firstErr = errs[keys[0]] || '';
+                            var isAuthKeyErr = (allFail && firstErr.indexOf('-100') >= 0);
+                            if(isAuthKeyErr && game === 'sr'){
+                                // 米哈游对 SR 抽卡 authkey 限制——stoken→authkey 路径被拒。
+                                // 只能让用户从游戏内复制 URL 手动导入。
+                                window.gameImportGachaUrl(game, uid);
+                            }else if(isAuthKeyErr){
+                                // GS/ZZZ 失败更可能是账号未真实绑定 → 一键解绑重绑
+                                var ok = confirm(
+                                    game.toUpperCase()+' 抽卡同步全部失败：\\n' + lines +
+                                    '\\n\\n这通常意味着该 '+uid+' 账号在米游社侧未成功绑定。\\n\\n' +
+                                    '是否立即解绑此账号并重新扫码？\\n' +
+                                    '（解绑会清掉该账号的便笺/战报/抽卡缓存）'
+                                );
+                                if(ok){
+                                    try{
+                                        await fetch('/api/game/unbind', {
+                                            method:'POST', headers:{'Content-Type':'application/json'},
+                                            body: JSON.stringify({game, uid}),
+                                        });
+                                        if(typeof loadOverview === 'function') loadOverview();
+                                        if(typeof openQrModal === 'function') openQrModal();
+                                    }catch(unbindErr){
+                                        alert('解绑失败: '+unbindErr+'\\n请手动展开账号详情 → 点右下角"解绑"');
+                                    }
+                                }
+                            }else{
+                                var prefix = allFail ? game.toUpperCase()+' 同步全部失败：\\n' : game.toUpperCase()+' 部分池子失败：\\n';
+                                alert(prefix + lines);
+                            }
+                        }
+                    }else if(s.state === 'failed'){
+                        _stopGachaPoll(k);
+                        console.error('[水神·抽卡] '+k+' FAILED', s.error);
+                        if(statusEl){ statusEl.className = 'gacha-sync-status failed'; statusEl.textContent = '✗ ' + (s.error||''); }
+                        if(btn){ btn.disabled = false; btn.textContent = '同步抽卡'; }
+                        alert('同步失败: '+(s.error||''));
+                    }else{
+                        _stopGachaPoll(k);
+                        if(btn){ btn.disabled = false; btn.textContent = '同步抽卡'; }
+                    }
+                }catch(e){
+                    console.error('[水神·抽卡] poll 异常', e);
+                    _stopGachaPoll(k);
+                    if(btn){ btn.disabled = false; btn.textContent = '同步抽卡'; }
+                }
+            };
+            poll();   // 立即跑一次
+            _gachaPollTimers[k] = setInterval(poll, 2500);
+        }
+
+        window.gameSyncGacha = async function(btn){
+            var game = btn.dataset.game, uid = btn.dataset.uid;
+            console.log('[水神·抽卡] 点击同步抽卡', game, uid);
+            btn.disabled = true; var old = btn.textContent; btn.textContent = '启动...';
             try{
-                var r = await fetch('/api/game/gacha/import', {
+                var r = await fetch('/api/game/gacha/sync', {
                     method:'POST', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({url}),
+                    body: JSON.stringify({game, uid}),
                 });
                 var d = await r.json();
-                if(!d.ok){ alert('导入失败: '+(d.msg||'')); return; }
-                input.value = '';
-                alert('导入成功: '+JSON.stringify(d.summary));
-                loadOverview();
-            }finally{ btn.textContent = old; btn.disabled = false; }
+                console.log('[水神·抽卡] /sync 响应', d);
+                if(!d.ok){
+                    alert('启动失败: '+(d.msg||''));
+                    btn.disabled = false; btn.textContent = old;
+                    return;
+                }
+                _pollGachaSync(game, uid, btn);
+            }catch(e){
+                console.error('[水神·抽卡] /sync 异常', e);
+                alert('请求异常: '+e);
+                btn.disabled = false; btn.textContent = old;
+            }
         };
 
         // ============ 扫码 modal ============
@@ -977,6 +1182,86 @@ GAME_SCRIPT = """
         window.closeQrModal = function(){
             document.getElementById('qrModal').classList.remove('show');
             if(_qrPollTimer){ clearInterval(_qrPollTimer); _qrPollTimer = null; }
+        };
+
+        // ============ URL 导入 modal（SR 必走，GS/ZZZ fallback）============
+        var _urlImportCtx = null;   // {game, uid}
+
+        var SR_PS_CMD = '[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; Invoke-Expression (New-Object Net.WebClient).DownloadString("https://imgheybox.max-c.com/game/star_rail/link1.ps1")';
+
+        var GACHA_TUTORIAL = {
+            'sr': '<b>SR 抽卡链接获取教程</b>（米哈游限制，SR 必须手动导入 URL）'
+                + '<br>'
+                + '<br>1. <b>PC 端</b>启动星穹铁道，登录该账号'
+                + '<br>2. 在游戏内打开<b>跃迁 → 跃迁记录</b>页面（确保能看到抽卡历史）'
+                + '<br>3. 打开 <b>PowerShell</b>，粘贴下面整段命令并回车（来自小黑盒）：'
+                + '<div class="ps-cmd-box">'
+                +   '<textarea id="srPsCmd" readonly onclick="this.select()">'+SR_PS_CMD+'</textarea>'
+                +   '<button class="ps-cmd-copy" id="srPsCmdCopyBtn" onclick="copyPsCommand(this)">复制</button>'
+                + '</div>'
+                + '4. 脚本会输出 / 复制带 <code>authkey=xxx</code> 的完整 URL，粘贴到下方'
+                + '<br>'
+                + '<br><span style="color:var(--text-muted)">链接 24 小时内有效；过期重新拿即可</span>',
+        };
+
+        window.copyPsCommand = async function(btn){
+            try{
+                if(navigator.clipboard && navigator.clipboard.writeText){
+                    await navigator.clipboard.writeText(SR_PS_CMD);
+                }else{
+                    // fallback：选中 textarea + execCommand
+                    var ta = document.getElementById('srPsCmd');
+                    if(ta){ ta.select(); document.execCommand('copy'); }
+                }
+                btn.classList.add('done');
+                btn.textContent = '✓ 已复制';
+                setTimeout(function(){
+                    btn.classList.remove('done');
+                    btn.textContent = '复制';
+                }, 2000);
+            }catch(e){
+                console.error('[水神·抽卡] 复制 PowerShell 命令失败', e);
+                alert('复制失败，请手动选中复制：'+e);
+            }
+        };
+
+        window.gameImportGachaUrl = function(game, uid){
+            _urlImportCtx = {game, uid};
+            document.getElementById('urlImportTitle').textContent = '导入 ' + game.toUpperCase() + ' 抽卡链接（' + uid + '）';
+            document.getElementById('urlImportTutorial').innerHTML = GACHA_TUTORIAL[game] || '从游戏内复制带 authkey=... 的完整链接';
+            document.getElementById('urlImportInput').value = '';
+            document.getElementById('urlImportModal').classList.add('show');
+            setTimeout(function(){ document.getElementById('urlImportInput').focus(); }, 50);
+        };
+
+        window.closeUrlImportModal = function(){
+            document.getElementById('urlImportModal').classList.remove('show');
+            _urlImportCtx = null;
+        };
+
+        window.submitUrlImport = async function(){
+            if(!_urlImportCtx) return;
+            var url = document.getElementById('urlImportInput').value.trim();
+            if(!url){ alert('请粘贴 URL'); return; }
+            var ctx = _urlImportCtx;
+            console.log('[水神·抽卡] URL 导入提交', ctx.game, ctx.uid, 'url_len=', url.length);
+            try{
+                var r = await fetch('/api/game/gacha/import_url', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({game: ctx.game, uid: ctx.uid, url: url}),
+                });
+                var d = await r.json();
+                console.log('[水神·抽卡] /import_url 响应', d);
+                if(!d.ok){
+                    alert('启动失败: '+(d.msg||''));
+                    return;
+                }
+                closeUrlImportModal();
+                _pollGachaSync(ctx.game, ctx.uid, null);
+            }catch(e){
+                console.error('[水神·抽卡] /import_url 异常', e);
+                alert('请求异常: '+e);
+            }
         };
         window.startQrLogin = async function(){
             if(_qrPollTimer){ clearInterval(_qrPollTimer); _qrPollTimer = null; }

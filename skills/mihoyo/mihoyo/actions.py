@@ -661,53 +661,144 @@ async def sign_info(
 
 
 # ============================================================
-# 抽卡（authkey 方式）—— 原神
+# 抽卡（authkey 方式）—— 三游戏统一
 # ============================================================
 
-# 卡池 ID：301=角色活动 / 302=武器 / 200=常驻 / 100=新手 / 500=集录
-GACHA_TYPES = {
-    "character": "301",
-    "weapon": "302",
-    "permanent": "200",
-    "newbie": "100",
-    "chronicled": "500",
+# 三游戏卡池 ID（命名见 GACHA_TYPES_*）。SR 调频 / ZZZ 信号同样走 getGachaLog 接口
+GACHA_TYPES_GS = {
+    "character": "301", "weapon": "302", "permanent": "200",
+    "newbie": "100", "chronicled": "500",
+}
+GACHA_TYPES_SR = {
+    "character": "11", "lightcone": "12", "permanent": "1", "newbie": "2",
+}
+GACHA_TYPES_ZZZ = {
+    "agent": "2", "wengine": "3", "permanent": "1", "bangboo": "5",
+}
+
+
+def _gacha_endpoint(game: str, is_os: bool) -> str:
+    if game == "gs":
+        return api.URL_GACHA_LOG_OS if is_os else api.URL_GACHA_LOG
+    if game == "sr":
+        return api.URL_SR_GACHA_LOG_OS if is_os else api.URL_SR_GACHA_LOG
+    if game == "zzz":
+        return api.URL_ZZZ_GACHA_LOG_OS if is_os else api.URL_ZZZ_GACHA_LOG
+    raise ValueError(f"未知 game: {game}")
+
+
+def _gacha_biz(game: str, is_os: bool) -> str:
+    if game == "gs":
+        return "hk4e_global" if is_os else "hk4e_cn"
+    if game == "sr":
+        return "hkrpg_global" if is_os else "hkrpg_cn"
+    if game == "zzz":
+        return "nap_global" if is_os else "nap_cn"
+    raise ValueError(f"未知 game: {game}")
+
+
+# 三游戏 gacha_id 固定 hash，对齐 GenshinUID/StarRailUID/ZZZeroUID 上游
+_GACHA_ID = {
+    "gs":  "fecafa7b6560db5f3182222395d88aaa6aaac1bc",
+    "sr":  "b06a52bc37892e08837b112d28229cebca6b24a2",
+    "zzz": "2c1f5692fdfbb733a08733f9eb69d32aed1d37",
 }
 
 
 async def gacha_log(
     authkey: str, gacha_type: str = "301", end_id: str = "0",
-    *, is_os: bool = False, lang: str = "zh-cn", size: int = 20,
-    page: int = 1,
+    *, game: str = "gs", is_os: bool = False, lang: str = "zh-cn",
+    size: int = 20, page: int = 1,
 ) -> dict[str, Any]:
-    """分页抓抽卡记录。参数对齐上游 gsuid_core.request.get_gacha_log_by_authkey：
+    """三游戏抽卡分页。
 
-    - gacha_id 用上游同款固定 hash（省得米游社风控）
-    - device_type=mobile
-    - init_type / gacha_type 同步给 gacha_type
+    - GS endpoint  hk4e/gacha_info；gacha_type ∈ 301/302/200/100/500
+    - SR endpoint  hkrpg/common/gacha_record；gacha_type ∈ 1/2/11/12（21/22 走 LdGacha）
+    - ZZZ endpoint nap/common/gacha_record；gacha_type 是 4 位 1001/2001/3001/5001
     """
-    params = {
+    import time as _time
+    params: dict[str, Any] = {
         "authkey_ver": "1",
         "sign_type": "2",
         "auth_appid": "webview_gacha",
-        "init_type": str(gacha_type),
-        "gacha_id": "fecafa7b6560db5f3182222395d88aaa6aaac1bc",
         "lang": lang,
-        "device_type": "mobile",
         "authkey": authkey,
-        "game_biz": "hk4e_global" if is_os else "hk4e_cn",
+        "game_biz": _gacha_biz(game, is_os),
         "gacha_type": str(gacha_type),
         "page": str(page),
         "size": str(size),
         "end_id": str(end_id),
     }
-    url = api.URL_GACHA_LOG_OS if is_os else api.URL_GACHA_LOG
+    if game == "gs":
+        params["device_type"] = "mobile"
+        params["init_type"] = str(gacha_type)
+        params["gacha_id"] = _GACHA_ID["gs"]
+    elif game == "sr":
+        # 对齐 StarRailUID/utils/mys_api.py:get_gacha_log_by_link_in_authkey
+        params["plat_type"] = "pc"
+        params["timestamp"] = str(int(_time.time()))
+        params["default_gacha_type"] = "11"
+        params["gacha_id"] = _GACHA_ID["sr"]
+    elif game == "zzz":
+        # 对齐 ZZZeroUID/utils/api/request.py:get_zzz_gacha_log_by_authkey
+        params["device_type"] = "mobile"
+        params["plat_type"] = "ios"
+        params["timestamp"] = str(int(_time.time()))
+        params["init_log_gacha_type"] = str(gacha_type)
+        params["init_log_gacha_base_type"] = str(gacha_type)[:1]
+        params["real_gacha_type"] = str(gacha_type)[:1]
+        params["gacha_id"] = _GACHA_ID["zzz"]
+    url = _gacha_endpoint(game, is_os)
     async with httpx.AsyncClient(timeout=30.0) as c:
         resp = await c.get(url, params=params)
-        return resp.json()
+        return _parse_json_safe(resp, ctx=f"gacha_log {game}/{gacha_type}")
+
+
+async def gacha_log_all(
+    authkey: str, gacha_type: str = "301", *, game: str = "gs",
+    is_os: bool = False, max_pages: int = 100, since_id: str = "",
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """翻页抓全量（到 since_id 或到底）。
+
+    返回 (items, error)：item 是已抓到的部分（可能是 0 条到 N 条），
+    error 是中途遇到的米游社错误（None=无错；首页就错 → items=[] + error）。
+    """
+    out: list[dict[str, Any]] = []
+    end_id = "0"
+    error: dict[str, Any] | None = None
+    for _ in range(max_pages):
+        r = await gacha_log(authkey, gacha_type, end_id, game=game, is_os=is_os)
+        if r.get("retcode") != 0:
+            error = {"retcode": r.get("retcode"), "message": r.get("message", "")}
+            break
+        items = r.get("data", {}).get("list", [])
+        if not items:
+            break
+        stop = False
+        for it in items:
+            if since_id and it.get("id", "") <= since_id:
+                stop = True
+                break
+            out.append(it)
+        if stop:
+            break
+        end_id = items[-1].get("id", "0")
+        # 米游社限频：每页间 800ms
+        await asyncio.sleep(0.8)
+    return out, error
+
+
+# ============================================================
+# stoken → authkey 自动换（参考 gsuid_core/utils/api/mys/account_request.py:172）
+# ============================================================
 
 
 def parse_authkey_from_url(url: str) -> tuple[str, bool] | None:
-    """从游戏内"祈愿历史"页面复制出来的 URL 里提 authkey。返回 (authkey, is_os)。"""
+    """从游戏内"祈愿/跃迁/信号搜索"复制的 URL 里提 authkey。返回 (authkey, is_os)。
+
+    SR 必须走这条：米哈游对 SR 抽卡 authkey 不放行 stoken→gen-authkey 路径。
+    GS / ZZZ 通常用 stoken 自动换，但保留此函数作 fallback。
+    """
     try:
         qs = parse_qs(urlparse(url).query)
         ak = qs.get("authkey", [None])[0]
@@ -720,25 +811,56 @@ def parse_authkey_from_url(url: str) -> tuple[str, bool] | None:
         return None
 
 
-async def gacha_log_all(
-    authkey: str, gacha_type: str = "301", *, is_os: bool = False,
-    max_pages: int = 100, since_id: str = "",
-) -> list[dict[str, Any]]:
-    """翻页抓全量（到上次抓到的 since_id 或到底）。返回 list[gacha_item]。"""
-    out: list[dict[str, Any]] = []
-    end_id = "0"
-    for _ in range(max_pages):
-        r = await gacha_log(authkey, gacha_type, end_id, is_os=is_os)
-        if r.get("retcode") != 0:
-            break
-        items = r.get("data", {}).get("list", [])
-        if not items:
-            break
-        for it in items:
-            if since_id and it.get("id", "") <= since_id:
-                return out
-            out.append(it)
-        end_id = items[-1].get("id", "0")
-        # 米游社限频：每页间 800ms
-        await asyncio.sleep(0.8)
-    return out
+def parse_mid_from_cookie(cookie: str) -> str:
+    """从水神存的 web cookie 字段里 parse `mid=xxx`。
+
+    cookie_by_stoken() 返回字串里固定含 `mid=...`（actions.py:215），
+    所以扫码绑定流程结束后这值是有的。如果是用旧 cookie 升级上来缺 mid，
+    需要重走一次 cookie-exchange。
+    """
+    if not cookie:
+        return ""
+    for part in cookie.split(";"):
+        kv = part.strip()
+        if kv.startswith("mid="):
+            return kv[4:]
+    return ""
+
+
+async def gen_authkey(
+    game: str, uid: str, stoken: str, mys_id: str, mid: str,
+    *, is_os: bool = False, device_id: str | None = None,
+) -> dict[str, Any]:
+    """stoken → authkey。参考 gsuid_core get_authkey_by_cookie。
+
+    返回 {ok, authkey, sign_type, authkey_ver} 或 {ok: False, retcode, msg}。
+    """
+    body = {
+        "auth_appid": "webview_gacha",
+        "game_biz": _gacha_biz(game, is_os),
+        "game_uid": str(uid),
+        "region": server.get_server_id(uid, game),
+    }
+    headers = copy.deepcopy(device._HEADER_APP)
+    headers["Cookie"] = f"stuid={mys_id};stoken={stoken};mid={mid}"
+    headers["DS"] = sign.get_web_ds_token(True)
+    headers["x-rpc-device_id"] = device_id or device.new_device_id()
+    headers["x-rpc-channel"] = "mihoyo"
+    headers["x-rpc-sys_version"] = "12"
+    headers["Host"] = "api-takumi.mihoyo.com"
+    headers["Referer"] = "https://app.mihoyo.com"
+    async with httpx.AsyncClient(timeout=30.0) as c:
+        resp = await c.post(api.URL_GEN_AUTHKEY, json=body, headers=headers)
+        data = _parse_json_safe(resp, ctx=f"gen_authkey {game}/{uid}")
+    if data.get("retcode") != 0:
+        return {"ok": False, "retcode": data.get("retcode", -9999),
+                "msg": data.get("message", "")}
+    d = data.get("data") or {}
+    if not d.get("authkey"):
+        return {"ok": False, "retcode": -9998, "msg": "返回缺 authkey"}
+    return {
+        "ok": True,
+        "authkey": d["authkey"],
+        "sign_type": d.get("sign_type", 2),
+        "authkey_ver": d.get("authkey_ver", 1),
+    }

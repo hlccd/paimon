@@ -67,10 +67,8 @@
   - `ai_core/configs/` **按任务级别选 provider**（便宜 / 贵模型分工）—— 对标**神之心** profile，已有但按"路由"选不是按"任务级别"选，可增强
   - 建议：不要整体照搬；按上面 8 个子系统分别评估、独立立项，逐个吸收
 
-- [ ] **水神·抽卡拓展** —— 当前只做了原神抽卡（authkey URL 导入），[`skills/mihoyo/mihoyo/actions.py:gacha_log`](../skills/mihoyo/mihoyo/actions.py) + 水神 `import_gacha_from_url`。扩展方向：
-  - **崩铁抽卡记录**：`public-operation-hkrpg.mihoyo.com/common/gacha_record/api/getGachaLog`，authkey 获取路径和原神不同（星铁没有公开祈愿历史链接，需要游戏内 webview URL 抓包或 UIGF 导入）
-  - **绝区零抽卡记录**：`public-operation-nap.mihoyo.com/common/gacha_record/api/getGachaLog`，authkey 来自绝区零游戏内"信号搜索记录"页
-  - **UIGF 标准导入**：支持从 Paimon.moe / Snap Hutao / 椰羊 等工具导出的 UIGF JSON 直接导入（绕过 authkey 有效期）
+- [ ] **水神·抽卡拓展** —— 当前已做：三游戏统一 stoken→authkey 自动换 + GS/SR/ZZZ 抽卡同步入库（[`furina_game.py:auto_sync_gacha`](../paimon/archons/furina_game.py) + [`skills/mihoyo/mihoyo/actions.py:gacha_log`](../skills/mihoyo/mihoyo/actions.py)）。扩展方向：
+  - **UIGF 标准导入**：支持从 Paimon.moe / Snap Hutao / 椰羊 等工具导出的 UIGF JSON 直接导入（绕过 authkey 有效期 + 补全早期记录米哈游已删的部分）
   - **本地抽卡模拟器**：基于官方公告概率 + 保底/小保底规则，三游戏各自的模拟器：
     - 原神：5★ 基础 0.6%，硬保底 90，软保底 73 开始提升；4★ 基础 5.1%，硬保底 10；角色 UP 50% 小保底
     - 崩铁：类似原神但硬保底 5★=90（6★ 角色）/ 4★=10（5★ 武器），上升轨道从 74 开始

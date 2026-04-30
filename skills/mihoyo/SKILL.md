@@ -57,12 +57,13 @@ echo '{"uid":"100xxxxxx","cookie":"...","fp":"...","device_id":"..."}' | python3
 | `daily-note` | `{uid, cookie, fp, device_id}` | 原神便笺（树脂/派遣/委托） |
 | `spiral-abyss` | `{uid, cookie, fp, device_id, schedule?}` | 深渊（1 本期 / 2 上期） |
 | `poetry-abyss` | `{uid, cookie, fp, device_id}` | 幻想真境剧诗 |
-| `gacha-log` | `{authkey, gacha_type, is_os?, since_id?, max_pages?}` | 全量抓抽卡（翻页到 since_id） |
-| `parse-authkey` | `{url}` | 从祈愿历史 URL 提 authkey |
+| `gen-authkey` | `{game, uid, stoken, mys_id, mid, is_os?, device_id?}` | stoken → authkey（**SR 接口拒**，仅 GS/ZZZ 实际可用） |
+| `gacha-log` | `{authkey, gacha_type, game?, is_os?, since_id?, max_pages?}` | 全量抓抽卡（gs/sr/zzz；翻页到 since_id） |
+| `parse-authkey` | `{url}` | 从游戏内"祈愿/跃迁/信号搜索"复制的 URL 提 authkey（SR fallback 必走） |
 
 ## 注意
 
 - `mys_version` 和 `_SALTS` 常量需要跟 `/home/mi/code/gsuid_core/gsuid_core/utils/api/mys/tools.py` 上游同步；米游社改版会失效
 - 签到被风控时（`risk_code 375/5001`）返回 `is_risk=true`，水神需识别后上报或重试 —— 本 skill 不内置打码
-- 抽卡 authkey 有效期约 24 小时，用户要自己从游戏"祈愿历史"页面复制 URL
+- 抽卡 authkey 走 `gen-authkey` 自动从 stoken 换得（24h 有效），水神侧入库复用；不再走"用户复制 URL"路径
 - 国际服 UID（首位 ≥6）会走对应 OS 域名，无需 proxy（若需可由水神在调用前加）

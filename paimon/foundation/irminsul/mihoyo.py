@@ -92,7 +92,8 @@ class MihoyoCharacter:
 class MihoyoGacha:
     id: str
     uid: str
-    gacha_type: str                 # 301/302/200/100/500
+    gacha_type: str                 # gs:301/302/200/100/500 sr:1/2/11/12 zzz:1/2/3/5
+    game: str = "gs"
     item_id: str = ""
     item_type: str = ""
     name: str = ""
@@ -140,7 +141,7 @@ class MihoyoRepo:
         # 级联清空便笺/深渊/抽卡
         await self._db.execute("DELETE FROM mihoyo_note WHERE game=? AND uid=?", (game, uid))
         await self._db.execute("DELETE FROM mihoyo_abyss WHERE game=? AND uid=?", (game, uid))
-        await self._db.execute("DELETE FROM mihoyo_gacha WHERE uid=?", (uid,))
+        await self._db.execute("DELETE FROM mihoyo_gacha WHERE game=? AND uid=?", (game, uid))
         await self._db.commit()
         if n > 0:
             logger.info("[世界树] {}·mihoyo_account 删除 {}/{}", actor, game, uid)
@@ -324,54 +325,66 @@ class MihoyoRepo:
     # ---------- gacha ----------
 
     async def gacha_insert(self, items: list[MihoyoGacha], *, actor: str) -> int:
-        """批量 insert（id 唯一 → 重复忽略）。返回真实新增条数。"""
+        """批量 insert（id 唯一 → 重复忽略）。返回**真实新增**条数（不含被 IGNORE 跳过的）。"""
         if not items:
             return 0
-        n = 0
+        added = 0
+        skipped = 0
         for it in items:
             try:
-                await self._db.execute(
+                cur = await self._db.execute(
                     "INSERT OR IGNORE INTO mihoyo_gacha "
-                    "(id, uid, gacha_type, item_id, item_type, name, "
+                    "(id, game, uid, gacha_type, item_id, item_type, name, "
                     " rank_type, time, time_ts, raw_json) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (
-                        it.id, it.uid, it.gacha_type, it.item_id, it.item_type,
-                        it.name, it.rank_type, it.time, it.time_ts,
+                        it.id, it.game, it.uid, it.gacha_type,
+                        it.item_id, it.item_type, it.name,
+                        it.rank_type, it.time, it.time_ts,
                         json.dumps(it.raw or {}, ensure_ascii=False),
                     ),
                 )
-                n += 1
+                # aiosqlite 的 cursor.rowcount：真插入 1；IGNORE 跳过 0
+                if cur.rowcount > 0:
+                    added += 1
+                else:
+                    skipped += 1
             except Exception as e:
                 logger.warning("[世界树] mihoyo_gacha insert 失败 id={}: {}", it.id, e)
         await self._db.commit()
-        logger.info("[世界树] {}·mihoyo_gacha insert {} 条", actor, n)
-        return n
+        if skipped:
+            logger.info(
+                "[世界树] {}·mihoyo_gacha insert 新增 {} 条（跳过已存在 {} 条）",
+                actor, added, skipped,
+            )
+        else:
+            logger.info("[世界树] {}·mihoyo_gacha insert 新增 {} 条", actor, added)
+        return added
 
-    async def gacha_max_id(self, uid: str, gacha_type: str) -> str:
+    async def gacha_max_id(self, game: str, uid: str, gacha_type: str) -> str:
         async with self._db.execute(
-            "SELECT MAX(id) FROM mihoyo_gacha WHERE uid=? AND gacha_type=?",
-            (uid, gacha_type),
+            "SELECT MAX(id) FROM mihoyo_gacha WHERE game=? AND uid=? AND gacha_type=?",
+            (game, uid, gacha_type),
         ) as cur:
             row = await cur.fetchone()
         return (row[0] or "") if row else ""
 
     async def gacha_list(
-        self, uid: str, gacha_type: str, *, limit: int = 500,
+        self, game: str, uid: str, gacha_type: str, *, limit: int = 500,
     ) -> list[MihoyoGacha]:
         async with self._db.execute(
-            "SELECT id, uid, gacha_type, item_id, item_type, name, "
+            "SELECT id, game, uid, gacha_type, item_id, item_type, name, "
             " rank_type, time, time_ts, raw_json "
-            "FROM mihoyo_gacha WHERE uid=? AND gacha_type=? "
+            "FROM mihoyo_gacha WHERE game=? AND uid=? AND gacha_type=? "
             "ORDER BY time_ts DESC LIMIT ?",
-            (uid, gacha_type, limit),
+            (game, uid, gacha_type, limit),
         ) as cur:
             rows = await cur.fetchall()
         return [
             MihoyoGacha(
-                id=r[0], uid=r[1], gacha_type=r[2], item_id=r[3],
-                item_type=r[4], name=r[5], rank_type=r[6],
-                time=r[7], time_ts=r[8], raw=self._loads(r[9], {}),
+                id=r[0], game=r[1], uid=r[2], gacha_type=r[3],
+                item_id=r[4], item_type=r[5], name=r[6], rank_type=r[7],
+                time=r[8], time_ts=r[9], raw=self._loads(r[10], {}),
             )
             for r in rows
         ]
@@ -433,24 +446,30 @@ class MihoyoRepo:
             for r in rows
         ]
 
-    async def gacha_stats(self, uid: str, gacha_type: str) -> dict[str, Any]:
-        """抽卡统计：总数、5 星数、自上个 5 星以来的小保底计数、4 星数、历次 5 星列表。"""
-        items = await self.gacha_list(uid, gacha_type, limit=10000)
+    async def gacha_stats(self, game: str, uid: str, gacha_type: str) -> dict[str, Any]:
+        """抽卡统计：总数、最高级数、保底计数、次级数、历次最高级列表。
+
+        三游戏的 rank 体系不同：GS/SR 最高 5 星、次级 4 星；ZZZ S 级=4、A 级=3。
+        以"最高级 / 次级"语义统一，对外字段名仍叫 count_5/pity_5 保持兼容。
+        """
+        items = await self.gacha_list(game, uid, gacha_type, limit=10000)
         # DB 按 time_ts DESC 返回 → 反转成时间升序，便于逻辑直观
         items_asc = list(reversed(items))
         total = len(items_asc)
-        fives = [i for i in items_asc if i.rank_type == 5]
-        fours = [i for i in items_asc if i.rank_type == 4]
-        # 小保底：自最后一个 5 星之后抽了多少
+        top_rank = 4 if game == "zzz" else 5    # ZZZ S 级 = 4
+        sec_rank = 3 if game == "zzz" else 4
+        fives = [i for i in items_asc if i.rank_type == top_rank]
+        fours = [i for i in items_asc if i.rank_type == sec_rank]
+        # 大保底：自最后一个最高级之后抽了多少
         last_five_idx = -1
         for idx, it in enumerate(items_asc):
-            if it.rank_type == 5:
+            if it.rank_type == top_rank:
                 last_five_idx = idx
         pity_5 = total - 1 - last_five_idx if last_five_idx >= 0 else total
-        # 4 星小保底
+        # 次级保底
         last_four_idx = -1
         for idx, it in enumerate(items_asc):
-            if it.rank_type == 4:
+            if it.rank_type == sec_rank:
                 last_four_idx = idx
         pity_4 = total - 1 - last_four_idx if last_four_idx >= 0 else total
         return {
