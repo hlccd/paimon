@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 import shutil
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -159,6 +160,25 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/wealth/trigger", self.wealth_trigger_api)
         self.app.router.add_get("/api/wealth/running", self.wealth_running_api)
         self.app.router.add_get("/api/wealth/scan_scope", self.wealth_scan_scope_api)
+        self.app.router.add_get("/api/wealth/user_watch", self.wealth_user_watch_list_api)
+        self.app.router.add_post("/api/wealth/user_watch/add", self.wealth_user_watch_add_api)
+        self.app.router.add_post("/api/wealth/user_watch/remove", self.wealth_user_watch_remove_api)
+        self.app.router.add_post("/api/wealth/user_watch/update", self.wealth_user_watch_update_api)
+        self.app.router.add_post("/api/wealth/user_watch/refresh", self.wealth_user_watch_refresh_api)
+        # 水神·游戏
+        self.app.router.add_get("/game", self.game_page)
+        self.app.router.add_get("/api/game/overview", self.game_overview_api)
+        self.app.router.add_post("/api/game/qr_create", self.game_qr_create_api)
+        self.app.router.add_get("/api/game/qr_poll", self.game_qr_poll_api)
+        self.app.router.add_post("/api/game/unbind", self.game_unbind_api)
+        self.app.router.add_post("/api/game/sign", self.game_sign_api)
+        self.app.router.add_post("/api/game/sign_all", self.game_sign_all_api)
+        self.app.router.add_post("/api/game/collect_all", self.game_collect_all_api)
+        self.app.router.add_post("/api/game/collect_one", self.game_collect_one_api)
+        self.app.router.add_get("/api/game/abyss_latest", self.game_abyss_latest_api)
+        self.app.router.add_post("/api/game/gacha/import", self.game_gacha_import_api)
+        self.app.router.add_get("/api/game/gacha/stats", self.game_gacha_stats_api)
+        self.app.router.add_get("/api/game/characters", self.game_characters_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 三月·自检面板
         self.app.router.add_get("/selfcheck", self.selfcheck_page)
@@ -1812,6 +1832,357 @@ class WebUIChannel(Channel):
             channel_name=self.name,
         ))
         return web.json_response({"ok": True, "mode": mode})
+
+    # ---------- 用户关注股（user_watchlist）----------
+
+    @staticmethod
+    def _normalize_stock_code(raw: str) -> str | None:
+        """用户输入 → baostock 格式 'sh.xxxxxx' / 'sz.xxxxxx'。非法返回 None。
+
+        支持：'600519' / 'sh.600519' / 'SH600519' / 'sh600519'。
+        6 开头 → sh，其他 → sz（与 provider_baostock._to_bscode 一致）。
+        """
+        import re as _re
+        if not raw:
+            return None
+        s = raw.strip().lower().replace(".", "").replace(" ", "")
+        m = _re.match(r"^(sh|sz)?(\d{6})$", s)
+        if not m:
+            return None
+        prefix, digits = m.group(1), m.group(2)
+        if prefix:
+            return f"{prefix}.{digits}"
+        # 沪市：6/5/9 开头；深市：0/3 开头
+        if digits[0] in "659":
+            return f"sh.{digits}"
+        return f"sz.{digits}"
+
+    async def _compute_watch_row(self, irminsul, entry) -> dict:
+        """把 UserWatchEntry 组装成前端展示用 dict（含最新价、sparkline、PE/PB 分位）。"""
+        latest = await irminsul.user_watch_price_latest(entry.stock_code)
+        recent = await irminsul.user_watch_price_recent(entry.stock_code, 30)
+        pe_series = await irminsul.user_watch_price_series(entry.stock_code, "pe")
+        pb_series = await irminsul.user_watch_price_series(entry.stock_code, "pb")
+
+        def percentile(series: list[float], cur: float) -> float | None:
+            """当前值在序列中的百分位（0~1）。序列空或当前值 ≤0 时返回 None。"""
+            if not series or cur <= 0:
+                return None
+            below = sum(1 for v in series if v < cur)
+            return round(below / len(series), 4)
+
+        # 无数据时用 None 让前端渲染 '-'，0 会被前端当成"涨跌 0%"显示成 '0.00%'
+        has_data = bool(latest and latest.close > 0)
+        return {
+            "stock_code": entry.stock_code,
+            "stock_name": entry.stock_name,
+            "note": entry.note,
+            "added_date": entry.added_date,
+            "alert_pct": entry.alert_pct,
+            "price": latest.close if has_data else None,
+            "change_pct": latest.change_pct if has_data else None,
+            "pe": latest.pe if has_data else None,
+            "pb": latest.pb if has_data else None,
+            "pe_percentile": percentile(pe_series, latest.pe if has_data else 0),
+            "pb_percentile": percentile(pb_series, latest.pb if has_data else 0),
+            "last_date": latest.date if latest else "",
+            "sparkline": [p.close for p in recent],
+            "history_count": len(pe_series) or 0,
+        }
+
+    async def wealth_user_watch_list_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"items": []})
+        entries = await irminsul.user_watch_list()
+        items = [await self._compute_watch_row(irminsul, e) for e in entries]
+        return web.json_response({"items": items})
+
+    async def wealth_user_watch_add_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+
+        code = self._normalize_stock_code(data.get("code", ""))
+        if not code:
+            return web.json_response(
+                {"ok": False, "error": "股票代码无效（需 6 位数字，可前缀 sh/sz）"},
+                status=400,
+            )
+        note = (data.get("note") or "").strip()[:200]
+        try:
+            alert_pct = float(data.get("alert_pct", 3.0))
+        except (TypeError, ValueError):
+            alert_pct = 3.0
+        alert_pct = max(0.1, min(alert_pct, 50.0))
+
+        from paimon.foundation.irminsul import UserWatchEntry
+        entry = UserWatchEntry(
+            stock_code=code, stock_name="",  # 名称由 zhongli 扫描后补齐
+            note=note, added_date=date.today().isoformat(),
+            alert_pct=alert_pct,
+        )
+        added = await irminsul.user_watch_add(entry, actor="WebUI")
+        if not added:
+            return web.json_response({"ok": False, "error": "股票已在关注列表中"}, status=409)
+
+        # 首次添加后异步补抓 3 年历史 + 最新快照（不阻塞请求）
+        if self.state.zhongli:
+            asyncio.create_task(
+                self.state.zhongli.collect_user_watchlist(irminsul)
+            )
+
+        return web.json_response({"ok": True, "code": code})
+
+    async def wealth_user_watch_remove_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        code = self._normalize_stock_code(data.get("code", ""))
+        if not code:
+            return web.json_response({"ok": False, "error": "股票代码无效"}, status=400)
+        ok = await irminsul.user_watch_remove(code, actor="WebUI")
+        return web.json_response({"ok": ok})
+
+    async def wealth_user_watch_update_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        code = self._normalize_stock_code(data.get("code", ""))
+        if not code:
+            return web.json_response({"ok": False, "error": "股票代码无效"}, status=400)
+
+        note = data.get("note")
+        if note is not None:
+            note = str(note).strip()[:200]
+        alert_pct = data.get("alert_pct")
+        if alert_pct is not None:
+            try:
+                alert_pct = max(0.1, min(float(alert_pct), 50.0))
+            except (TypeError, ValueError):
+                alert_pct = None
+
+        ok = await irminsul.user_watch_update(
+            code, note=note, alert_pct=alert_pct, actor="WebUI",
+        )
+        return web.json_response({"ok": ok})
+
+    async def wealth_user_watch_refresh_api(self, request: web.Request) -> web.Response:
+        """手动触发关注股抓取（不等晚上 cron）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.zhongli or not self.state.irminsul:
+            return web.json_response({"ok": False, "error": "岩神/世界树未就绪"}, status=500)
+        asyncio.create_task(
+            self.state.zhongli.collect_user_watchlist(self.state.irminsul)
+        )
+        return web.json_response({"ok": True})
+
+    # ==================== 水神·游戏面板（米哈游） ====================
+
+    async def game_page(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.Response(text=self._get_login_html(), content_type="text/html")
+        from paimon.channels.webui.game_html import build_game_html
+        return web.Response(
+            text=build_game_html(), content_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    async def game_overview_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"accounts": []})
+        return web.json_response(await self.state.furina_game.overview())
+
+    async def game_qr_create_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"ok": False, "error": "水神未就绪"}, status=500)
+        try:
+            r = await self.state.furina_game.qr_create()
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+        return web.json_response({"ok": True, **r})
+
+    async def game_qr_poll_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"stat": "Error", "msg": "水神未就绪"})
+        try:
+            r = await self.state.furina_game.qr_poll(
+                request.query.get("app_id", "2"),
+                request.query.get("ticket", ""),
+                request.query.get("device", ""),
+            )
+        except Exception as e:
+            return web.json_response({"stat": "Error", "msg": str(e)})
+        return web.json_response(r)
+
+    async def game_unbind_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"})
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        game = (data.get("game") or "").strip()
+        uid = (data.get("uid") or "").strip()
+        if game not in ("gs", "sr", "zzz") or not uid:
+            return web.json_response({"ok": False, "error": "game/uid 无效"}, status=400)
+        ok = await irminsul.mihoyo_account_remove(game, uid, actor="WebUI")
+        return web.json_response({"ok": ok})
+
+    async def game_sign_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"ok": False, "msg": "水神未就绪"})
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "msg": "JSON 无效"}, status=400)
+        r = await self.state.furina_game.sign_in(data["game"], data["uid"])
+        return web.json_response(r)
+
+    async def game_sign_all_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"ok": False, "msg": "水神未就绪"})
+        results = await self.state.furina_game.sign_all()
+        return web.json_response({"ok": True, "results": results})
+
+    async def game_collect_one_api(self, request: web.Request) -> web.Response:
+        """只采单个账号（WebUI 单账号"刷新此账号数据"按钮）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"ok": False, "msg": "水神未就绪"})
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "msg": "JSON 无效"}, status=400)
+        game = (data.get("game") or "").strip()
+        uid = (data.get("uid") or "").strip()
+        if game not in ("gs", "sr", "zzz") or not uid:
+            return web.json_response({"ok": False, "msg": "game/uid 无效"}, status=400)
+        asyncio.create_task(self.state.furina_game.collect_one(
+            game, uid,
+            march=self.state.march, chat_id=PUSH_CHAT_ID, channel_name=self.name,
+        ))
+        return web.json_response({"ok": True})
+
+    async def game_collect_all_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"ok": False, "msg": "水神未就绪"})
+        # 异步跑（通常 10~30s，不等它）
+        asyncio.create_task(self.state.furina_game.collect_all(
+            march=self.state.march,
+            chat_id=PUSH_CHAT_ID, channel_name=self.name,
+        ))
+        return web.json_response({"ok": True})
+
+    async def game_abyss_latest_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"abyss": None})
+        game = request.query.get("game", "gs")
+        uid = request.query.get("uid", "")
+        abyss_type = request.query.get("type", "spiral")
+        # spiral/poetry/stygian=原神三副本；forgotten_hall/pure_fiction/apocalyptic=崩铁三；shiyu/mem=绝区零
+        if abyss_type not in ("spiral", "poetry", "stygian",
+                              "forgotten_hall", "pure_fiction", "apocalyptic",
+                              "shiyu", "mem"):
+            return web.json_response({"error": "type invalid"}, status=400)
+        a = await irminsul.mihoyo_abyss_latest(game, uid, abyss_type)
+        if not a:
+            return web.json_response({"abyss": None})
+        return web.json_response({"abyss": {
+            "schedule_id": a.schedule_id, "scan_ts": a.scan_ts,
+            "max_floor": a.max_floor, "total_star": a.total_star,
+            "total_battle": a.total_battle, "total_win": a.total_win,
+            "start_time": a.start_time, "end_time": a.end_time,
+        }})
+
+    async def game_gacha_import_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"ok": False, "msg": "水神未就绪"})
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "msg": "JSON 无效"}, status=400)
+        url = (data.get("url") or "").strip()
+        if not url:
+            return web.json_response({"ok": False, "msg": "url 必填"}, status=400)
+        r = await self.state.furina_game.import_gacha_from_url(url)
+        return web.json_response(r)
+
+    async def game_characters_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"characters": []})
+        game = request.query.get("game", "gs")
+        uid = request.query.get("uid", "")
+        if not uid:
+            return web.json_response({"characters": []})
+        chars = await irminsul.mihoyo_character_list(game, uid)
+        return web.json_response({"characters": [
+            {
+                "avatar_id": c.avatar_id, "name": c.name, "element": c.element,
+                "rarity": c.rarity, "level": c.level,
+                "constellation": c.constellation, "fetter": c.fetter,
+                "weapon": c.weapon, "relics": c.relics,
+                "icon_url": c.icon_url,
+            }
+            for c in chars
+        ]})
+
+    async def game_gacha_stats_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"stats": None})
+        uid = request.query.get("uid", "")
+        gacha_type = request.query.get("gacha_type", "301")
+        if not uid:
+            return web.json_response({"stats": None})
+        stats = await self.state.furina_game.gacha_stats(uid, gacha_type)
+        return web.json_response({"stats": stats})
 
     # ==================== 三月·自检面板 ====================
 

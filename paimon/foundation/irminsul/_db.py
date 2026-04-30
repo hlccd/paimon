@@ -232,6 +232,122 @@ CREATE INDEX IF NOT EXISTS idx_dividend_events_status
 CREATE INDEX IF NOT EXISTS idx_dividend_events_merge
     ON dividend_events(stock_code, event_type, status, last_seen_at DESC);
 
+-- ============ 域 8.6: 用户关注股（岩神 · user watchlist）============
+-- 区别于 dividend_watchlist（岩神自动按行业均衡 25 只红利股池）：
+-- user_watchlist 是用户手动添加的自选股，无数量/行业限制，每日 scan 顺手拉价量。
+-- 主表关注清单 + 价格历史表（首次 add 拉 3 年历史，后续 daily 追加 1 条）。
+CREATE TABLE IF NOT EXISTS user_watchlist (
+    stock_code   TEXT PRIMARY KEY,       -- baostock 格式 'sh.600519' / 'sz.000001'
+    stock_name   TEXT NOT NULL DEFAULT '',
+    note         TEXT NOT NULL DEFAULT '',
+    added_date   TEXT NOT NULL,
+    alert_pct    REAL NOT NULL DEFAULT 3.0   -- |日涨跌%| ≥ 此值触发 P1 推送
+);
+
+CREATE TABLE IF NOT EXISTS user_watchlist_price (
+    stock_code  TEXT NOT NULL,
+    date        TEXT NOT NULL,     -- 交易日 'YYYY-MM-DD'
+    close       REAL NOT NULL DEFAULT 0,
+    change_pct  REAL NOT NULL DEFAULT 0,   -- 当日涨跌 %
+    pe          REAL NOT NULL DEFAULT 0,   -- peTTM
+    pb          REAL NOT NULL DEFAULT 0,   -- pbMRQ
+    volume      REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (stock_code, date)
+);
+CREATE INDEX IF NOT EXISTS idx_user_price_code_date
+    ON user_watchlist_price(stock_code, date DESC);
+
+-- ============ 域 8.7: 米哈游账号（水神 · mihoyo）============
+-- 唯一写入者：水神（经 mihoyo skill 调米游社 API 后）
+-- 读取者：水神（签到/便笺/深渊/抽卡流程）、WebUI /game 面板
+-- 账号按 (game, uid) 分行：同一 mys_id 下三游戏可各绑一条
+CREATE TABLE IF NOT EXISTS mihoyo_account (
+    game         TEXT NOT NULL,            -- gs | sr | zzz
+    uid          TEXT NOT NULL,
+    mys_id       TEXT NOT NULL DEFAULT '', -- 米游社账号 ID（ltuid / stuid）
+    cookie       TEXT NOT NULL DEFAULT '', -- web Cookie
+    stoken       TEXT NOT NULL DEFAULT '', -- Stoken（续命 key）
+    fp           TEXT NOT NULL DEFAULT '', -- 设备指纹
+    device_id    TEXT NOT NULL DEFAULT '',
+    device_info  TEXT NOT NULL DEFAULT '',
+    authkey      TEXT NOT NULL DEFAULT '', -- 抽卡 authkey（24h 过期）
+    authkey_ts   REAL NOT NULL DEFAULT 0,  -- authkey 获取时间戳
+    note         TEXT NOT NULL DEFAULT '',
+    added_date   TEXT NOT NULL,
+    last_sign_at REAL NOT NULL DEFAULT 0,  -- 最后签到时间（防重签）
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (game, uid)
+);
+
+CREATE TABLE IF NOT EXISTS mihoyo_note (
+    game              TEXT NOT NULL,
+    uid               TEXT NOT NULL,
+    scan_ts           REAL NOT NULL,
+    current_resin     INTEGER NOT NULL DEFAULT 0,
+    max_resin         INTEGER NOT NULL DEFAULT 160,
+    resin_full_ts     REAL NOT NULL DEFAULT 0,   -- 树脂满时间戳
+    finished_tasks    INTEGER NOT NULL DEFAULT 0,
+    total_tasks       INTEGER NOT NULL DEFAULT 4,
+    daily_reward      INTEGER NOT NULL DEFAULT 0,-- 每日已领 0/1
+    remain_discount   INTEGER NOT NULL DEFAULT 3,-- 周本减半剩余
+    current_expedition INTEGER NOT NULL DEFAULT 0,
+    max_expedition    INTEGER NOT NULL DEFAULT 5,
+    expeditions_json  TEXT NOT NULL DEFAULT '[]',
+    transformer_ready INTEGER NOT NULL DEFAULT 0,-- 参量质变仪就绪 0/1
+    raw_json          TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (game, uid)
+);
+
+CREATE TABLE IF NOT EXISTS mihoyo_abyss (
+    game         TEXT NOT NULL,
+    uid          TEXT NOT NULL,
+    abyss_type   TEXT NOT NULL,          -- spiral | poetry
+    schedule_id  TEXT NOT NULL,          -- 期号（米游社返回的 schedule_id）
+    scan_ts      REAL NOT NULL,
+    max_floor    TEXT NOT NULL DEFAULT '',
+    total_star   INTEGER NOT NULL DEFAULT 0,
+    total_battle INTEGER NOT NULL DEFAULT 0,
+    total_win    INTEGER NOT NULL DEFAULT 0,
+    start_time   TEXT NOT NULL DEFAULT '',
+    end_time     TEXT NOT NULL DEFAULT '',
+    raw_json     TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (game, uid, abyss_type, schedule_id)
+);
+
+CREATE TABLE IF NOT EXISTS mihoyo_character (
+    game         TEXT NOT NULL,              -- gs | sr | zzz
+    uid          TEXT NOT NULL,
+    avatar_id    TEXT NOT NULL,              -- 米游社角色 ID
+    name         TEXT NOT NULL DEFAULT '',
+    element      TEXT NOT NULL DEFAULT '',   -- 原神元素 / 崩铁命途 / 绝区零属性
+    rarity       INTEGER NOT NULL DEFAULT 4, -- 4/5 星
+    level        INTEGER NOT NULL DEFAULT 1,
+    constellation INTEGER NOT NULL DEFAULT 0,-- 命座/星魂/影画
+    fetter       INTEGER NOT NULL DEFAULT 0, -- 原神好感度
+    weapon_json  TEXT NOT NULL DEFAULT '{}', -- {name, level, affix, rarity}
+    relics_json  TEXT NOT NULL DEFAULT '[]', -- 圣遗物/遗器/驱动盘摘要
+    icon_url     TEXT NOT NULL DEFAULT '',   -- 米游社头像 CDN
+    scan_ts      REAL NOT NULL,
+    raw_json     TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (game, uid, avatar_id)
+);
+CREATE INDEX IF NOT EXISTS idx_character_by_uid ON mihoyo_character(game, uid, rarity DESC, level DESC);
+
+CREATE TABLE IF NOT EXISTS mihoyo_gacha (
+    id           TEXT PRIMARY KEY,       -- 米游社返回的全局唯一 gacha id
+    uid          TEXT NOT NULL,
+    gacha_type   TEXT NOT NULL,          -- 301/302/200/100/500
+    item_id      TEXT NOT NULL DEFAULT '',
+    item_type    TEXT NOT NULL DEFAULT '',-- 角色 | 武器
+    name         TEXT NOT NULL DEFAULT '',
+    rank_type    INTEGER NOT NULL DEFAULT 3, -- 3/4/5
+    time         TEXT NOT NULL DEFAULT '',   -- 抽取时间 YYYY-MM-DD HH:MM:SS
+    time_ts      REAL NOT NULL DEFAULT 0,
+    raw_json     TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_gacha_uid_type ON mihoyo_gacha(uid, gacha_type, time_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_gacha_rank ON mihoyo_gacha(uid, gacha_type, rank_type, time_ts DESC);
+
 -- ============ 域 10: 定时任务（三月）============
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id TEXT PRIMARY KEY,

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from paimon.angels.registry import SkillRegistry
     from paimon.angels.watcher import SkillHotLoader
+    from paimon.archons.furina_game import FurinaGameService
     from paimon.archons.venti import VentiArchon
     from paimon.archons.zhongli import ZhongliArchon
     from paimon.channels.base import Channel
@@ -54,6 +55,8 @@ class RuntimeState:
     venti: "VentiArchon | None" = None
     # 岩神单例（红利股采集入口；bootstrap 初始化）
     zhongli: "ZhongliArchon | None" = None
+    # 水神·游戏单例（米哈游账号/签到/便笺/抽卡；bootstrap 初始化）
+    furina_game: "FurinaGameService | None" = None
     # 三月·自检服务（Quick 探针 + Deep 调度）
     selfcheck: "SelfCheckService | None" = None
     # /task-list 编号缓存：channel_key -> (task_ids, expires_at)

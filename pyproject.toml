@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "paimon"
 version = "0.1.0"
 description = "个人 AI 助手系统 — 神圣规划 (AIMON)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     # LLM Providers
     "openai>=2.30.0",
@@ -53,7 +53,7 @@ dependencies = [
 ]
 
 [project.scripts]
-paimon = "main:entry"
+paimon = "paimon.__main__:entry"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -157,6 +157,88 @@ WEALTH_CSS = """
     .unread-banner:hover { background: linear-gradient(90deg, rgba(212,175,55,.2), rgba(110,198,255,.06)); }
     .unread-banner b { color: var(--gold); font-weight: 700; }
     .unread-banner .ub-action { color: var(--gold); font-size: 12px; flex-shrink: 0; }
+
+    /* ========= 我的关注（用户 watchlist）========= */
+    .uw-toolbar {
+        display: flex; gap: 8px; align-items: center;
+        padding: 12px; background: var(--paimon-panel); border-radius: 8px;
+        margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .uw-toolbar input {
+        background: var(--paimon-bg); border: 1px solid var(--paimon-border);
+        color: var(--text-primary); border-radius: 6px; padding: 6px 10px; font-size: 13px;
+    }
+    .uw-toolbar input:focus { outline: none; border-color: var(--gold-dark); }
+    .uw-toolbar input[type=number] { width: 80px; }
+    .uw-toolbar input#uwCodeInput { width: 140px; }
+    .uw-toolbar input#uwNoteInput { flex: 1; min-width: 120px; }
+    .uw-toolbar label { font-size: 12px; color: var(--text-muted); }
+    .uw-btn {
+        padding: 6px 14px; background: var(--paimon-panel-light); color: var(--text-secondary);
+        border: 1px solid var(--paimon-border); border-radius: 6px; cursor: pointer; font-size: 13px;
+    }
+    .uw-btn:hover { border-color: var(--gold-dark); color: var(--gold); }
+    .uw-btn.primary {
+        background: linear-gradient(135deg, var(--gold), var(--gold-light));
+        color: #000; border: none; font-weight: 600;
+    }
+    .uw-btn.danger:hover { color: var(--status-error); border-color: var(--status-error); }
+
+    /* 关注股表不绑行点击，覆盖 .stock-table 的 pointer 避免"可点击"误导 */
+    .uw-table tbody tr { cursor: default; }
+    .uw-table td.code { font-family: monospace; color: var(--text-muted); }
+    /* 列对齐：每列 th/td 方向必须一致，否则标题和内容视觉会错成两端。
+       默认 .stock-table 里 th 左对齐、td.num 右对齐 → 数字列视觉错位。
+       这里按列定义 3 种对齐，th 和 td 都挂同名 class。 */
+    .uw-table th.c-l, .uw-table td.c-l { text-align: left; }
+    .uw-table th.c-r, .uw-table td.c-r { text-align: right; }
+    .uw-table th.c-c, .uw-table td.c-c { text-align: center; }
+    /* PE/PB 列：数字本身在固定宽度内右对齐，跨行数字纵向对齐；
+       后跟 bar + 百分比，整组靠左排列。 */
+    .uw-table .pe-num {
+        display: inline-block; min-width: 42px; text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+    .uw-table td.note {
+        font-size: 12px; color: var(--text-muted); max-width: 140px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .uw-change.pos { color: var(--status-error); font-weight: 600; }  /* A 股红涨 */
+    .uw-change.neg { color: var(--status-success); font-weight: 600; } /* 绿跌 */
+    .uw-change.flat { color: var(--text-muted); }
+
+    .uw-spark { width: 88px; height: 28px; vertical-align: middle; }
+    .uw-spark polyline { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+    .uw-spark.up polyline { stroke: var(--status-error); }
+    .uw-spark.down polyline { stroke: var(--status-success); }
+
+    /* 三档分位条：0~30% 低估区（绿）/ 30~70% 正常区（灰）/ 70~100% 高估区（红）
+       两条分割线标出 0.3 / 0.7 阈值，marker 是当前值位置 */
+    .uw-pctbar {
+        position: relative; display: inline-block;
+        width: 80px; height: 10px;
+        background: linear-gradient(90deg,
+            var(--status-success) 0%, var(--status-success) 30%,
+            var(--paimon-border) 30%, var(--paimon-border) 70%,
+            var(--status-error) 70%, var(--status-error) 100%);
+        border-radius: 4px; vertical-align: middle; margin-left: 6px; opacity: .55;
+    }
+    /* 0.3 / 0.7 两条分割线 */
+    .uw-pctbar::before, .uw-pctbar::after {
+        content: ''; position: absolute; top: -1px; bottom: -1px; width: 1px;
+        background: var(--paimon-bg); opacity: .7;
+    }
+    .uw-pctbar::before { left: 30%; }
+    .uw-pctbar::after  { left: 70%; }
+    /* 当前值 marker：黑白双色三角，任何底色都看得清 */
+    .uw-pctbar .marker {
+        position: absolute; top: -3px; width: 2px; height: 16px;
+        background: var(--text-primary); border-radius: 1px; opacity: 1;
+        box-shadow: 0 0 2px rgba(0,0,0,.6);
+    }
+    .uw-pct-label { font-size: 11px; color: var(--text-muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+    .uw-pct-label.low  { color: var(--status-success); }
+    .uw-pct-label.high { color: var(--status-error); }
 """
 
 
@@ -230,6 +312,7 @@ WEALTH_BODY = """
             <button class="tab-btn active" onclick="switchTab('recommended',this)">推荐选股</button>
             <button class="tab-btn" onclick="switchTab('ranking',this)">评分排行</button>
             <button class="tab-btn" onclick="switchTab('changes',this)">变化事件</button>
+            <button class="tab-btn" onclick="switchTab('userWatch',this);loadUserWatchlist();">我的关注</button>
         </div>
 
         <div id="recommended" class="tab-panel active">
@@ -240,6 +323,19 @@ WEALTH_BODY = """
         </div>
         <div id="changes" class="tab-panel">
             <div id="chgEl"><div class="empty-state">加载中...</div></div>
+        </div>
+        <div id="userWatch" class="tab-panel">
+            <div class="uw-toolbar">
+                <input id="uwCodeInput" placeholder="股票代码（如 600519）" maxlength="12" />
+                <input id="uwNoteInput" placeholder="备注（可选）" maxlength="50" />
+                <label>波动阈值 ±</label>
+                <input type="number" id="uwAlertPctInput" value="3.0" step="0.1" min="0.1" max="50" />
+                <label>%</label>
+                <button class="uw-btn primary" onclick="uwAdd()">添加</button>
+                <button class="uw-btn" onclick="uwRefreshAll()" title="立即抓取所有关注股最新数据">立即抓取</button>
+                <button class="uw-btn" onclick="loadUserWatchlist()">刷新</button>
+            </div>
+            <div id="uwListEl"><div class="empty-state">点击 tab 后加载关注列表</div></div>
         </div>
     </div>
 
@@ -269,7 +365,7 @@ WEALTH_SCRIPT = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
     (function(){
-        function esc(s){return s===null||s===undefined?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+        function esc(s){return s===null||s===undefined?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
         function scoreCls(s){
             if(s>=75)return 'score-high';
             if(s>=60)return 'score-mid';
@@ -857,6 +953,174 @@ WEALTH_SCRIPT = """
             var inp = document.getElementById('zhongliDateInput');
             if(inp && !inp.value) inp.value = _todayStr();
             refreshAll();
+        };
+
+        // ========= 用户关注股（我的关注 tab）=========
+
+        function _renderSparkline(points){
+            if(!points || points.length < 2){
+                return '<span style="color:var(--text-muted);font-size:11px">(首次抓取中)</span>';
+            }
+            var n = points.length;
+            var minV = Math.min.apply(null, points);
+            var maxV = Math.max.apply(null, points);
+            var rng = maxV - minV || 1;
+            var W = 88, H = 28, pad = 2;
+            var pts = points.map(function(v, i){
+                var x = pad + (i/(n-1)) * (W - 2*pad);
+                var y = H - pad - ((v - minV)/rng) * (H - 2*pad);
+                return x.toFixed(1) + ',' + y.toFixed(1);
+            }).join(' ');
+            var trend = points[n-1] >= points[0] ? 'up' : 'down';
+            return '<svg class="uw-spark ' + trend + '" viewBox="0 0 ' + W + ' ' + H + '"><polyline points="' + pts + '"/></svg>';
+        }
+
+        function _renderPctBar(p){
+            if(p == null) return '<span class="uw-pct-label">-</span>';
+            var left = Math.max(0, Math.min(99, p * 100));
+            var pctLabel = (p * 100).toFixed(0) + '%';
+            // 分位 < 30% 估值较低（绿）/ >= 70% 较高（红）/ 中间正常（灰）
+            var cls = p < 0.3 ? 'low' : (p >= 0.7 ? 'high' : '');
+            return '<span class="uw-pctbar" title="估值分位：低 0~30% / 正常 30~70% / 高 70~100%">'
+                 + '<span class="marker" style="left:' + left.toFixed(1) + '%"></span></span>'
+                 + '<span class="uw-pct-label ' + cls + '">' + pctLabel + '</span>';
+        }
+
+        function _renderChange(pct, alert){
+            if(pct == null) return '<span class="uw-change flat">-</span>';
+            var cls = pct > 0 ? 'pos' : (pct < 0 ? 'neg' : 'flat');
+            var sign = pct > 0 ? '+' : '';
+            var warn = (Math.abs(pct) >= (alert||3)) ? ' ⚠️' : '';
+            return '<span class="uw-change ' + cls + '">' + sign + pct.toFixed(2) + '%' + warn + '</span>';
+        }
+
+        window.loadUserWatchlist = async function(){
+            var el = document.getElementById('uwListEl');
+            if(!el) return;
+            try{
+                var r = await fetch('/api/wealth/user_watch');
+                var d = await r.json();
+                var items = d.items || [];
+                if(items.length === 0){
+                    el.innerHTML = '<div class="empty-state">暂无关注股。输入股票代码添加。</div>';
+                    return;
+                }
+                var rows = items.map(function(it){
+                    var spark = _renderSparkline(it.sparkline || []);
+                    var chg = _renderChange(it.change_pct, it.alert_pct);
+                    var pePct = _renderPctBar(it.pe_percentile);
+                    var pbPct = _renderPctBar(it.pb_percentile);
+                    var nameCell = esc(it.stock_name) || '<span style="color:var(--text-muted)">(待扫描)</span>';
+                    var codeAttr = esc(it.stock_code);
+                    var noteAttr = esc(it.note || '');
+                    var alertAttr = (+it.alert_pct || 3).toFixed(1);
+                    return ''
+                        + '<tr>'
+                        + '<td class="code c-c">' + esc(it.stock_code) + '</td>'
+                        + '<td class="c-c">' + nameCell + '</td>'
+                        + '<td class="c-c">' + (it.price && it.price > 0 ? fmt(it.price) : '-') + '</td>'
+                        + '<td class="c-c">' + chg + '</td>'
+                        + '<td class="c-c">' + spark + '</td>'
+                        + '<td class="c-c">' + (it.pe && it.pe > 0 ? '<span class="pe-num">' + fmt(it.pe) + '</span>' + pePct : '-') + '</td>'
+                        + '<td class="c-c">' + (it.pb && it.pb > 0 ? '<span class="pe-num">' + fmt(it.pb) + '</span>' + pbPct : '-') + '</td>'
+                        + '<td class="note c-c" title="' + noteAttr + '">' + esc(it.note) + '</td>'
+                        + '<td class="c-c">±' + alertAttr + '%</td>'
+                        + '<td class="c-c">'
+                        + '<button class="uw-btn" data-code="' + codeAttr + '" data-alert="' + alertAttr + '" data-note="' + noteAttr + '" onclick="uwEdit(this)">编辑</button>'
+                        + '<button class="uw-btn danger" data-code="' + codeAttr + '" onclick="uwRemove(this)">删除</button>'
+                        + '</td>'
+                        + '</tr>';
+                }).join('');
+                el.innerHTML = ''
+                    + '<table class="stock-table uw-table">'
+                    + '<thead><tr>'
+                    + '<th class="c-c">代码</th><th class="c-c">名称</th>'
+                    + '<th class="c-c">最新价</th><th class="c-c">日涨跌</th>'
+                    + '<th class="c-c">30 日走势</th>'
+                    + '<th class="c-c">PE · 分位</th><th class="c-c">PB · 分位</th>'
+                    + '<th class="c-c">备注</th><th class="c-c">阈值</th>'
+                    + '<th class="c-c">操作</th>'
+                    + '</tr></thead>'
+                    + '<tbody>' + rows + '</tbody></table>';
+            }catch(e){
+                el.innerHTML = '<div class="empty-state">加载失败: ' + esc(String(e)) + '</div>';
+            }
+        };
+
+        // 首次 add 后后端异步拉 5 年历史 + 股票名，10~60s 不等。
+        // 先立即刷一次（显示 "待扫描"占位），再分档轮询直到拿到数据（避免用户手动刷）。
+        var _uwPollTimers = [];
+        function _uwPollAfterAdd(){
+            _uwPollTimers.forEach(clearTimeout);
+            _uwPollTimers = [10, 25, 45, 75].map(function(s){
+                return setTimeout(loadUserWatchlist, s * 1000);
+            });
+        }
+        window.uwAdd = async function(){
+            var code = document.getElementById('uwCodeInput').value.trim();
+            var note = document.getElementById('uwNoteInput').value.trim();
+            var alertPct = parseFloat(document.getElementById('uwAlertPctInput').value) || 3.0;
+            if(!code){ alert('请输入股票代码'); return; }
+            try{
+                var r = await fetch('/api/wealth/user_watch/add', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({code: code, note: note, alert_pct: alertPct}),
+                });
+                var d = await r.json();
+                if(!d.ok){ alert('添加失败: ' + (d.error || 'unknown')); return; }
+                document.getElementById('uwCodeInput').value = '';
+                document.getElementById('uwNoteInput').value = '';
+                await loadUserWatchlist();
+                _uwPollAfterAdd();
+            }catch(e){ alert('请求失败: ' + e); }
+        };
+
+        window.uwRemove = async function(btn){
+            var code = btn.dataset.code;
+            if(!confirm('确定删除 ' + code + ' 的关注吗？（价格历史也会清掉）')) return;
+            try{
+                var r = await fetch('/api/wealth/user_watch/remove', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({code: code}),
+                });
+                var d = await r.json();
+                if(!d.ok){ alert('删除失败'); return; }
+                await loadUserWatchlist();
+            }catch(e){ alert('请求失败: ' + e); }
+        };
+
+        window.uwEdit = async function(btn){
+            var code = btn.dataset.code;
+            var alertPct = btn.dataset.alert;
+            var note = btn.dataset.note || '';
+            var newAlert = prompt('波动阈值 (%)', alertPct);
+            if(newAlert === null) return;
+            var newNote = prompt('备注（留空清除）', note);
+            if(newNote === null) return;
+            try{
+                var r = await fetch('/api/wealth/user_watch/update', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        code: code,
+                        alert_pct: parseFloat(newAlert) || 3.0,
+                        note: newNote,
+                    }),
+                });
+                var d = await r.json();
+                if(!d.ok){ alert('更新失败'); return; }
+                await loadUserWatchlist();
+            }catch(e){ alert('请求失败: ' + e); }
+        };
+
+        window.uwRefreshAll = async function(){
+            if(!confirm('立即抓取所有关注股最新数据？（可能要 10~60s）')) return;
+            try{
+                var r = await fetch('/api/wealth/user_watch/refresh', {method: 'POST'});
+                var d = await r.json();
+                if(!d.ok){ alert('触发失败'); return; }
+            }catch(e){ alert('请求失败: ' + e); return; }
+            // 抓取耗时不确定（每只股 baostock 几秒），多档轮询
+            _uwPollAfterAdd();
         };
     })();
     </script>
