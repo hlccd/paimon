@@ -785,32 +785,33 @@ WEALTH_SCRIPT = """
                 + '</tbody></table></div>';
         }
 
-        // 推荐选股 / 排名 → 一键加入"我的关注"，复用人工添加路径（后端会异步抓 5 年历史 + PE/PB 分位 + sparkline）
+        // 推荐选股 / 排名 → 一键加入"我的关注"，**严格对齐 uwAdd**（手动添加）的链路
         window.addToWatchlist = async function(btn){
-            if(btn.classList.contains('added')) return;   // 已关注态不响应点击
+            if(btn.classList.contains('added')) return;
             var code = btn.dataset.code;
+            if(!code){ alert('股票代码缺失'); return; }
             btn.disabled = true;
             var old = btn.textContent;
             btn.textContent = '...';
             try{
                 var r = await fetch('/api/wealth/user_watch/add', {
-                    method:'POST', headers:{'Content-Type':'application/json'},
-                    // note 留空（让用户后续自己加备注，不污染语义）；alert_pct 用默认 3.0
+                    method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({code: code, note: '', alert_pct: 3.0}),
                 });
                 var d = await r.json();
-                // 已在关注列表 → 视觉等价于"已加入"（后端 409 但不算错）
-                if(!d.ok && r.status !== 409){
+                // 严格对齐 uwAdd：所有 not-ok 都报 alert（不再 409 静默处理）
+                if(!d.ok){
                     alert('添加失败: ' + (d.error || 'unknown'));
                     btn.disabled = false; btn.textContent = old;
                     return;
                 }
+                // 成功路径与 uwAdd 完全等价：await loadUserWatchlist + _uwPollAfterAdd
                 _userWatchCodes.add(code);
                 btn.classList.add('added');
                 btn.textContent = '已关注';
                 btn.title = '已在我的关注';
-                // 刷一次"我的关注" tab 让占位行尽快出现
-                if(typeof loadUserWatchlist === 'function') loadUserWatchlist();
+                await loadUserWatchlist();
+                _uwPollAfterAdd();
             }catch(e){
                 alert('请求失败: ' + e);
                 btn.disabled = false; btn.textContent = old;
