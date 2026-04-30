@@ -695,21 +695,13 @@ GAME_SCRIPT = """
                     + '</div>');
             }
 
-            // 角色 / 养成
-            if(a.game === 'gs'){
-                parts.push('<div class="detail-section">'
-                    + '<div class="detail-title">角色 · 养成</div>'
-                    + '<div id="chars-'+esc(k)+'">加载中...</div>'
-                    + '</div>');
-            } else {
-                parts.push('<div class="detail-section">'
-                    + '<div class="detail-title">角色 · 养成</div>'
-                    + '<div class="coming-soon">'
-                    + '  <div class="cs-title">🛠 '+esc(GAME_META[a.game].name)+' 角色接口待接</div>'
-                    + '  原神已接入；崩铁、绝区零接口路径已知（hkrpg/avatar_list、zzz/avatar/info），下一轮补。'
-                    + '</div>'
-                    + '</div>');
-            }
+            // 角色 / 养成（三游戏统一渲染，字段映射在后端 collect 时已归一到 MihoyoCharacter）
+            parts.push('<div class="detail-section">'
+                + '<div class="detail-title">'
+                +   (a.game==='gs'?'角色 · 养成' : (a.game==='sr'?'角色 · 星魂':'代理人 · 影画'))
+                + '</div>'
+                + '<div id="chars-'+esc(k)+'">加载中...</div>'
+                + '</div>');
 
             // 高级操作
             parts.push('<div class="detail-ops">'
@@ -721,10 +713,8 @@ GAME_SCRIPT = """
 
             // 异步填战报 + 抽卡 + 角色
             _fillAbyss(a, k);
-            if(a.game === 'gs') {
-                _fillGacha(a, k);
-                _fillCharacters(a, k);
-            }
+            if(a.game === 'gs') _fillGacha(a, k);
+            _fillCharacters(a, k);
         }
 
         var _charFilter = {};   // uid -> 'all'|'r5'|'r4'

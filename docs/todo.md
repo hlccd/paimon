@@ -67,6 +67,16 @@
   - `ai_core/configs/` **按任务级别选 provider**（便宜 / 贵模型分工）—— 对标**神之心** profile，已有但按"路由"选不是按"任务级别"选，可增强
   - 建议：不要整体照搬；按上面 8 个子系统分别评估、独立立项，逐个吸收
 
+- [ ] **水神·抽卡拓展** —— 当前只做了原神抽卡（authkey URL 导入），[`skills/mihoyo/mihoyo/actions.py:gacha_log`](../skills/mihoyo/mihoyo/actions.py) + 水神 `import_gacha_from_url`。扩展方向：
+  - **崩铁抽卡记录**：`public-operation-hkrpg.mihoyo.com/common/gacha_record/api/getGachaLog`，authkey 获取路径和原神不同（星铁没有公开祈愿历史链接，需要游戏内 webview URL 抓包或 UIGF 导入）
+  - **绝区零抽卡记录**：`public-operation-nap.mihoyo.com/common/gacha_record/api/getGachaLog`，authkey 来自绝区零游戏内"信号搜索记录"页
+  - **UIGF 标准导入**：支持从 Paimon.moe / Snap Hutao / 椰羊 等工具导出的 UIGF JSON 直接导入（绕过 authkey 有效期）
+  - **本地抽卡模拟器**：基于官方公告概率 + 保底/小保底规则，三游戏各自的模拟器：
+    - 原神：5★ 基础 0.6%，硬保底 90，软保底 73 开始提升；4★ 基础 5.1%，硬保底 10；角色 UP 50% 小保底
+    - 崩铁：类似原神但硬保底 5★=90（6★ 角色）/ 4★=10（5★ 武器），上升轨道从 74 开始
+    - 绝区零：S 级 0.6%（硬保底 90），A 级 9%，S 级角色"信号"小保底 50%
+    - UI：设定池子/已有保底进度 → 模拟抽 N 次 → 展示历次出货、平均出金抽数、小保底命中率
+
 ## 2. 技术选型层面
 
 - [ ] **异常日志落盘方案** —— [`log.py`](../paimon/log.py) 全文 25 行，只 `logger.add(sys.stderr, ...)` + 可选 `logger.add(paimon.log, 10MB rotation / 7 天 retention, level=DEBUG)`，全 level 混合、无独立 error-only handler / 无结构化异常归档 / 无 error 专属路径。待定：加 error 专属 file handler，或接外部聚合（Sentry 之类）

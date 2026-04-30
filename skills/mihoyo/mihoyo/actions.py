@@ -434,6 +434,46 @@ async def sr_apocalyptic(
     )
 
 
+async def sr_avatars(
+    uid: str, cookie: str, fp: str, device_id: str,
+) -> dict[str, Any]:
+    """崩铁角色列表 + 面板。GET `/avatar/info`。
+
+    国服 **必须签 DS**（`get_ds_token(sorted_qs)` —— 上游 simple_mys_req 默认行为，
+    不签会返 -10001 invalid request）；国际服 `generate_os_ds()`。
+    返回 `data.avatar_list: [...]`（星魂 rank / 光锥 equip / 遗器 relics）。
+    """
+    _is_os = server.is_os(uid, "sr")
+    server_id = server.get_server_id(uid, "sr")
+    url = api.URL_SR_AVATAR_INFO_OS if _is_os else api.URL_SR_AVATAR_INFO
+    params = {"need_wiki": "false", "role_id": uid, "server": server_id}
+    q = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    ds = sign.generate_os_ds() if _is_os else sign.get_ds_token(q)
+    headers = device.build_headers(cookie, device_id, fp, ds=ds)
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        return await _mys_get(c, url, params, headers, game="sr",
+                              ctx=f"sr-avatars uid={uid}")
+
+
+async def zzz_avatars(
+    uid: str, cookie: str, fp: str, device_id: str,
+) -> dict[str, Any]:
+    """绝区零代理人列表（basic 接口，一次拿全部基础信息）。
+
+    返回 `data.avatar_list: [ZZZAvatarBasic]`（含等级、影画数 rank、rarity、
+    element_type、avatar_profession、icon_paths.hollow_icon_path）。
+    音擎+驱动盘详情要走 `/avatar/info?id_list[]=X` 单个拉，本实现暂只取 basic。
+    """
+    _is_os = server.is_os(uid, "zzz")
+    server_id = server.get_server_id(uid, "zzz")
+    url = api.URL_ZZZ_AVATAR_BASIC_OS if _is_os else api.URL_ZZZ_AVATAR_BASIC
+    params = {"role_id": uid, "server": server_id}
+    headers = device.build_zzz_headers(cookie, device_id, fp)
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        return await _mys_get(c, url, params, headers, game="zzz",
+                              ctx=f"zzz-avatars uid={uid}", resign_ds=False)
+
+
 # ============================================================
 # 绝区零
 # ============================================================

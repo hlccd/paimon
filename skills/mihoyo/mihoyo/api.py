@@ -51,6 +51,9 @@ URL_SR_FORGOTTEN_HALL = f"{RECORD_BASE}/game_record/app/hkrpg/api/challenge"
 URL_SR_FORGOTTEN_HALL_OS = f"{RECORD_BASE_OS}/game_record/hkrpg/api/challenge"
 URL_SR_PURE_FICTION = f"{RECORD_BASE}/game_record/app/hkrpg/api/challenge_story"
 URL_SR_APOCALYPTIC = f"{RECORD_BASE}/game_record/app/hkrpg/api/challenge_boss"
+# 崩铁角色列表 + 面板
+URL_SR_AVATAR_INFO = f"{RECORD_BASE}/game_record/app/hkrpg/api/avatar/info"
+URL_SR_AVATAR_INFO_OS = f"{RECORD_BASE_OS}/game_record/hkrpg/api/avatar/info"
 
 # 绝区零（ZZZ_BASE 域名独立）
 URL_ZZZ_BASE_CN = f"{RECORD_BASE}/event/game_record_zzz/api/zzz"
@@ -63,6 +66,9 @@ URL_ZZZ_HADAL = f"{URL_ZZZ_BASE_CN}/hadal_info_v2"    # 第五防线（新版式
 URL_ZZZ_HADAL_OS = f"{URL_ZZZ_BASE_OS}/hadal_info_v2"
 URL_ZZZ_MEM = f"{URL_ZZZ_BASE_CN}/mem_detail"         # 危局强袭战
 URL_ZZZ_MEM_OS = f"{URL_ZZZ_BASE_OS}/mem_detail"
+# 绝区零代理人列表（basic = 所有代理人基础信息；info 是单个代理人详情，需要 id_list[]）
+URL_ZZZ_AVATAR_BASIC = f"{URL_ZZZ_BASE_CN}/avatar/basic"
+URL_ZZZ_AVATAR_BASIC_OS = f"{URL_ZZZ_BASE_OS}/avatar/basic"
 
 # 米游社玩家卡片（mys_id → 所有游戏 UID）
 URL_MYS_GAME_RECORD = f"{RECORD_BASE}/game_record/card/wapi/getGameRecordCard"
