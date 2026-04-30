@@ -51,6 +51,7 @@ URL_SR_FORGOTTEN_HALL = f"{RECORD_BASE}/game_record/app/hkrpg/api/challenge"
 URL_SR_FORGOTTEN_HALL_OS = f"{RECORD_BASE_OS}/game_record/hkrpg/api/challenge"
 URL_SR_PURE_FICTION = f"{RECORD_BASE}/game_record/app/hkrpg/api/challenge_story"
 URL_SR_APOCALYPTIC = f"{RECORD_BASE}/game_record/app/hkrpg/api/challenge_boss"
+URL_SR_PEAK = f"{RECORD_BASE}/game_record/app/hkrpg/api/challenge_peak"   # 异相仲裁
 # 崩铁角色列表 + 面板
 URL_SR_AVATAR_INFO = f"{RECORD_BASE}/game_record/app/hkrpg/api/avatar/info"
 URL_SR_AVATAR_INFO_OS = f"{RECORD_BASE_OS}/game_record/hkrpg/api/avatar/info"
@@ -66,6 +67,8 @@ URL_ZZZ_HADAL = f"{URL_ZZZ_BASE_CN}/hadal_info_v2"    # 第五防线（新版式
 URL_ZZZ_HADAL_OS = f"{URL_ZZZ_BASE_OS}/hadal_info_v2"
 URL_ZZZ_MEM = f"{URL_ZZZ_BASE_CN}/mem_detail"         # 危局强袭战
 URL_ZZZ_MEM_OS = f"{URL_ZZZ_BASE_OS}/mem_detail"
+URL_ZZZ_VOID = f"{URL_ZZZ_BASE_CN}/void_front_battle_detail"   # 临界推演
+URL_ZZZ_VOID_OS = f"{URL_ZZZ_BASE_OS}/void_front_battle_detail"
 # 绝区零代理人列表（basic = 所有代理人基础信息；info 是单个代理人详情，需要 id_list[]）
 URL_ZZZ_AVATAR_BASIC = f"{URL_ZZZ_BASE_CN}/avatar/basic"
 URL_ZZZ_AVATAR_BASIC_OS = f"{URL_ZZZ_BASE_OS}/avatar/basic"

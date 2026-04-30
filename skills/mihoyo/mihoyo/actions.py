@@ -434,6 +434,15 @@ async def sr_apocalyptic(
     )
 
 
+async def sr_peak(
+    uid: str, cookie: str, fp: str, device_id: str, *, schedule: int = 1,
+) -> dict[str, Any]:
+    """异相仲裁（challenge_peak，3 骑士 + boss 高难副本）。"""
+    return await _sr_challenge_generic(
+        api.URL_SR_PEAK, uid, cookie, fp, device_id, schedule, "sr-peak",
+    )
+
+
 async def sr_avatars(
     uid: str, cookie: str, fp: str, device_id: str,
 ) -> dict[str, Any]:
@@ -549,6 +558,22 @@ async def zzz_mem_detail(
     async with httpx.AsyncClient(timeout=30.0) as c:
         return await _mys_get(c, url, params, headers, game="zzz",
                               ctx=f"zzz-mem uid={uid}", resign_ds=False)
+
+
+async def zzz_void(
+    uid: str, cookie: str, fp: str, device_id: str,
+) -> dict[str, Any]:
+    """临界推演（void_front_battle_detail）。ZZZeroUID 的 void_front_id 是 102（当期固定）。"""
+    _is_os = server.is_os(uid, "zzz")
+    server_id = server.get_server_id(uid, "zzz")
+    url = api.URL_ZZZ_VOID_OS if _is_os else api.URL_ZZZ_VOID
+    params = {
+        "uid": uid, "region": server_id, "void_front_id": "102",
+    }
+    headers = device.build_zzz_headers(cookie, device_id, fp)
+    async with httpx.AsyncClient(timeout=30.0) as c:
+        return await _mys_get(c, url, params, headers, game="zzz",
+                              ctx=f"zzz-void uid={uid}", resign_ds=False)
 
 
 # ============================================================

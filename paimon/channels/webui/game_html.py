@@ -148,6 +148,72 @@ GAME_CSS = """
         background: rgba(0,0,0,.15);
     }
     .ac-detail.open { display: block; }
+    /* 详情页 grid：左中两 panel（抽卡上 / 深渊下） + 右栏（角色，跨两行） */
+    /* 状态条已在外层 ac-summary 里显示树脂+chips，detail 内不重复 */
+    .ac-detail-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto;
+        gap: 12px;
+    }
+    @media (min-width: 980px) {
+        .ac-detail-grid { grid-template-columns: minmax(0,1fr) 340px; }
+    }
+    .ac-detail-grid > .gacha-pane { grid-column: 1; grid-row: 1; }
+    .ac-detail-grid > .abyss-pane { grid-column: 1; grid-row: 2; }
+    @media (min-width: 980px) {
+        .ac-detail-grid > .chars-pane { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+    }
+    .ac-panel {
+        background: rgba(0,0,0,.18); border: 1px solid var(--paimon-border);
+        border-radius: 8px; padding: 12px 14px; min-width: 0;
+        display: flex; flex-direction: column;
+    }
+    .ac-panel.h-fixed { height: 360px; }
+    .ac-panel.h-fixed > .panel-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; }
+    .ac-panel.h-fixed-tall { height: calc(360px * 2 + 12px); max-height: 80vh; }
+    .ac-panel.h-fixed-tall > .panel-body { flex: 1; min-height: 0; overflow-y: auto; }
+    .panel-title {
+        font-size: 11px; color: var(--text-muted); text-transform: uppercase;
+        letter-spacing: .6px; margin-bottom: 10px;
+        display: flex; justify-content: space-between; align-items: center;
+        flex-shrink: 0;
+    }
+    .panel-hint { font-size: 10px; color: var(--text-muted); text-transform: none; letter-spacing: 0; font-weight: normal; }
+    /* 抽卡同步按钮粘底 */
+    .gacha-pane .gacha-sync-row {
+        position: sticky; bottom: 0; margin-top: 8px;
+        padding: 8px 0 4px; background: rgba(0,0,0,.18);
+        border-top: 1px solid var(--paimon-border);
+        z-index: 2;
+    }
+    /* 角色 filter 粘顶（滚动时永远可见） */
+    .chars-pane .char-filter-bar, .chars-pane .char-stat-line {
+        position: sticky; background: rgba(0,0,0,.18); z-index: 2;
+        padding: 4px 0;
+    }
+    .chars-pane .char-stat-line { top: 0; }
+    .chars-pane .char-filter-bar { top: 28px; border-bottom: 1px solid var(--paimon-border); margin-bottom: 6px; }
+    /* "最欧/最歪/平均"小标签 */
+    .gacha-luck-row {
+        display: flex; gap: 8px; padding: 6px 8px; margin-top: 6px;
+        background: rgba(0,0,0,.2); border-radius: 4px;
+        font-size: 11px; flex-wrap: wrap;
+    }
+    .gacha-luck-row .luck-item { color: var(--text-muted); }
+    .gacha-luck-row .luck-item .v { color: var(--text-primary); font-family: monospace; font-weight: 600; margin-left: 4px; }
+    .gacha-luck-row .luck-item.lucky .v { color: var(--status-ok, #4caf50); }
+    .gacha-luck-row .luck-item.heavy .v { color: var(--status-error); }
+    /* 主力角色 chips（深渊出场频次） */
+    .top-heroes {
+        display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 10px;
+    }
+    .top-heroes .hero-chip {
+        padding: 2px 8px; border-radius: 10px; font-size: 11px;
+        background: var(--paimon-bg); color: var(--text-secondary);
+    }
+    .top-heroes .hero-chip .cnt { color: var(--gold); font-family: monospace; margin-left: 3px; }
+    .top-heroes-label { font-size: 10px; color: var(--text-muted); margin-bottom: 4px; }
     .detail-section { margin-bottom: 18px; }
     .detail-section:last-child { margin-bottom: 0; }
     .detail-title {
@@ -155,6 +221,57 @@ GAME_CSS = """
         letter-spacing: .6px; margin-bottom: 10px;
         display: flex; justify-content: space-between; align-items: center;
     }
+    /* 顶部状态条：树脂/体力/电量 + 委托/派遣 chips */
+    .status-bar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+        padding: 12px 14px; border-radius: 8px;
+        background: linear-gradient(90deg, rgba(212,175,55,.06), rgba(0,0,0,.18));
+        border: 1px solid var(--paimon-border);
+    }
+    .status-stamina {
+        display: flex; align-items: center; gap: 8px; min-width: 220px;
+    }
+    .status-stamina .label { color: var(--text-muted); font-size: 12px; }
+    .status-stamina .num { color: var(--gold); font-family: monospace; font-weight: 600; font-size: 14px; }
+    .status-stamina .full { color: var(--status-error); }
+    .status-stamina .when { color: var(--text-muted); font-size: 11px; }
+    .status-bar-bar {
+        flex: 1; height: 6px; background: var(--paimon-bg); border-radius: 3px;
+        overflow: hidden; min-width: 100px; max-width: 240px;
+    }
+    .status-bar-fill { height: 100%; background: var(--gold); transition: width .3s; }
+    .status-bar-fill.full { background: var(--status-error); }
+    .status-chip {
+        padding: 4px 10px; border-radius: 12px; font-size: 11px;
+        background: var(--paimon-bg); color: var(--text-secondary);
+    }
+    .status-chip.done { color: var(--status-success); border: 1px solid rgba(76,175,80,.3); }
+    .status-chip .num { color: var(--text-primary); font-family: monospace; font-weight: 600; }
+
+    /* 深渊行 + 队伍展开 */
+    .abyss-row { cursor: pointer; }
+    .abyss-row:hover { background: rgba(255,255,255,.03); }
+    .abyss-teams {
+        display: block;       /* 默认展开看队伍，点击行可收起 */
+        padding: 6px 0 4px 12px; margin: 0 0 6px 0;
+        border-left: 2px solid var(--paimon-border);
+    }
+    .abyss-teams.closed { display: none; }
+    .abyss-team {
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        padding: 4px 0;
+        font-size: 11px; color: var(--text-muted);
+    }
+    .abyss-team-label { min-width: 64px; color: var(--text-muted); font-family: monospace; }
+    .abyss-team-avatar {
+        display: inline-flex; align-items: center; gap: 3px;
+        padding: 2px 6px; background: var(--paimon-bg); border-radius: 10px;
+        font-size: 11px;
+    }
+    .abyss-team-avatar.r5 { color: #f4d03f; border: 1px solid rgba(244,208,63,.3); }
+    .abyss-team-avatar.r4 { color: #b46cff; border: 1px solid rgba(180,108,255,.3); }
+    .abyss-team-avatar .lv { color: var(--text-muted); font-size: 10px; }
+    .abyss-toggle { color: var(--text-muted); font-size: 10px; margin-left: 6px; }
 
     /* 战报表格 */
     .abyss-rows { }
@@ -407,6 +524,32 @@ GAME_CSS = """
     }
     .char-stat-line .num { color: var(--gold); font-family: monospace; font-weight: 600; }
 
+    /* 单列角色 list（每行一个，含武器名） */
+    .char-list { display: flex; flex-direction: column; gap: 4px; }
+    .char-row {
+        display: grid; grid-template-columns: 36px 1fr; gap: 8px; padding: 6px 8px;
+        align-items: center; border-radius: 6px;
+        background: rgba(0,0,0,.15); border-left: 2px solid var(--paimon-border);
+    }
+    .char-row.r5 { border-left-color: var(--gold); background: linear-gradient(90deg, rgba(212,175,55,.06), rgba(0,0,0,.15)); }
+    .char-row.r4 { border-left-color: #8a5fc8; background: linear-gradient(90deg, rgba(138,95,200,.06), rgba(0,0,0,.15)); }
+    .char-icon-sm {
+        width: 36px; height: 36px; border-radius: 50%;
+        background: var(--paimon-border) center/cover no-repeat;
+    }
+    .char-info { min-width: 0; }
+    .char-line1 { display: flex; align-items: baseline; gap: 8px; line-height: 1.3; }
+    .char-line1 .char-name { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+    .char-line1 .char-lv { font-size: 11px; color: var(--text-muted); font-family: monospace; }
+    .char-line1 .char-ca {
+        font-size: 11px; color: var(--gold); font-family: monospace; font-weight: 600;
+        margin-left: auto; padding: 1px 6px; border: 1px solid rgba(212,175,55,.3); border-radius: 8px;
+    }
+    .char-line2 { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .char-line2.wp5 { color: #f4d03f; }
+    .char-line2.wp4 { color: #b46cff; }
+    .char-line2 .muted { color: var(--text-muted); opacity: .6; }
+
     /* 占位（用于尚未接入的 sr/zzz 角色 tab） */
     .coming-soon {
         padding: 24px; text-align: center; color: var(--text-muted);
@@ -511,10 +654,13 @@ GAME_SCRIPT = """
                 {type:'forgotten_hall', name:'忘却之庭'},
                 {type:'pure_fiction',   name:'虚构叙事'},
                 {type:'apocalyptic',    name:'末日幻影'},
+                {type:'peak',           name:'异相仲裁'},
             ],
             zzz: [
                 {type:'shiyu', name:'式舆防卫战'},
                 {type:'mem',   name:'危局强袭战'},
+                // TODO 临界推演 endpoint 404，待抓包修复后启用
+                // {type:'void',  name:'临界推演'},
             ],
         };
         var POOL_LABELS_BY_GAME = {
@@ -742,69 +888,64 @@ GAME_SCRIPT = """
             var k = keyOf(a);
             var el = document.getElementById('detail-'+k);
             if(!el) return;
-            var n = a.daily_note;
-            var parts = [];
 
-            // 派遣完整（原神才有视觉价值）
-            if(a.game === 'gs' && (n && (n.expeditions||[]).length)){
-                var chips = n.expeditions.map(function(e){
-                    var remain = parseInt(e.remained_time||0);
-                    var ready = remain <= 0;
-                    var label = ready ? '就绪' : (Math.floor(remain/3600)+'h'+String(Math.floor((remain%3600)/60)).padStart(2,'0')+'m');
-                    return '<span class="exp-chip '+(ready?'ready':'')+'">'+esc(label)+'</span>';
-                }).join('');
-                parts.push('<div class="detail-section">'
-                    + '<div class="detail-title">探索派遣</div>'
-                    + '<div class="exp-detail">'+chips+'</div>'
-                    + '</div>');
-            }
+            var charsTitle = (a.game==='gs') ? '角色 · 养成'
+                : (a.game==='sr' ? '角色 · 星魂' : '代理人 · 影画');
 
-            // 战报
-            parts.push('<div class="detail-section">'
-                + '<div class="detail-title">战报 · 最近</div>'
-                + '<div class="abyss-rows" id="abyss-'+esc(k)+'">加载中...</div>'
-                + '</div>');
-
-            // 抽卡（三游戏统一）
-            parts.push('<div class="detail-section">'
-                + '<div class="detail-title">抽卡记录</div>'
-                + '<div id="gacha-'+esc(k)+'">加载中...</div>'
-                + '</div>');
-
-            // 角色 / 养成（三游戏统一渲染，字段映射在后端 collect 时已归一到 MihoyoCharacter）
-            parts.push('<div class="detail-section">'
-                + '<div class="detail-title">'
-                +   (a.game==='gs'?'角色 · 养成' : (a.game==='sr'?'角色 · 星魂':'代理人 · 影画'))
+            var html = '<div class="ac-detail-grid">'
+                +   '<div class="ac-panel h-fixed gacha-pane">'
+                +     '<div class="panel-title">抽卡记录</div>'
+                +     '<div class="panel-body" id="gacha-'+esc(k)+'">加载中...</div>'
+                +   '</div>'
+                +   '<div class="ac-panel h-fixed abyss-pane">'
+                +     '<div class="panel-title">战报 · 最近 <span class="panel-hint">点击行展开看阵容</span></div>'
+                +     '<div class="panel-body abyss-rows" id="abyss-'+esc(k)+'">加载中...</div>'
+                +   '</div>'
+                +   '<div class="ac-panel h-fixed-tall chars-pane">'
+                +     '<div class="panel-title">'+esc(charsTitle)+'</div>'
+                +     '<div class="panel-body" id="chars-'+esc(k)+'">加载中...</div>'
+                +   '</div>'
                 + '</div>'
-                + '<div id="chars-'+esc(k)+'">加载中...</div>'
-                + '</div>');
+                + '<div class="detail-ops" style="margin-top:14px">'
+                +   '<button class="btn tiny" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameCollectOne(this)">刷新此账号数据</button>'
+                +   '<button class="btn tiny danger" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameUnbind(this)">解绑</button>'
+                + '</div>';
 
-            // 高级操作
-            parts.push('<div class="detail-ops">'
-                + '<button class="btn tiny" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameCollectOne(this)">刷新此账号数据</button>'
-                + '<button class="btn tiny danger" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameUnbind(this)">解绑</button>'
-                + '</div>');
+            el.innerHTML = html;
 
-            el.innerHTML = parts.join('');
-
-            // 异步填战报 + 抽卡 + 角色
+            // 异步填三块内容（状态条已在初始 render 直出）
             _fillAbyss(a, k);
             _fillGacha(a, k);
             _fillCharacters(a, k);
         }
 
         var _charFilter = {};   // uid -> 'all'|'r5'|'r4'
+        var _charsCache = {};   // key='gs::uid' -> {chars, byId}（abyss + chars panel 共用）
+
+        async function _ensureChars(a, k){
+            if(_charsCache[k]) return _charsCache[k];
+            try{
+                var r = await fetch('/api/game/characters?game='+a.game+'&uid='+encodeURIComponent(a.uid));
+                var d = await r.json();
+                var chars = d.characters || [];
+                var byId = {};
+                chars.forEach(function(c){ byId[String(c.avatar_id)] = c; });
+                _charsCache[k] = {chars: chars, byId: byId};
+            }catch(_){
+                _charsCache[k] = {chars: [], byId: {}};
+            }
+            return _charsCache[k];
+        }
 
         async function _fillCharacters(a, k){
             var slot = document.getElementById('chars-'+k);
             if(!slot) return;
-            var r = await fetch('/api/game/characters?game='+a.game+'&uid='+encodeURIComponent(a.uid));
-            var d = await r.json();
-            var chars = d.characters || [];
+            var cache = await _ensureChars(a, k);
+            var chars = cache.chars;
             if(chars.length === 0){
                 slot.innerHTML = '<div class="coming-soon">'
                     + '  <div class="cs-title">暂无角色数据</div>'
-                    + '  点右下角"刷新此账号数据"抓取，或等每日 8:05 cron'
+                    + '  点底部"刷新此账号数据"抓取'
                     + '</div>';
                 return;
             }
@@ -816,9 +957,7 @@ GAME_SCRIPT = """
             });
             var count5 = chars.filter(function(c){return c.rarity >= 5;}).length;
             var count4 = chars.filter(function(c){return c.rarity === 4;}).length;
-            // 统计满级数
             var maxLv = chars.filter(function(c){return c.level >= 90;}).length;
-            // avg fetter for 5 stars
             var filters = [
                 {k:'all', label:'全部 '+chars.length},
                 {k:'r5',  label:'5 星 '+count5},
@@ -830,34 +969,31 @@ GAME_SCRIPT = """
             }).join('') + '</div>';
 
             var statHtml = '<div class="char-stat-line">'
-                + '拥有 <span class="num">'+chars.length+'</span> 个角色 · '
-                + '5 星 <span class="num">'+count5+'</span> · '
-                + '满级（Lv.90）<span class="num">'+maxLv+'</span>'
+                + '<span class="num">'+chars.length+'</span> 角色 · '
+                + '5★ <span class="num">'+count5+'</span> · '
+                + '满级 <span class="num">'+maxLv+'</span>'
                 + '</div>';
 
-            var cardsHtml = '<div class="char-grid">' + visible.map(function(c){
-                var consDots = '';
-                for(var i = 0; i < 6; i++){
-                    consDots += '<span class="cons-dot'+(i < c.constellation ? ' on' : '')+(c.rarity>=5?' r5':'')+'"></span>';
-                }
+            // 单列 list：每行 icon + 名字+lv + 命+精 + 武器名
+            var rowsHtml = '<div class="char-list">' + visible.map(function(c){
                 var iconStyle = c.icon_url ? 'background-image:url('+esc(c.icon_url)+')' : '';
-                var weaponBadge = (c.weapon && c.weapon.name)
-                    ? '<span title="'+esc(c.weapon.name)+'">⚔Lv'+(c.weapon.level||0)+(c.weapon.affix?('·精'+c.weapon.affix):'')+'</span>'
-                    : '';
-                return '<div class="char-card r'+c.rarity+'">'
-                    + '<div class="char-icon" style="'+iconStyle+'"></div>'
-                    + '<div class="char-main">'
-                    + '  <div class="char-name">'+esc(c.name)+'</div>'
-                    + '  <div class="char-meta">'
-                    + '    <span class="char-lv">Lv.'+c.level+'</span>'
-                    + '    <span class="char-cons">'+consDots+'</span>'
-                    + '  </div>'
-                    + (weaponBadge ? '<div class="char-meta">'+weaponBadge+'</div>' : '')
+                var ca = (c.constellation||0) + '+' + (c.weapon && c.weapon.rarity>=5 ? (c.weapon.affix||0) : 0);
+                var wpName = (c.weapon && c.weapon.name) ? c.weapon.name : '';
+                var wpLv = (c.weapon && c.weapon.level) ? (' L'+c.weapon.level) : '';
+                var wpRarity = (c.weapon && c.weapon.rarity) || 0;
+                var wpCls = wpRarity >= 5 ? 'wp5' : (wpRarity === 4 ? 'wp4' : '');
+                return '<div class="char-row r'+c.rarity+'">'
+                    + '<div class="char-icon-sm" style="'+iconStyle+'"></div>'
+                    + '<div class="char-info">'
+                    +   '<div class="char-line1"><span class="char-name">'+esc(c.name)+'</span>'
+                    +   '<span class="char-lv">Lv.'+c.level+'</span>'
+                    +   '<span class="char-ca">'+ca+'</span></div>'
+                    +   '<div class="char-line2 '+wpCls+'">'+(wpName?esc(wpName)+esc(wpLv):'<span class="muted">无武器</span>')+'</div>'
                     + '</div>'
                     + '</div>';
             }).join('') + '</div>';
 
-            slot.innerHTML = statHtml + filterHtml + cardsHtml;
+            slot.innerHTML = statHtml + filterHtml + rowsHtml;
         }
 
         window.setCharFilter = function(uid, key){
@@ -871,15 +1007,46 @@ GAME_SCRIPT = """
             var slot = document.getElementById('abyss-'+k);
             if(!slot) return;
             if(defs.length === 0){ slot.innerHTML = '<div class="abyss-empty">—</div>'; return; }
-            var results = await Promise.all(defs.map(function(def){
+            // 同时拉 abyss_latest（每副本 1 个）+ characters（队伍补 name/cons/weapon）
+            var charsP = _ensureChars(a, k);
+            var resultsP = Promise.all(defs.map(function(def){
                 return fetch('/api/game/abyss_latest?game='+a.game+'&uid='+encodeURIComponent(a.uid)+'&type='+def.type)
                     .then(function(r){return r.json();})
                     .catch(function(){return {abyss:null};});
             }));
+            var results = await resultsP;
+            var charsCache = await charsP;
+            var charsById = charsCache.byId;
+            // 主力角色聚合：跨副本统计 avatar 出现次数 → top chips
+            var heroCount = {};
+            var rowTeams = [];   // 缓存每行的 teams 避免重复 extract
+            results.forEach(function(res, i){
+                var ab = res.abyss;
+                if(!ab){ rowTeams.push([]); return; }
+                var ts = _extractTeams(a.game, defs[i].type, ab.raw, charsById);
+                rowTeams.push(ts);
+                ts.forEach(function(t){
+                    (t.avatars||[]).forEach(function(av){
+                        if(av.name) heroCount[av.name] = (heroCount[av.name]||0) + 1;
+                    });
+                });
+            });
+            var topHeroes = Object.keys(heroCount).map(function(n){return {n:n, c:heroCount[n]};})
+                .sort(function(a,b){return b.c - a.c;}).slice(0, 6);
+            var topHeroesHtml = '';
+            if(topHeroes.length){
+                topHeroesHtml = '<div class="top-heroes-label">主力出场（跨副本队伍）</div>'
+                    + '<div class="top-heroes">'
+                    + topHeroes.map(function(h){
+                        return '<span class="hero-chip">'+esc(h.n)+'<span class="cnt">×'+h.c+'</span></span>';
+                    }).join('')
+                    + '</div>';
+            }
+
             var rows = defs.map(function(def, i){
                 var ab = results[i].abyss;
                 if(!ab){
-                    return '<div class="abyss-row">'
+                    return '<div class="abyss-row" style="cursor:default">'
                         + '<span class="abyss-name">'+esc(def.name)+'</span>'
                         + '<span class="abyss-floor">-</span>'
                         + '<span class="abyss-star">-</span>'
@@ -910,15 +1077,220 @@ GAME_SCRIPT = """
                         metaVal = fmtRelative(ab.scan_ts);
                     }
                 }
-                return '<div class="abyss-row">'
-                    + '<span class="abyss-name">'+esc(def.name)+'</span>'
+                var teams = rowTeams[i] || [];
+                var hasTeams = teams.length > 0;
+                var indicator = hasTeams ? '<span class="abyss-toggle">▴</span>' : '';
+                var rowHtml = '<div class="abyss-row" '+(hasTeams?'onclick="toggleAbyssTeams(\\''+esc(k)+'\\','+i+')"':'style="cursor:default"')+'>'
+                    + '<span class="abyss-name">'+esc(def.name)+indicator+'</span>'
                     + '<span class="abyss-floor">'+esc(floorVal)+'</span>'
                     + '<span class="abyss-star">'+esc(String(starVal))+'</span>'
                     + '<span class="abyss-meta">'+esc(String(metaVal))+'</span>'
                     + '</div>';
+                var teamsHtml = hasTeams
+                    ? '<div class="abyss-teams" id="abyss-teams-'+esc(k)+'-'+i+'">'+_renderTeams(teams)+'</div>'
+                    : '';
+                return rowHtml + teamsHtml;
             });
-            slot.innerHTML = rows.join('');
+            slot.innerHTML = topHeroesHtml + rows.join('');
         }
+
+        // 从 abyss.raw 解析每场战斗的队伍。
+        // spiral / forgotten_hall 等接口的 avatar 只有 id/level/rarity 没 name/cons/weapon
+        // → 必须用 charsById（mihoyo_character 表）反查
+        function _extractTeams(game, abyssType, raw, charsById){
+            if(!raw || typeof raw !== 'object') return [];
+            charsById = charsById || {};
+            var norm = function(av){ return _normAvatar(av, charsById); };
+            var teams = [];
+            try{
+                if(game === 'gs' && abyssType === 'spiral'){
+                    (raw.floors || []).forEach(function(floor){
+                        (floor.levels || []).forEach(function(level){
+                            (level.battles || []).forEach(function(battle){
+                                var half = battle.index === 1 ? '上' : (battle.index === 2 ? '下' : '#'+battle.index);
+                                teams.push({
+                                    label: (floor.index||'?')+'-'+(level.index||'?')+' '+half,
+                                    stars: level.star || 0,
+                                    max_star: level.max_star || 0,
+                                    avatars: (battle.avatars || []).map(norm),
+                                });
+                            });
+                        });
+                    });
+                }else if(game === 'gs' && abyssType === 'poetry'){
+                    // 幻想真境剧诗：detail.rounds_data[]（米游社字段名是 rounds_data 不是 rounds）
+                    var detail = raw.detail || raw;
+                    (detail.rounds_data || raw.rounds || []).forEach(function(r, i){
+                        var avs = r.avatars || r.role || [];
+                        if(avs.length){
+                            teams.push({
+                                label: '第 '+(r.round_id || i+1)+' 轮' + (r.is_get_medal ? ' ★' : ''),
+                                stars: r.is_get_medal ? 1 : 0,
+                                avatars: avs.map(norm),
+                            });
+                        }
+                    });
+                }else if(game === 'gs' && abyssType === 'stygian'){
+                    var chs = (raw.single && raw.single.challenge) || raw.challenge || [];
+                    chs.forEach(function(c, i){
+                        var avs = c.teams || c.avatars || [];
+                        if(avs.length){
+                            teams.push({
+                                label: c.name || ('挑战 '+(i+1)),
+                                stars: c.difficulty || 0,
+                                avatars: avs.map(norm),
+                            });
+                        }
+                    });
+                }else if(game === 'sr' && abyssType === 'peak'){
+                    // 异相仲裁：challenge_peak_records[].mob_records[].avatars + boss_record.avatars
+                    (raw.challenge_peak_records || []).forEach(function(rec, ri){
+                        var groupName = (rec.group && rec.group.name) || ('挑战 '+(ri+1));
+                        // 普通怪战
+                        (rec.mob_records || []).forEach(function(mob, mi){
+                            var avs = mob.avatars || [];
+                            if(avs.length){
+                                teams.push({
+                                    label: groupName + ' 怪 #' + (mi+1),
+                                    stars: mob.star_num || 0,
+                                    avatars: avs.map(norm),
+                                });
+                            }
+                        });
+                        // BOSS 战
+                        var br = rec.boss_record;
+                        if(br && (br.avatars || []).length){
+                            teams.push({
+                                label: groupName + ' BOSS',
+                                stars: br.star_num || 0,
+                                avatars: br.avatars.map(norm),
+                            });
+                        }
+                    });
+                }else if(game === 'sr'){
+                    (raw.all_floor_detail || []).forEach(function(f){
+                        var nodeKeys = Object.keys(f).filter(function(k){
+                            return k.indexOf('node_') === 0 && !isNaN(parseInt(k.slice(5), 10));
+                        }).sort(function(a,b){
+                            return parseInt(a.replace('node_',''),10) - parseInt(b.replace('node_',''),10);
+                        });
+                        nodeKeys.forEach(function(nk){
+                            var node = f[nk];
+                            if(node && (node.avatars || []).length){
+                                teams.push({
+                                    label: (f.name||'层') + ' ' + nk.replace('node_','节'),
+                                    stars: f.star_num || 0,
+                                    avatars: node.avatars.map(norm),
+                                });
+                            }
+                        });
+                    });
+                }else if(game === 'zzz' && abyssType === 'shiyu'){
+                    // ZZZ 式舆防卫战：hadal_info_v2.{fitfh,fourth}_layer_detail.layer_challenge_info_list[]
+                    // 每层 N 个挑战，每个 challenge 含 avatar_list
+                    var v2 = raw.hadal_info_v2 || raw;
+                    [['fitfh_layer_detail','第 5 层'], ['fourth_layer_detail','第 4 层']].forEach(function(pair){
+                        var layer = v2[pair[0]] || {};
+                        var infos = layer.layer_challenge_info_list || [];
+                        infos.forEach(function(c, idx){
+                            var avs = c.avatar_list || c.avatars || [];
+                            if(avs.length){
+                                teams.push({
+                                    label: pair[1] + ' #' + (c.layer_id || idx+1),
+                                    stars: c.rating || c.score || 0,
+                                    avatars: avs.map(norm),
+                                });
+                            }
+                        });
+                    });
+                }else if(game === 'zzz'){
+                    // 危局/其他：list/floor_detail 兜底
+                    var list = raw.list || raw.all_floor_detail || raw.floor_detail
+                        || (raw.memory_list) || [];
+                    list.forEach(function(it, idx){
+                        var avs = it.avatar_list || it.avatars || [];
+                        if(avs.length){
+                            teams.push({
+                                label: it.name || it.level_name || it.layer_name || ('节 '+(idx+1)),
+                                stars: it.score || it.star || it.layer_index || 0,
+                                avatars: avs.map(norm),
+                            });
+                        }
+                    });
+                }
+            }catch(e){
+                console.error('[战报] 队伍解析失败', game, abyssType, e);
+            }
+            return teams;
+        }
+
+        // raw avatar → 统一格式，name/cons/weapon 缺时从 mihoyo_character 表（charsById）补
+        function _normAvatar(av, charsById){
+            charsById = charsById || {};
+            var id = String(av.id || av.avatar_id || '');
+            var c = charsById[id] || {};
+            // ZZZ rarity 是字符串 "S"/"A"/"B"，转数字便于统一渲染颜色
+            var rawRarity = av.rarity != null ? av.rarity : (av.rank != null ? av.rank : c.rarity);
+            var rarity;
+            if(typeof rawRarity === 'string'){
+                var m = {'S':5, 'A':4, 'B':3};
+                rarity = m[rawRarity] || 4;
+            }else{
+                rarity = rawRarity || 4;
+            }
+            // ZZZ avatar.rank 在 raw 里是「影画/命之座」（不是 rarity），优先信 charsById.constellation
+            var cons = (c.constellation != null ? c.constellation : (av.rank != null && typeof av.rank === 'number' ? av.rank : 0));
+            return {
+                id: id,
+                name: av.name || av.full_name || c.name || '',
+                level: av.level || av.cur_level || c.level || 0,
+                rarity: rarity,
+                cons: cons,
+                weapon: c.weapon || {},
+            };
+        }
+
+        // 命座+精炼格式：0+0 / 0+1 / 2+1（精炼仅 5 星武器算）
+        function _consAffix(av){
+            var cons = av.cons || 0;
+            var affix = 0;
+            if(av.weapon && av.weapon.rarity >= 5){
+                affix = av.weapon.affix || 0;
+            }
+            return cons + '+' + affix;
+        }
+
+        function _renderTeams(teams){
+            return teams.map(function(t){
+                var avHtml = (t.avatars || []).map(function(av){
+                    var rcls = av.rarity >= 5 ? 'r5' : (av.rarity === 4 ? 'r4' : '');
+                    var ca = _consAffix(av);
+                    var nameTxt = av.name || ('id:'+av.id);
+                    var weaponInfo = (av.weapon && av.weapon.name) ? (av.weapon.name + (av.weapon.affix?(' 精'+av.weapon.affix):'')) : '';
+                    var tip = nameTxt + ' Lv'+(av.level||'?') + (weaponInfo?(' · '+weaponInfo):'');
+                    return '<span class="abyss-team-avatar '+rcls+'" title="'+esc(tip)+'">'
+                        + esc(nameTxt)
+                        + ' <span class="ca">'+ca+'</span>'
+                        + '</span>';
+                }).join('');
+                var starInfo = t.stars > 0
+                    ? ' <span style="color:var(--gold);font-family:monospace">'+t.stars+(t.max_star?('/'+t.max_star):'')+'★</span>'
+                    : '';
+                return '<div class="abyss-team">'
+                    + '<span class="abyss-team-label">'+esc(t.label)+starInfo+'</span>'
+                    + avHtml
+                    + '</div>';
+            }).join('');
+        }
+
+        window.toggleAbyssTeams = function(k, i){
+            var el = document.getElementById('abyss-teams-'+k+'-'+i);
+            if(!el) return;
+            el.classList.toggle('closed');
+            var row = el.previousElementSibling;
+            var toggle = row && row.querySelector('.abyss-toggle');
+            if(toggle) toggle.textContent = el.classList.contains('closed') ? '▾' : '▴';
+        };
 
         async function _fillGacha(a, k){
             var slot = document.getElementById('gacha-'+k);
@@ -979,11 +1351,28 @@ GAME_SCRIPT = """
                         + '<span class="gfive-time">'+esc((f.time||'').slice(5,16))+'</span>'
                         + '</div>';
                 }).join('');
+            // 最欧 / 最歪 caption
+            var allFives = s.fives || [];
+            var luckRow = '';
+            if(allFives.length){
+                var pulls = allFives.map(function(f){return f.pull_count||0;}).filter(function(x){return x>0;});
+                if(pulls.length){
+                    var minP = Math.min.apply(null, pulls);
+                    var maxP = Math.max.apply(null, pulls);
+                    var luckiest = allFives.find(function(f){return f.pull_count===minP;});
+                    var heaviest = allFives.find(function(f){return f.pull_count===maxP;});
+                    luckRow = '<div class="gacha-luck-row">'
+                        + '<span class="luck-item lucky">最欧 <span class="v">'+minP+'抽</span> '+esc(luckiest?luckiest.name:'')+'</span>'
+                        + '<span class="luck-item heavy">最歪 <span class="v">'+maxP+'抽</span> '+esc(heaviest?heaviest.name:'')+'</span>'
+                        + '</div>';
+                }
+            }
             slot.innerHTML = poolsHtml
                 + '<div class="gacha-summary">总抽 <span class="pity">'+s.total
                 + '</span><span class="sep">·</span>'+topName+'保底 <span class="pity '+pityCls+'">'+s.pity_5+'/'+hardPity
                 + '</span><span class="sep">·</span>已出 '+topName+' <span class="pity">'+s.count_5
                 + '</span><span class="sep">·</span>平均 <span class="pity">'+s.avg_pity_5+'</span></div>'
+                + luckRow
                 + '<div class="gacha-five-list">'+fivesHtml+'</div>'
                 + syncBtn;
             _resumeGachaSyncIfRunning(a, slot);
@@ -1030,19 +1419,62 @@ GAME_SCRIPT = """
             }
         };
 
+        // 「刷新此账号数据」background + 轮询：完成后自动重渲该账号详情，无需手动刷新页面
+        var _collectPollTimers = {};   // key='game::uid' -> interval id
+
         window.gameCollectOne = async function(btn){
             var game = btn.dataset.game, uid = btn.dataset.uid;
-            btn.disabled = true; var old = btn.textContent; btn.textContent = '抓取中...';
+            var k = game+'::'+uid;
+            console.log('[水神·采集] 触发', game, uid);
+            btn.disabled = true; var old = btn.textContent; btn.textContent = '启动...';
             try{
-                await fetch('/api/game/collect_one', {
+                var r = await fetch('/api/game/collect_one', {
                     method:'POST', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({game, uid}),
                 });
-                setTimeout(loadOverview, 6000);
-                setTimeout(loadOverview, 20000);
-                btn.textContent = '已触发';
-                setTimeout(function(){btn.textContent=old;btn.disabled=false;}, 3000);
+                var d = await r.json();
+                if(!d.ok){
+                    alert('采集启动失败: '+(d.msg||''));
+                    btn.textContent = old; btn.disabled = false;
+                    return;
+                }
+                btn.textContent = '采集中...';
+                if(_collectPollTimers[k]){ clearInterval(_collectPollTimers[k]); }
+                var poll = async function(){
+                    try{
+                        var sr = await fetch('/api/game/collect_one/status?game='+game+'&uid='+encodeURIComponent(uid));
+                        var sd = await sr.json();
+                        if(sd.state === 'running'){
+                            return;   // 等下次 tick
+                        }
+                        clearInterval(_collectPollTimers[k]); delete _collectPollTimers[k];
+                        if(sd.state === 'done'){
+                            console.log('[水神·采集] DONE', sd.counts);
+                            btn.textContent = '✓ 已更新';
+                            // 数据已落库 → 清缓存 + 重渲该账号详情区（无需手动刷新）
+                            delete _charsCache[k];
+                            var a = _allAccs.find(function(x){return x.uid === uid && x.game === game;});
+                            if(a){
+                                _fillAbyss(a, k);
+                                _fillCharacters(a, k);
+                                // 摘要也重新拉一次（树脂/委托数据更新）
+                                if(typeof loadOverview === 'function') loadOverview();
+                            }
+                        }else if(sd.state === 'failed'){
+                            btn.textContent = '✗ 失败';
+                            alert('采集失败: '+(sd.error||''));
+                        }
+                        setTimeout(function(){btn.textContent=old;btn.disabled=false;}, 3000);
+                    }catch(e){
+                        clearInterval(_collectPollTimers[k]); delete _collectPollTimers[k];
+                        console.error('[水神·采集] poll 异常', e);
+                        btn.textContent = old; btn.disabled = false;
+                    }
+                };
+                poll();   // 立即跑一次
+                _collectPollTimers[k] = setInterval(poll, 3000);
             }catch(e){
+                console.error('[水神·采集] 启动异常', e);
                 btn.textContent='✗'; setTimeout(function(){btn.textContent=old;btn.disabled=false;},2000);
             }
         };

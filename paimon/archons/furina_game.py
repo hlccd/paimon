@@ -49,6 +49,8 @@ class FurinaGameService:
         self._pending_qr: dict[str, dict[str, Any]] = {}
         # 抽卡 background sync 状态机（key='game::uid' → {state, progress, ...}）
         self._gacha_sync_state: dict[str, dict[str, Any]] = {}
+        # 「刷新此账号数据」background 状态机
+        self._collect_state: dict[str, dict[str, Any]] = {}
 
     # ===================== skill 桥接 =====================
 
@@ -769,6 +771,54 @@ class FurinaGameService:
             uid, "sr-apocalyptic", "apocalyptic", "末日幻影",
         )
 
+    async def collect_sr_peak(self, uid: str) -> MihoyoAbyss | None:
+        """崩铁异相仲裁（challenge_peak）。raw 结构和其他三副本完全不同：
+        challenge_peak_records[] / challenge_peak_best_record_brief，没 has_data 字段。
+        """
+        acc = await self._ir.mihoyo_account_get("sr", uid)
+        if not acc or not acc.cookie:
+            return None
+        try:
+            data = await self._run_skill("sr-peak", {
+                "uid": uid, "cookie": acc.cookie, "fp": acc.fp, "device_id": acc.device_id,
+                "schedule": 1,
+            })
+        except Exception as e:
+            logger.warning("[水神·游戏] 异相仲裁 抓取失败 {}: {}", uid, e)
+            return None
+        rc = data.get("retcode")
+        if rc != 0:
+            logger.warning("[水神·游戏] 异相仲裁 retcode={} msg={} {}",
+                           rc, data.get("message", ""), uid)
+            return None
+        d = data.get("data") or {}
+        records = d.get("challenge_peak_records") or []
+        if not records:
+            logger.info("[水神·游戏] 异相仲裁 无挑战记录 uid={}", uid)
+            return None
+        brief = d.get("challenge_peak_best_record_brief") or {}
+        total_star = int(brief.get("boss_stars", 0) or 0) + int(brief.get("mob_stars", 0) or 0)
+        # 奖牌 ChallengePeakRankIconTypeGold → 金/银/铜
+        rank_icon = str(brief.get("challenge_peak_rank_icon_type", "") or "")
+        rank_label = {
+            "ChallengePeakRankIconTypeGold":   "金",
+            "ChallengePeakRankIconTypeSilver": "银",
+            "ChallengePeakRankIconTypeBronze": "铜",
+        }.get(rank_icon, str(len(records)))
+        a = MihoyoAbyss(
+            game="sr", uid=uid, abyss_type="peak",
+            schedule_id="",
+            scan_ts=time.time(),
+            max_floor=rank_label,
+            total_star=total_star,
+            total_battle=int(brief.get("total_battle_num", 0) or 0),
+            raw=d,
+        )
+        await self._ir.mihoyo_abyss_upsert(a, actor="水神")
+        logger.info("[水神·游戏] 异相仲裁 入库 sr/{} 记录={} 星={}",
+                    uid, len(records), total_star)
+        return a
+
     async def collect_zzz_shiyu(self, uid: str) -> MihoyoAbyss | None:
         """绝区零式舆防卫战。"""
         acc = await self._ir.mihoyo_account_get("zzz", uid)
@@ -858,6 +908,39 @@ class FurinaGameService:
             total_star=int(d.get("total_star", 0) or 0),
             total_battle=int(d.get("total_score", 0) or 0),
             start_time=str(d.get("start_time", "")),
+            end_time=str(d.get("end_time", "")),
+            raw=d,
+        )
+        await self._ir.mihoyo_abyss_upsert(a, actor="水神")
+        return a
+
+    async def collect_zzz_void(self, uid: str) -> MihoyoAbyss | None:
+        """绝区零临界推演（void_front_battle_detail）。"""
+        acc = await self._ir.mihoyo_account_get("zzz", uid)
+        if not acc or not acc.cookie:
+            return None
+        try:
+            data = await self._run_skill("zzz-void", {
+                "uid": uid, "cookie": acc.cookie, "fp": acc.fp, "device_id": acc.device_id,
+            })
+        except Exception as e:
+            logger.warning("[水神·游戏] 临界推演抓取失败 {}: {}", uid, e)
+            return None
+        rc = data.get("retcode")
+        if rc != 0:
+            logger.warning("[水神·游戏] 临界推演 retcode={} msg={} snippet={} uid={}",
+                           rc, data.get("message", ""),
+                           (data.get("_raw_snippet") or "")[:120], uid)
+            return None
+        d = data.get("data") or {}
+        # raw 结构当前未文档化，先全保 raw，前端能看到再调
+        a = MihoyoAbyss(
+            game="zzz", uid=uid, abyss_type="void",
+            schedule_id=str(d.get("void_front_id", "") or d.get("schedule_id", "")),
+            scan_ts=time.time(),
+            max_floor=str(d.get("rating", "") or d.get("max_layer", "") or ""),
+            total_star=int(d.get("score", 0) or d.get("total_star", 0) or 0),
+            start_time=str(d.get("begin_time", "") or d.get("start_time", "")),
             end_time=str(d.get("end_time", "")),
             raw=d,
         )
@@ -1240,12 +1323,51 @@ class FurinaGameService:
         logger.info("[水神·游戏] 单账号采集完成 {}/{} {}", game, uid, counts)
         return counts
 
+    # ---------- collect_one background 状态机 ----------
+    # WebUI 点"刷新此账号数据"立即返回 → 前端轮询 status → 完成自动 reload UI
+    @staticmethod
+    def _collect_key(game: str, uid: str) -> str:
+        return f"{game}::{uid}"
+
+    async def start_collect_one(self, game: str, uid: str) -> dict[str, Any]:
+        key = self._collect_key(game, uid)
+        st = self._collect_state.get(key)
+        if st and st.get("state") == "running":
+            return {"ok": False, "msg": "已在采集中，请稍候"}
+        acc = await self._ir.mihoyo_account_get(game, uid)
+        if not acc or not acc.enabled:
+            return {"ok": False, "msg": f"未绑定 {game}/{uid}"}
+        self._collect_state[key] = {
+            "state": "running", "phase": "启动",
+            "counts": self._empty_counts(),
+            "started_at": time.time(),
+        }
+        logger.info("[水神·游戏] 单账号采集启动 {}/{}", game, uid)
+        asyncio.create_task(self._collect_worker(game, uid, key))
+        return {"ok": True}
+
+    async def _collect_worker(self, game: str, uid: str, key: str) -> None:
+        try:
+            counts = await self.collect_one(game, uid)
+            self._collect_state[key].update({
+                "state": "done", "counts": counts or self._empty_counts(),
+                "ended_at": time.time(),
+            })
+        except Exception as e:
+            logger.exception("[水神·游戏] 采集异常 {}/{}", game, uid)
+            self._collect_state[key].update({
+                "state": "failed", "error": str(e), "ended_at": time.time(),
+            })
+
+    def get_collect_state(self, game: str, uid: str) -> dict[str, Any]:
+        return self._collect_state.get(self._collect_key(game, uid)) or {"state": "idle"}
+
     @staticmethod
     def _empty_counts() -> dict[str, int]:
         return {"sign": 0, "note": 0, "abyss": 0, "poetry": 0, "stygian": 0,
                 "gs_chars": 0, "sr_chars": 0, "zzz_chars": 0,
-                "sr_fh": 0, "sr_pf": 0, "sr_apc": 0,
-                "zzz_shiyu": 0, "zzz_mem": 0}
+                "sr_fh": 0, "sr_pf": 0, "sr_apc": 0, "sr_peak": 0,
+                "zzz_shiyu": 0, "zzz_mem": 0, "zzz_void": 0}
 
     async def _collect_one_account(
         self, a: MihoyoAccount, counts: dict[str, int],
@@ -1304,6 +1426,10 @@ class FurinaGameService:
             except Exception as e: logger.warning("[水神·游戏] 末日幻影 {}: {}", a.uid, e)
             await asyncio.sleep(1.0)
             try:
+                if await self.collect_sr_peak(a.uid): counts["sr_peak"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 异相仲裁 {}: {}", a.uid, e)
+            await asyncio.sleep(1.0)
+            try:
                 n = await self.collect_sr_characters(a.uid)
                 if n > 0: counts["sr_chars"] += n
             except Exception as e: logger.warning("[水神·游戏] 崩铁角色 {}: {}", a.uid, e)
@@ -1316,6 +1442,11 @@ class FurinaGameService:
                 if await self.collect_zzz_mem(a.uid): counts["zzz_mem"] += 1
             except Exception as e: logger.warning("[水神·游戏] 危局 {}: {}", a.uid, e)
             await asyncio.sleep(1.0)
+            # TODO 临界推演接口 endpoint 404 page not found，等抓包确认真实 path 后启用
+            # try:
+            #     if await self.collect_zzz_void(a.uid): counts["zzz_void"] += 1
+            # except Exception as e: logger.warning("[水神·游戏] 临界推演 {}: {}", a.uid, e)
+            # await asyncio.sleep(1.0)
             try:
                 n = await self.collect_zzz_characters(a.uid)
                 if n > 0: counts["zzz_chars"] += n

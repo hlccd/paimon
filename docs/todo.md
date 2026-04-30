@@ -67,6 +67,8 @@
   - `ai_core/configs/` **按任务级别选 provider**（便宜 / 贵模型分工）—— 对标**神之心** profile，已有但按"路由"选不是按"任务级别"选，可增强
   - 建议：不要整体照搬；按上面 8 个子系统分别评估、独立立项，逐个吸收
 
+- [ ] **水神·ZZZ 临界推演接口修复** —— 已接但 endpoint 返 `404 page not found`：[`api.py:URL_ZZZ_VOID`](../skills/mihoyo/mihoyo/api.py)（拼出来 `https://api-takumi-record.mihoyo.com/event/game_record_zzz/api/zzz/void_front_battle_detail` + 参数 `void_front_id=102`）。骨架已就绪（actions.zzz_void / furina.collect_zzz_void / channel 白名单 / _extractTeams ZZZ 兜底），但 [`furina_game.py:_collect_one_account`](../paimon/archons/furina_game.py) ZZZ 路径 + [`game_html.py:ABYSS_DEFS.zzz`](../paimon/channels/webui/game_html.py) 都已注释禁用。需 F12 抓真实 URL 后改 endpoint 重新启用
+
 - [ ] **水神·抽卡拓展** —— 当前已做：三游戏统一 stoken→authkey 自动换 + GS/SR/ZZZ 抽卡同步入库（[`furina_game.py:auto_sync_gacha`](../paimon/archons/furina_game.py) + [`skills/mihoyo/mihoyo/actions.py:gacha_log`](../skills/mihoyo/mihoyo/actions.py)）。扩展方向：
   - **UIGF 标准导入**：支持从 Paimon.moe / Snap Hutao / 椰羊 等工具导出的 UIGF JSON 直接导入（绕过 authkey 有效期 + 补全早期记录米哈游已删的部分）
   - **本地抽卡模拟器**：基于官方公告概率 + 保底/小保底规则，三游戏各自的模拟器：

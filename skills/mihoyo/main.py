@@ -142,6 +142,11 @@ async def _dispatch(cmd: str, payload: dict) -> dict:
             payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
             schedule=int(payload.get("schedule", 1)),
         )
+    if cmd == "sr-peak":
+        return await actions.sr_peak(
+            payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
+            schedule=int(payload.get("schedule", 1)),
+        )
     if cmd == "sr-avatars":
         return await actions.sr_avatars(
             payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
@@ -163,6 +168,10 @@ async def _dispatch(cmd: str, payload: dict) -> dict:
         return await actions.zzz_mem_detail(
             payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
             schedule=int(payload.get("schedule", 1)),
+        )
+    if cmd == "zzz-void":
+        return await actions.zzz_void(
+            payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
         )
     if cmd == "gen-authkey":
         return await actions.gen_authkey(
@@ -228,8 +237,8 @@ def main() -> int:
         "stoken-exchange", "cookie-exchange", "refresh-cookie", "device-login", "game-record",
         "sign", "sign-info", "daily-note",
         "spiral-abyss", "poetry-abyss", "hard-challenge", "gs-characters",
-        "sr-note", "sr-forgotten-hall", "sr-pure-fiction", "sr-apocalyptic", "sr-avatars",
-        "zzz-note", "zzz-shiyu", "zzz-mem", "zzz-avatars",
+        "sr-note", "sr-forgotten-hall", "sr-pure-fiction", "sr-apocalyptic", "sr-peak", "sr-avatars",
+        "zzz-note", "zzz-shiyu", "zzz-mem", "zzz-void", "zzz-avatars",
         "gen-authkey", "gacha-log", "parse-authkey",
     ])
     args = p.parse_args()

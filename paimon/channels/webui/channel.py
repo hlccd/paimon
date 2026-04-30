@@ -175,6 +175,7 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/game/sign_all", self.game_sign_all_api)
         self.app.router.add_post("/api/game/collect_all", self.game_collect_all_api)
         self.app.router.add_post("/api/game/collect_one", self.game_collect_one_api)
+        self.app.router.add_get("/api/game/collect_one/status", self.game_collect_one_status_api)
         self.app.router.add_get("/api/game/abyss_latest", self.game_abyss_latest_api)
         self.app.router.add_post("/api/game/gacha/sync", self.game_gacha_sync_api)
         self.app.router.add_post("/api/game/gacha/import_url", self.game_gacha_import_url_api)
@@ -2082,7 +2083,7 @@ class WebUIChannel(Channel):
         return web.json_response({"ok": True, "results": results})
 
     async def game_collect_one_api(self, request: web.Request) -> web.Response:
-        """只采单个账号（WebUI 单账号"刷新此账号数据"按钮）。"""
+        """启动 background 采集任务，立即返回。前端拿 status 路由轮询完成。"""
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
         if not self.state.furina_game:
@@ -2095,11 +2096,21 @@ class WebUIChannel(Channel):
         uid = (data.get("uid") or "").strip()
         if game not in ("gs", "sr", "zzz") or not uid:
             return web.json_response({"ok": False, "msg": "game/uid 无效"}, status=400)
-        asyncio.create_task(self.state.furina_game.collect_one(
-            game, uid,
-            march=self.state.march, chat_id=PUSH_CHAT_ID, channel_name=self.name,
-        ))
-        return web.json_response({"ok": True})
+        logger.info("[WebUI] /api/game/collect_one POST  game={} uid={}", game, uid)
+        r = await self.state.furina_game.start_collect_one(game, uid)
+        return web.json_response(r)
+
+    async def game_collect_one_status_api(self, request: web.Request) -> web.Response:
+        """轮询采集任务状态。state ∈ idle/running/done/failed。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"state": "idle"})
+        game = request.query.get("game", "")
+        uid = request.query.get("uid", "")
+        if not game or not uid:
+            return web.json_response({"state": "idle"})
+        return web.json_response(self.state.furina_game.get_collect_state(game, uid))
 
     async def game_collect_all_api(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):
@@ -2124,8 +2135,8 @@ class WebUIChannel(Channel):
         abyss_type = request.query.get("type", "spiral")
         # spiral/poetry/stygian=原神三副本；forgotten_hall/pure_fiction/apocalyptic=崩铁三；shiyu/mem=绝区零
         if abyss_type not in ("spiral", "poetry", "stygian",
-                              "forgotten_hall", "pure_fiction", "apocalyptic",
-                              "shiyu", "mem"):
+                              "forgotten_hall", "pure_fiction", "apocalyptic", "peak",
+                              "shiyu", "mem", "void"):
             return web.json_response({"error": "type invalid"}, status=400)
         a = await irminsul.mihoyo_abyss_latest(game, uid, abyss_type)
         if not a:
@@ -2135,6 +2146,8 @@ class WebUIChannel(Channel):
             "max_floor": a.max_floor, "total_star": a.total_star,
             "total_battle": a.total_battle, "total_win": a.total_win,
             "start_time": a.start_time, "end_time": a.end_time,
+            # 米游社原 JSON：前端展开看阵容（floors[i].levels[j].battles[k].avatars）
+            "raw": a.raw,
         }})
 
     async def game_gacha_sync_api(self, request: web.Request) -> web.Response:
