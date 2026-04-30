@@ -55,6 +55,18 @@
   - 关键缺口：[`skill_manage.py:22-106`](../paimon/tools/builtin/skill_manage.py) 只有 `scan / list / get`，**无 create / write 分支**。[`registry.reload_one`](../paimon/angels/registry.py#L83) 是对已有磁盘 SKILL.md 做热重载，不是 AI 生成
   - 待做：设计生成流程（模板 or LLM 自由生成 SKILL.md）+ 落地 `skill_manage.create` + 生成 skill 强制经死执 review（区别于启动自动放行）+ 可行性验证
 
+- [ ] **借鉴 gsuid_core/ai_core 重构 paimon 核心能力** —— `/home/mi/code/gsuid_core/gsuid_core/ai_core/` 20k 行是"LLM-native 的助手平台"完整 runtime，几个子系统直接对标 paimon 现有模块，值得拆开逐个吸收：
+  - `ai_core/rag/tools.py` **工具向量化**（Qdrant 存工具描述，LLM 动态检索）—— 对标**冰神 skill 生态**；skill 多起来后解决"工具列表太长 LLM 挑不中"的经典问题
+  - `ai_core/handle_ai.py` **意图分类 + 分流**（闲聊走轻量路径、工具走 Agent、问答走 RAG）—— 对标**派蒙意图路由**；成本与延迟优化的主要抓手
+  - `ai_core/memory/`（observer/ingestion/retrieval/vector/scope）**双路记忆系统**：被动观察 → 异步 ingestion → System-1 向量 + System-2 分层图 —— 对标**世界树 memory 域 + 草神**；Scope Key 做会话隔离
+  - `ai_core/mcp/client.py` **无状态 MCP 客户端**（`fastmcp + StdioTransport`）—— **冰神**可加一种新的 skill 源，直接接第三方 MCP server
+  - `ai_core/heartbeat/`（decision/inspector）**心跳自主决策** —— 对标**三月**；定时 check 要不要主动做事
+  - `ai_core/persona/` **Persona × Session** 匹配 —— 多人格场景，paimon 当前单用户，优先级低
+  - `ai_core/register.py` `@ai_tools` 装饰器 **自动注入 RunContext/Event/Bot** 参数（栈回溯识别插件名）—— 零配置工具注册，迁移时节省大量仪式
+  - `ai_core/gs_agent.py:42-119` **history tool_call/return 配对截断** —— 踩过坑才懂的细节，直接抄
+  - `ai_core/configs/` **按任务级别选 provider**（便宜 / 贵模型分工）—— 对标**神之心** profile，已有但按"路由"选不是按"任务级别"选，可增强
+  - 建议：不要整体照搬；按上面 8 个子系统分别评估、独立立项，逐个吸收
+
 ## 2. 技术选型层面
 
 - [ ] **异常日志落盘方案** —— [`log.py`](../paimon/log.py) 全文 25 行，只 `logger.add(sys.stderr, ...)` + 可选 `logger.add(paimon.log, 10MB rotation / 7 天 retention, level=DEBUG)`，全 level 混合、无独立 error-only handler / 无结构化异常归档 / 无 error 专属路径。待定：加 error 专属 file handler，或接外部聚合（Sentry 之类）

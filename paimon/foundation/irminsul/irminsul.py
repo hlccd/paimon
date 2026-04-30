@@ -15,6 +15,9 @@ from .authz import Authz, AuthzRepo
 from .dividend import ChangeEvent, DividendRepo, ScoreSnapshot, WatchlistEntry
 from .dividend_event import DividendEvent, DividendEventRepo
 from .user_watchlist import UserWatchEntry, UserWatchlistRepo, UserWatchPrice
+from .mihoyo import (
+    MihoyoAbyss, MihoyoAccount, MihoyoGacha, MihoyoNote, MihoyoRepo,
+)
 from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
@@ -56,6 +59,7 @@ class Irminsul:
         self._dividend: DividendRepo | None = None
         self._dividend_event: DividendEventRepo | None = None
         self._user_watchlist: UserWatchlistRepo | None = None
+        self._mihoyo: MihoyoRepo | None = None
         self._session: SessionRepo | None = None
         self._schedule: ScheduleRepo | None = None
         self._subscription: SubscriptionRepo | None = None
@@ -84,6 +88,7 @@ class Irminsul:
         self._dividend = DividendRepo(self._db)
         self._dividend_event = DividendEventRepo(self._db)
         self._user_watchlist = UserWatchlistRepo(self._db)
+        self._mihoyo = MihoyoRepo(self._db)
         self._session = SessionRepo(self._db)
         self._schedule = ScheduleRepo(self._db)
         self._subscription = SubscriptionRepo(self._db)
@@ -498,6 +503,61 @@ class Irminsul:
 
     async def user_watch_price_max_date(self, stock_code: str) -> str | None:
         return await self._user_watchlist.price_max_date(stock_code)
+
+    # ============ 域 8.7: 米哈游账号 ============
+
+    async def mihoyo_account_upsert(self, acc: MihoyoAccount, *, actor: str) -> None:
+        await self._mihoyo.account_upsert(acc, actor=actor)
+
+    async def mihoyo_account_remove(self, game: str, uid: str, *, actor: str) -> bool:
+        return await self._mihoyo.account_remove(game, uid, actor=actor)
+
+    async def mihoyo_account_get(self, game: str, uid: str) -> MihoyoAccount | None:
+        return await self._mihoyo.account_get(game, uid)
+
+    async def mihoyo_account_list(self, *, game: str | None = None) -> list[MihoyoAccount]:
+        return await self._mihoyo.account_list(game=game)
+
+    async def mihoyo_account_update_authkey(
+        self, uid: str, authkey: str, *, game: str = "gs", actor: str,
+    ) -> None:
+        await self._mihoyo.account_update_authkey(uid, authkey, game=game, actor=actor)
+
+    async def mihoyo_account_set_sign_time(self, game: str, uid: str, ts: float) -> None:
+        await self._mihoyo.account_set_sign_time(game, uid, ts)
+
+    async def mihoyo_note_upsert(self, n: MihoyoNote, *, actor: str) -> None:
+        await self._mihoyo.note_upsert(n, actor=actor)
+
+    async def mihoyo_note_get(self, game: str, uid: str) -> MihoyoNote | None:
+        return await self._mihoyo.note_get(game, uid)
+
+    async def mihoyo_note_list(self) -> list[MihoyoNote]:
+        return await self._mihoyo.note_list()
+
+    async def mihoyo_abyss_upsert(self, a: MihoyoAbyss, *, actor: str) -> None:
+        await self._mihoyo.abyss_upsert(a, actor=actor)
+
+    async def mihoyo_abyss_latest(
+        self, game: str, uid: str, abyss_type: str,
+    ) -> MihoyoAbyss | None:
+        return await self._mihoyo.abyss_latest(game, uid, abyss_type)
+
+    async def mihoyo_gacha_insert(
+        self, items: list[MihoyoGacha], *, actor: str,
+    ) -> int:
+        return await self._mihoyo.gacha_insert(items, actor=actor)
+
+    async def mihoyo_gacha_max_id(self, uid: str, gacha_type: str) -> str:
+        return await self._mihoyo.gacha_max_id(uid, gacha_type)
+
+    async def mihoyo_gacha_list(
+        self, uid: str, gacha_type: str, *, limit: int = 500,
+    ) -> list[MihoyoGacha]:
+        return await self._mihoyo.gacha_list(uid, gacha_type, limit=limit)
+
+    async def mihoyo_gacha_stats(self, uid: str, gacha_type: str) -> dict:
+        return await self._mihoyo.gacha_stats(uid, gacha_type)
 
     # ============ 域 9: 会话 ============
     async def session_upsert(self, rec: SessionRecord, *, actor: str) -> None:

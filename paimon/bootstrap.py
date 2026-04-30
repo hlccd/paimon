@@ -246,11 +246,17 @@ async def create_app(cfg: Config) -> list[Channel]:
     from paimon.archons.zhongli.zhongli import register_task_types as _zhongli_reg
     state.zhongli = ZhongliArchon()
 
+    # 水神·游戏单例（米哈游账号/签到/便笺/抽卡）
+    from paimon.archons.furina_game import FurinaGameService
+    state.furina_game = FurinaGameService(state.irminsul)
+
     # 方案 D：注册各神名下的周期任务类型到中央 task_types registry。
     # /tasks 面板可见 + bootstrap._on_march_ring 分派都走这套；
     # 未来新神加周期任务的唯一接入点。
     _venti_reg()
     _zhongli_reg()
+    from paimon.archons.furina_game import register_task_types as _furina_game_reg
+    _furina_game_reg()
     from paimon.core.memory_classifier import register_task_types as _hygiene_reg
     _hygiene_reg()
 
@@ -272,6 +278,24 @@ async def create_app(cfg: Config) -> list[Channel]:
                 logger.warning("[岩神·启动] 自动启用失败: {}", msg)
         except Exception as e:
             logger.warning("[岩神·启动] 自动启用异常（不阻塞）: {}", e)
+
+    # 水神·游戏每日采集 cron：8:05 一次，只在有绑定账号时默认开启
+    try:
+        from paimon.channels.webui.channel import PUSH_CHAT_ID
+        existing = await state.march.list_tasks()
+        types_present = {t.task_type for t in existing}
+        if "mihoyo_collect" not in types_present:
+            # 有账号才默认创建，避免用户从未绑定却有无效 cron
+            accs = await state.irminsul.mihoyo_account_list()
+            if accs:
+                await state.march.create_task(
+                    chat_id=PUSH_CHAT_ID, channel_name="webui", prompt="",
+                    trigger_type="cron", trigger_value={"expr": "5 8 * * *"},
+                    task_type="mihoyo_collect", source_entity_id="all",
+                )
+                logger.info("[水神·游戏·启动] 已创建每日采集 cron（8:05）")
+    except Exception as e:
+        logger.warning("[水神·游戏·启动] 创建 cron 异常（不阻塞）: {}", e)
 
     # 草神·记忆 + 知识库整理 cron：周一 00:00 / 00:10 当地时间，错峰避免两个同时跑
     try:

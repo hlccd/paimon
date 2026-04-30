@@ -20,6 +20,7 @@ from .skills import SkillDecl
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict
 from .token import TokenRow
 from .user_watchlist import UserWatchEntry, UserWatchPrice
+from .mihoyo import MihoyoAbyss, MihoyoAccount, MihoyoGacha, MihoyoNote
 
 __all__ = [
     "Irminsul",
@@ -37,4 +38,5 @@ __all__ = [
     "FeedEvent", "is_severity_upgrade",
     "PushArchiveRecord",
     "UserWatchEntry", "UserWatchPrice",
+    "MihoyoAccount", "MihoyoNote", "MihoyoAbyss", "MihoyoGacha",
 ]

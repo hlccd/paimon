@@ -503,6 +503,7 @@ def navigation_html(active: str = "chat") -> str:
         ("feed", "/feed", "信息流"),
         ("sentiment", "/sentiment", "🌬️ 舆情"),
         ("wealth", "/wealth", "理财"),
+        ("game", "/game", "🎮 游戏"),
         ("knowledge", "/knowledge", "世界树"),
         ("plugins", "/plugins", "插件"),
         ("selfcheck", "/selfcheck", "🩺 自检"),
