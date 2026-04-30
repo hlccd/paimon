@@ -707,6 +707,10 @@ WEALTH_SCRIPT = """
         });
 
         // 已关注 code 的集合，渲染推荐/排名时知道哪些股票已经加入了 → "+ 关注" 按钮直接 added 态
+        // 比较时统一 normalize 成纯 6 位数字（去前缀/点/空格/大小写），避免格式差异（sh.600519 vs SH.600519 vs 600519）漏判
+        function _normCode(c){
+            return String(c||'').toLowerCase().replace(/\s/g, '').replace(/^(sh|sz|bj)\.?/, '');
+        }
         var _userWatchCodes = new Set();
 
         window.refreshAll=async function(){
@@ -751,7 +755,7 @@ WEALTH_SCRIPT = """
 
         function renderRow(r){
             var dy=(r.dividend_yield||0)*100;
-            var added = _userWatchCodes.has(r.stock_code);
+            var added = _userWatchCodes.has(_normCode(r.stock_code));
             var btnCls = 'addw-btn' + (added ? ' added' : '');
             var btnText = added ? '已关注' : '+ 关注';
             return '<tr onclick="openStock(\\''+esc(r.stock_code)+'\\',\\''+esc(r.stock_name)+'\\')">'
@@ -806,11 +810,11 @@ WEALTH_SCRIPT = """
                     return;
                 }
                 // 成功路径与 uwAdd 完全等价：await loadUserWatchlist + _uwPollAfterAdd
-                _userWatchCodes.add(code);
-                btn.classList.add('added');
-                btn.textContent = '已关注';
-                btn.title = '已在我的关注';
+                _userWatchCodes.add(_normCode(code));
                 await loadUserWatchlist();
+                // 推荐 + 排名表里同股按钮也要刷成"已关注"（用户当前可能在另一 tab）
+                if(typeof loadRecommended === 'function') loadRecommended();
+                if(typeof loadRanking === 'function') loadRanking();
                 _uwPollAfterAdd();
             }catch(e){
                 alert('请求失败: ' + e);
@@ -1076,7 +1080,7 @@ WEALTH_SCRIPT = """
                 var d = await r.json();
                 var items = d.items || [];
                 // 同步 _userWatchCodes，供推荐/排名渲染时打"已关注"
-                _userWatchCodes = new Set(items.map(function(it){return it.stock_code;}));
+                _userWatchCodes = new Set(items.map(function(it){return _normCode(it.stock_code);}));
                 if(items.length === 0){
                     el.innerHTML = '<div class="empty-state">暂无关注股。输入股票代码添加。</div>';
                     return;
@@ -1147,6 +1151,9 @@ WEALTH_SCRIPT = """
                 document.getElementById('uwCodeInput').value = '';
                 document.getElementById('uwNoteInput').value = '';
                 await loadUserWatchlist();
+                // 推荐 + 排名同股按钮跟着刷"已关注"
+                if(typeof loadRecommended === 'function') loadRecommended();
+                if(typeof loadRanking === 'function') loadRanking();
                 _uwPollAfterAdd();
             }catch(e){ alert('请求失败: ' + e); }
         };
@@ -1162,6 +1169,9 @@ WEALTH_SCRIPT = """
                 var d = await r.json();
                 if(!d.ok){ alert('删除失败'); return; }
                 await loadUserWatchlist();
+                // 推荐 + 排名同股按钮跟着回到"+ 关注"
+                if(typeof loadRecommended === 'function') loadRecommended();
+                if(typeof loadRanking === 'function') loadRanking();
             }catch(e){ alert('请求失败: ' + e); }
         };
 
