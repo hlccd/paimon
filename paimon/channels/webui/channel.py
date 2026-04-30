@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 import shutil
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -159,6 +160,11 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/wealth/trigger", self.wealth_trigger_api)
         self.app.router.add_get("/api/wealth/running", self.wealth_running_api)
         self.app.router.add_get("/api/wealth/scan_scope", self.wealth_scan_scope_api)
+        self.app.router.add_get("/api/wealth/user_watch", self.wealth_user_watch_list_api)
+        self.app.router.add_post("/api/wealth/user_watch/add", self.wealth_user_watch_add_api)
+        self.app.router.add_post("/api/wealth/user_watch/remove", self.wealth_user_watch_remove_api)
+        self.app.router.add_post("/api/wealth/user_watch/update", self.wealth_user_watch_update_api)
+        self.app.router.add_post("/api/wealth/user_watch/refresh", self.wealth_user_watch_refresh_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 三月·自检面板
         self.app.router.add_get("/selfcheck", self.selfcheck_page)
@@ -1812,6 +1818,171 @@ class WebUIChannel(Channel):
             channel_name=self.name,
         ))
         return web.json_response({"ok": True, "mode": mode})
+
+    # ---------- 用户关注股（user_watchlist）----------
+
+    @staticmethod
+    def _normalize_stock_code(raw: str) -> str | None:
+        """用户输入 → baostock 格式 'sh.xxxxxx' / 'sz.xxxxxx'。非法返回 None。
+
+        支持：'600519' / 'sh.600519' / 'SH600519' / 'sh600519'。
+        6 开头 → sh，其他 → sz（与 provider_baostock._to_bscode 一致）。
+        """
+        import re as _re
+        if not raw:
+            return None
+        s = raw.strip().lower().replace(".", "").replace(" ", "")
+        m = _re.match(r"^(sh|sz)?(\d{6})$", s)
+        if not m:
+            return None
+        prefix, digits = m.group(1), m.group(2)
+        if prefix:
+            return f"{prefix}.{digits}"
+        # 沪市：6/5/9 开头；深市：0/3 开头
+        if digits[0] in "659":
+            return f"sh.{digits}"
+        return f"sz.{digits}"
+
+    async def _compute_watch_row(self, irminsul, entry) -> dict:
+        """把 UserWatchEntry 组装成前端展示用 dict（含最新价、sparkline、PE/PB 分位）。"""
+        latest = await irminsul.user_watch_price_latest(entry.stock_code)
+        recent = await irminsul.user_watch_price_recent(entry.stock_code, 30)
+        pe_series = await irminsul.user_watch_price_series(entry.stock_code, "pe")
+        pb_series = await irminsul.user_watch_price_series(entry.stock_code, "pb")
+
+        def percentile(series: list[float], cur: float) -> float | None:
+            """当前值在序列中的百分位（0~1）。序列空或当前值 ≤0 时返回 None。"""
+            if not series or cur <= 0:
+                return None
+            below = sum(1 for v in series if v < cur)
+            return round(below / len(series), 4)
+
+        # 无数据时用 None 让前端渲染 '-'，0 会被前端当成"涨跌 0%"显示成 '0.00%'
+        has_data = bool(latest and latest.close > 0)
+        return {
+            "stock_code": entry.stock_code,
+            "stock_name": entry.stock_name,
+            "note": entry.note,
+            "added_date": entry.added_date,
+            "alert_pct": entry.alert_pct,
+            "price": latest.close if has_data else None,
+            "change_pct": latest.change_pct if has_data else None,
+            "pe": latest.pe if has_data else None,
+            "pb": latest.pb if has_data else None,
+            "pe_percentile": percentile(pe_series, latest.pe if has_data else 0),
+            "pb_percentile": percentile(pb_series, latest.pb if has_data else 0),
+            "last_date": latest.date if latest else "",
+            "sparkline": [p.close for p in recent],
+            "history_count": len(pe_series) or 0,
+        }
+
+    async def wealth_user_watch_list_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"items": []})
+        entries = await irminsul.user_watch_list()
+        items = [await self._compute_watch_row(irminsul, e) for e in entries]
+        return web.json_response({"items": items})
+
+    async def wealth_user_watch_add_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+
+        code = self._normalize_stock_code(data.get("code", ""))
+        if not code:
+            return web.json_response(
+                {"ok": False, "error": "股票代码无效（需 6 位数字，可前缀 sh/sz）"},
+                status=400,
+            )
+        note = (data.get("note") or "").strip()[:200]
+        try:
+            alert_pct = float(data.get("alert_pct", 3.0))
+        except (TypeError, ValueError):
+            alert_pct = 3.0
+        alert_pct = max(0.1, min(alert_pct, 50.0))
+
+        from paimon.foundation.irminsul import UserWatchEntry
+        entry = UserWatchEntry(
+            stock_code=code, stock_name="",  # 名称由 zhongli 扫描后补齐
+            note=note, added_date=date.today().isoformat(),
+            alert_pct=alert_pct,
+        )
+        added = await irminsul.user_watch_add(entry, actor="WebUI")
+        if not added:
+            return web.json_response({"ok": False, "error": "股票已在关注列表中"}, status=409)
+
+        # 首次添加后异步补抓 3 年历史 + 最新快照（不阻塞请求）
+        if self.state.zhongli:
+            asyncio.create_task(
+                self.state.zhongli.collect_user_watchlist(irminsul)
+            )
+
+        return web.json_response({"ok": True, "code": code})
+
+    async def wealth_user_watch_remove_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        code = self._normalize_stock_code(data.get("code", ""))
+        if not code:
+            return web.json_response({"ok": False, "error": "股票代码无效"}, status=400)
+        ok = await irminsul.user_watch_remove(code, actor="WebUI")
+        return web.json_response({"ok": ok})
+
+    async def wealth_user_watch_update_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        code = self._normalize_stock_code(data.get("code", ""))
+        if not code:
+            return web.json_response({"ok": False, "error": "股票代码无效"}, status=400)
+
+        note = data.get("note")
+        if note is not None:
+            note = str(note).strip()[:200]
+        alert_pct = data.get("alert_pct")
+        if alert_pct is not None:
+            try:
+                alert_pct = max(0.1, min(float(alert_pct), 50.0))
+            except (TypeError, ValueError):
+                alert_pct = None
+
+        ok = await irminsul.user_watch_update(
+            code, note=note, alert_pct=alert_pct, actor="WebUI",
+        )
+        return web.json_response({"ok": ok})
+
+    async def wealth_user_watch_refresh_api(self, request: web.Request) -> web.Response:
+        """手动触发关注股抓取（不等晚上 cron）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.zhongli or not self.state.irminsul:
+            return web.json_response({"ok": False, "error": "岩神/世界树未就绪"}, status=500)
+        asyncio.create_task(
+            self.state.zhongli.collect_user_watchlist(self.state.irminsul)
+        )
+        return web.json_response({"ok": True})
 
     # ==================== 三月·自检面板 ====================
 

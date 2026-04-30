@@ -19,6 +19,7 @@ from .session import SessionMeta, SessionRecord
 from .skills import SkillDecl
 from .task import FlowEntry, ProgressEntry, Subtask, TaskEdict
 from .token import TokenRow
+from .user_watchlist import UserWatchEntry, UserWatchPrice
 
 __all__ = [
     "Irminsul",
@@ -35,4 +36,5 @@ __all__ = [
     "SelfcheckRun",
     "FeedEvent", "is_severity_upgrade",
     "PushArchiveRecord",
+    "UserWatchEntry", "UserWatchPrice",
 ]

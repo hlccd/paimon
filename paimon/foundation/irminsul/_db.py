@@ -232,6 +232,31 @@ CREATE INDEX IF NOT EXISTS idx_dividend_events_status
 CREATE INDEX IF NOT EXISTS idx_dividend_events_merge
     ON dividend_events(stock_code, event_type, status, last_seen_at DESC);
 
+-- ============ 域 8.6: 用户关注股（岩神 · user watchlist）============
+-- 区别于 dividend_watchlist（岩神自动按行业均衡 25 只红利股池）：
+-- user_watchlist 是用户手动添加的自选股，无数量/行业限制，每日 scan 顺手拉价量。
+-- 主表关注清单 + 价格历史表（首次 add 拉 3 年历史，后续 daily 追加 1 条）。
+CREATE TABLE IF NOT EXISTS user_watchlist (
+    stock_code   TEXT PRIMARY KEY,       -- baostock 格式 'sh.600519' / 'sz.000001'
+    stock_name   TEXT NOT NULL DEFAULT '',
+    note         TEXT NOT NULL DEFAULT '',
+    added_date   TEXT NOT NULL,
+    alert_pct    REAL NOT NULL DEFAULT 3.0   -- |日涨跌%| ≥ 此值触发 P1 推送
+);
+
+CREATE TABLE IF NOT EXISTS user_watchlist_price (
+    stock_code  TEXT NOT NULL,
+    date        TEXT NOT NULL,     -- 交易日 'YYYY-MM-DD'
+    close       REAL NOT NULL DEFAULT 0,
+    change_pct  REAL NOT NULL DEFAULT 0,   -- 当日涨跌 %
+    pe          REAL NOT NULL DEFAULT 0,   -- peTTM
+    pb          REAL NOT NULL DEFAULT 0,   -- pbMRQ
+    volume      REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (stock_code, date)
+);
+CREATE INDEX IF NOT EXISTS idx_user_price_code_date
+    ON user_watchlist_price(stock_code, date DESC);
+
 -- ============ 域 10: 定时任务（三月）============
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id TEXT PRIMARY KEY,

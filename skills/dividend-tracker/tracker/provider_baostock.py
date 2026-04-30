@@ -218,6 +218,72 @@ def _fetch_stock_price_sync(bscode: str) -> dict | None:
     }
 
 
+def _fetch_stock_name_sync(bscode: str) -> str:
+    """拿单股中文名（baostock query_stock_basic）。失败返 ''。"""
+    import baostock as bs
+    try:
+        rs = _bs_call(lambda: bs.query_stock_basic(code=bscode))
+        df = _bs_get_data(rs)
+        if df.empty:
+            return ''
+        row = df.iloc[0]
+        name = row.get('code_name', '') or ''
+        return str(name).strip()
+    except Exception:
+        return ''
+
+
+def _fetch_stock_history_sync(
+    bscode: str, start_date: str, end_date: str,
+) -> list[dict]:
+    """拉单只股票一段时间的日 K，返回 [{date, close, change_pct, pe, pb, volume}, ...]
+
+    与 `_fetch_stock_price_sync` 的区别：后者只要最新一天、这个要全段历史。
+    change_pct 由本行 close 对前一行 close 计算得出（首行无前值 → 0）。
+
+    调用方（岩神日更）注意把 start_date 设为"已存库最后日期"而非"+1 天"，
+    这样返回的第二行（今天）才能基于第一行（昨天）算出正确的 change_pct。
+    """
+    import baostock as bs
+
+    rs = _bs_call(lambda: bs.query_history_k_data_plus(
+        bscode,
+        fields='date,close,volume,peTTM,pbMRQ',
+        start_date=start_date, end_date=end_date,
+        frequency='d', adjustflag='3',
+    ))
+    df = _bs_get_data(rs)
+    if df.empty:
+        return []
+
+    def safe(v) -> float:
+        if v == '' or v is None or pd.isna(v):
+            return 0.0
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
+
+    out: list[dict] = []
+    prev_close = 0.0
+    for _, row in df.iterrows():
+        close = safe(row.get('close'))
+        pe = safe(row.get('peTTM'))
+        pb = safe(row.get('pbMRQ'))
+        volume = safe(row.get('volume'))
+        change_pct = 0.0 if prev_close <= 0 else (close - prev_close) / prev_close * 100
+        out.append({
+            'date': str(row.get('date', '')),
+            'close': close,
+            'change_pct': round(change_pct, 4),
+            'pe': pe,
+            'pb': pb,
+            'volume': volume,
+        })
+        prev_close = close
+    return out
+
+
 def _fetch_dividend_info_sync(code: str, cache_dir: Path) -> dict | None:
     """获取单只股票股息信息
 
@@ -680,6 +746,57 @@ class BaoStockDataProvider:
                 await on_progress(i, total, code, r)
 
         logger.info(f"[provider-bs] 财务数据完成: {len(results)}/{total} 只成功")
+        return results
+
+    async def fetch_history_batch(
+        self, codes: list[str], start_date: str, end_date: str,
+        fetch_name: bool = True,
+    ) -> dict[str, dict]:
+        """批量拉日 K 历史（用户关注股首次建底 / 日更追加）。
+
+        返回 {code: {"name": str, "rows": [{date, close, change_pct, pe, pb, volume}, ...]}}。
+        rows 按日期升序；BaoStock 单连接串行。
+        fetch_name=True 时顺手拉中文名（query_stock_basic，~几十 ms/只）。
+        """
+        loop = asyncio.get_running_loop()
+        results: dict[str, dict] = {}
+        total = len(codes)
+        logger.info(f"[provider-bs] 开始拉历史 K 线: {total} 只 [{start_date} → {end_date}]")
+
+        for i, code in enumerate(codes, 1):
+            # 兼容两种输入：'sh.600519' / 'sz.000001' 已是 baostock 格式直接用；
+            # '600519' 裸代码走 _to_bscode 按沪深规则加前缀。用户关注股存的是带前缀
+            # （baostock 格式），岩神自动 watchlist 存的是 6 位数字，两边都能喂进来。
+            if code.startswith(('sh.', 'sz.', 'bj.')):
+                bscode = code
+            else:
+                bscode = _to_bscode(code)
+            try:
+                rows = await loop.run_in_executor(
+                    None, _fetch_stock_history_sync, bscode, start_date, end_date,
+                )
+            except Exception as e:
+                logger.warning(f"[provider-bs] 历史 K 抓取失败 {code}: {e}")
+                rows = []
+
+            name = ''
+            if fetch_name:
+                try:
+                    name = await loop.run_in_executor(
+                        None, _fetch_stock_name_sync, bscode,
+                    )
+                except Exception:
+                    name = ''
+
+            results[code] = {"name": name, "rows": rows}
+
+            if i % 5 == 0 or i == total:
+                got = sum(1 for v in results.values() if v.get('rows'))
+                logger.info(f"[provider-bs] 历史 K: {i}/{total}，有数据 {got} 只")
+                _emit_progress("history", i, total, success=got)
+
+        got = sum(1 for v in results.values() if v.get('rows'))
+        logger.info(f"[provider-bs] 历史 K 完成: {got}/{total} 只")
         return results
 
     def load_cached_dividend(self, code: str) -> dict | None:

@@ -100,6 +100,25 @@ async def _cmd_financial(cache_dir: Path, codes: list[str], cached_only: bool) -
     return {"financials": results, "count": len(results), "total": len(codes)}
 
 
+async def _cmd_stock_detail(
+    cache_dir: Path, codes: list[str], start_date: str, end_date: str,
+) -> dict:
+    """批量拉日 K 历史（用户关注股）。
+
+    返回 {histories: {code: {"name": str, "rows": [rows]}}, count}，
+    每行含 date/close/change_pct/pe/pb/volume。
+    岩神拿到后自己算估值分位、写 user_watchlist_price、回填 stock_name、检测波动。
+    """
+    from tracker.provider_baostock import BaoStockDataProvider
+    provider = BaoStockDataProvider(cache_dir)
+    histories = await provider.fetch_history_batch(codes, start_date, end_date)
+    return {
+        "histories": histories,
+        "count": sum(1 for v in histories.values() if v.get('rows')),
+        "total": len(codes),
+    }
+
+
 async def _cmd_cleanup_cache(cache_dir: Path) -> dict:
     """清过期缓存文件。"""
     from tracker.provider_baostock import BaoStockDataProvider
@@ -133,6 +152,15 @@ async def _async_main(args: argparse.Namespace) -> int:
                 print("fetch-financial: --codes 必填", file=sys.stderr)
                 return 2
             result = await _cmd_financial(cache_dir, codes, args.cached_only)
+        elif args.cmd == "fetch-stock-detail":
+            codes = _parse_codes(args.codes)
+            if not codes:
+                print("fetch-stock-detail: --codes 必填", file=sys.stderr)
+                return 2
+            if not args.start_date or not args.end_date:
+                print("fetch-stock-detail: --start-date / --end-date 必填", file=sys.stderr)
+                return 2
+            result = await _cmd_stock_detail(cache_dir, codes, args.start_date, args.end_date)
         elif args.cmd == "cleanup-cache":
             result = await _cmd_cleanup_cache(cache_dir)
         else:
@@ -186,6 +214,15 @@ def main() -> int:
     p_fin.add_argument("--codes", required=True, help="逗号分隔股票代码")
     p_fin.add_argument("--cached-only", action="store_true")
     p_fin.add_argument("--cache-dir", default=None)
+
+    p_hist = sub.add_parser(
+        "fetch-stock-detail",
+        help="拉历史日 K（用户关注股首次建底 / 日更追加）",
+    )
+    p_hist.add_argument("--codes", required=True, help="逗号分隔股票代码，如 600519,000001")
+    p_hist.add_argument("--start-date", required=True, help="起始日期 YYYY-MM-DD")
+    p_hist.add_argument("--end-date", required=True, help="结束日期 YYYY-MM-DD")
+    p_hist.add_argument("--cache-dir", default=None)
 
     p_clean = sub.add_parser("cleanup-cache", help="清过期缓存文件")
     p_clean.add_argument("--cache-dir", default=None)

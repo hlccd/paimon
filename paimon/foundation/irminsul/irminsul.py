@@ -14,6 +14,7 @@ from .audit import AuditEntry, AuditRepo
 from .authz import Authz, AuthzRepo
 from .dividend import ChangeEvent, DividendRepo, ScoreSnapshot, WatchlistEntry
 from .dividend_event import DividendEvent, DividendEventRepo
+from .user_watchlist import UserWatchEntry, UserWatchlistRepo, UserWatchPrice
 from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
 from .session import SessionMeta, SessionRecord, SessionRepo
@@ -54,6 +55,7 @@ class Irminsul:
         self._audit: AuditRepo | None = None
         self._dividend: DividendRepo | None = None
         self._dividend_event: DividendEventRepo | None = None
+        self._user_watchlist: UserWatchlistRepo | None = None
         self._session: SessionRepo | None = None
         self._schedule: ScheduleRepo | None = None
         self._subscription: SubscriptionRepo | None = None
@@ -81,6 +83,7 @@ class Irminsul:
         self._audit = AuditRepo(self._db)
         self._dividend = DividendRepo(self._db)
         self._dividend_event = DividendEventRepo(self._db)
+        self._user_watchlist = UserWatchlistRepo(self._db)
         self._session = SessionRepo(self._db)
         self._schedule = ScheduleRepo(self._db)
         self._subscription = SubscriptionRepo(self._db)
@@ -447,6 +450,54 @@ class Irminsul:
         self, keep_days: int = 180, *, actor: str,
     ) -> int:
         return await self._dividend_event.cleanup_before(keep_days, actor=actor)
+
+    # ============ 域 8.6: 用户关注股 ============
+
+    async def user_watch_add(self, entry: UserWatchEntry, *, actor: str) -> bool:
+        return await self._user_watchlist.add(entry, actor=actor)
+
+    async def user_watch_remove(self, stock_code: str, *, actor: str) -> bool:
+        return await self._user_watchlist.remove(stock_code, actor=actor)
+
+    async def user_watch_update(
+        self, stock_code: str, *,
+        note: str | None = None, alert_pct: float | None = None,
+        stock_name: str | None = None,
+        actor: str,
+    ) -> bool:
+        return await self._user_watchlist.update(
+            stock_code, note=note, alert_pct=alert_pct, stock_name=stock_name, actor=actor,
+        )
+
+    async def user_watch_list(self) -> list[UserWatchEntry]:
+        return await self._user_watchlist.list()
+
+    async def user_watch_get(self, stock_code: str) -> UserWatchEntry | None:
+        return await self._user_watchlist.get(stock_code)
+
+    async def user_watch_codes(self) -> list[str]:
+        return await self._user_watchlist.codes()
+
+    async def user_watch_price_upsert(
+        self, rows: list[UserWatchPrice], *, actor: str,
+    ) -> int:
+        return await self._user_watchlist.price_upsert(rows, actor=actor)
+
+    async def user_watch_price_latest(self, stock_code: str) -> UserWatchPrice | None:
+        return await self._user_watchlist.price_latest(stock_code)
+
+    async def user_watch_price_recent(
+        self, stock_code: str, days: int = 30,
+    ) -> list[UserWatchPrice]:
+        return await self._user_watchlist.price_recent(stock_code, days)
+
+    async def user_watch_price_series(
+        self, stock_code: str, column: str,
+    ) -> list[float]:
+        return await self._user_watchlist.price_series(stock_code, column)
+
+    async def user_watch_price_max_date(self, stock_code: str) -> str | None:
+        return await self._user_watchlist.price_max_date(stock_code)
 
     # ============ 域 9: 会话 ============
     async def session_upsert(self, rec: SessionRecord, *, actor: str) -> None:
