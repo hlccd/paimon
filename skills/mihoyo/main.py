@@ -113,6 +113,11 @@ async def _dispatch(cmd: str, payload: dict) -> dict:
         return await actions.poetry_abyss(
             payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
         )
+    if cmd == "gs-characters":
+        return await actions.gs_character_list(
+            payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
+            character_ids=payload.get("character_ids"),
+        )
     if cmd == "hard-challenge":
         return await actions.hard_challenge(
             payload["uid"], payload["cookie"], payload["fp"], payload["device_id"],
@@ -205,7 +210,7 @@ def main() -> int:
         "gen-fp", "qr-create", "qr-poll",
         "stoken-exchange", "cookie-exchange", "refresh-cookie", "device-login", "game-record",
         "sign", "sign-info", "daily-note",
-        "spiral-abyss", "poetry-abyss", "hard-challenge",
+        "spiral-abyss", "poetry-abyss", "hard-challenge", "gs-characters",
         "sr-note", "sr-forgotten-hall", "sr-pure-fiction", "sr-apocalyptic",
         "zzz-note", "zzz-shiyu", "zzz-mem",
         "gacha-log", "parse-authkey",

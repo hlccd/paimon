@@ -16,7 +16,7 @@ from .dividend import ChangeEvent, DividendRepo, ScoreSnapshot, WatchlistEntry
 from .dividend_event import DividendEvent, DividendEventRepo
 from .user_watchlist import UserWatchEntry, UserWatchlistRepo, UserWatchPrice
 from .mihoyo import (
-    MihoyoAbyss, MihoyoAccount, MihoyoGacha, MihoyoNote, MihoyoRepo,
+    MihoyoAbyss, MihoyoAccount, MihoyoCharacter, MihoyoGacha, MihoyoNote, MihoyoRepo,
 )
 from .knowledge import KnowledgeRepo
 from .memory import Memory, MemoryMeta, MemoryRepo
@@ -558,6 +558,14 @@ class Irminsul:
 
     async def mihoyo_gacha_stats(self, uid: str, gacha_type: str) -> dict:
         return await self._mihoyo.gacha_stats(uid, gacha_type)
+
+    async def mihoyo_character_upsert(
+        self, items: list[MihoyoCharacter], *, actor: str,
+    ) -> int:
+        return await self._mihoyo.character_upsert(items, actor=actor)
+
+    async def mihoyo_character_list(self, game: str, uid: str) -> list[MihoyoCharacter]:
+        return await self._mihoyo.character_list(game, uid)
 
     # ============ 域 9: 会话 ============
     async def session_upsert(self, rec: SessionRecord, *, actor: str) -> None:

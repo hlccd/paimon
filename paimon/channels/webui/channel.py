@@ -174,9 +174,11 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/game/sign", self.game_sign_api)
         self.app.router.add_post("/api/game/sign_all", self.game_sign_all_api)
         self.app.router.add_post("/api/game/collect_all", self.game_collect_all_api)
+        self.app.router.add_post("/api/game/collect_one", self.game_collect_one_api)
         self.app.router.add_get("/api/game/abyss_latest", self.game_abyss_latest_api)
         self.app.router.add_post("/api/game/gacha/import", self.game_gacha_import_api)
         self.app.router.add_get("/api/game/gacha/stats", self.game_gacha_stats_api)
+        self.app.router.add_get("/api/game/characters", self.game_characters_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 三月·自检面板
         self.app.router.add_get("/selfcheck", self.selfcheck_page)
@@ -2077,6 +2079,26 @@ class WebUIChannel(Channel):
         results = await self.state.furina_game.sign_all()
         return web.json_response({"ok": True, "results": results})
 
+    async def game_collect_one_api(self, request: web.Request) -> web.Response:
+        """只采单个账号（WebUI 单账号"刷新此账号数据"按钮）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        if not self.state.furina_game:
+            return web.json_response({"ok": False, "msg": "水神未就绪"})
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "msg": "JSON 无效"}, status=400)
+        game = (data.get("game") or "").strip()
+        uid = (data.get("uid") or "").strip()
+        if game not in ("gs", "sr", "zzz") or not uid:
+            return web.json_response({"ok": False, "msg": "game/uid 无效"}, status=400)
+        asyncio.create_task(self.state.furina_game.collect_one(
+            game, uid,
+            march=self.state.march, chat_id=PUSH_CHAT_ID, channel_name=self.name,
+        ))
+        return web.json_response({"ok": True})
+
     async def game_collect_all_api(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
@@ -2127,6 +2149,28 @@ class WebUIChannel(Channel):
             return web.json_response({"ok": False, "msg": "url 必填"}, status=400)
         r = await self.state.furina_game.import_gacha_from_url(url)
         return web.json_response(r)
+
+    async def game_characters_api(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"characters": []})
+        game = request.query.get("game", "gs")
+        uid = request.query.get("uid", "")
+        if not uid:
+            return web.json_response({"characters": []})
+        chars = await irminsul.mihoyo_character_list(game, uid)
+        return web.json_response({"characters": [
+            {
+                "avatar_id": c.avatar_id, "name": c.name, "element": c.element,
+                "rarity": c.rarity, "level": c.level,
+                "constellation": c.constellation, "fetter": c.fetter,
+                "weapon": c.weapon, "relics": c.relics,
+                "icon_url": c.icon_url,
+            }
+            for c in chars
+        ]})
 
     async def game_gacha_stats_api(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):

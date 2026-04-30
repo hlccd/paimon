@@ -314,6 +314,25 @@ CREATE TABLE IF NOT EXISTS mihoyo_abyss (
     PRIMARY KEY (game, uid, abyss_type, schedule_id)
 );
 
+CREATE TABLE IF NOT EXISTS mihoyo_character (
+    game         TEXT NOT NULL,              -- gs | sr | zzz
+    uid          TEXT NOT NULL,
+    avatar_id    TEXT NOT NULL,              -- 米游社角色 ID
+    name         TEXT NOT NULL DEFAULT '',
+    element      TEXT NOT NULL DEFAULT '',   -- 原神元素 / 崩铁命途 / 绝区零属性
+    rarity       INTEGER NOT NULL DEFAULT 4, -- 4/5 星
+    level        INTEGER NOT NULL DEFAULT 1,
+    constellation INTEGER NOT NULL DEFAULT 0,-- 命座/星魂/影画
+    fetter       INTEGER NOT NULL DEFAULT 0, -- 原神好感度
+    weapon_json  TEXT NOT NULL DEFAULT '{}', -- {name, level, affix, rarity}
+    relics_json  TEXT NOT NULL DEFAULT '[]', -- 圣遗物/遗器/驱动盘摘要
+    icon_url     TEXT NOT NULL DEFAULT '',   -- 米游社头像 CDN
+    scan_ts      REAL NOT NULL,
+    raw_json     TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (game, uid, avatar_id)
+);
+CREATE INDEX IF NOT EXISTS idx_character_by_uid ON mihoyo_character(game, uid, rarity DESC, level DESC);
+
 CREATE TABLE IF NOT EXISTS mihoyo_gacha (
     id           TEXT PRIMARY KEY,       -- 米游社返回的全局唯一 gacha id
     uid          TEXT NOT NULL,

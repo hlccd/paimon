@@ -71,6 +71,24 @@ class MihoyoAbyss:
 
 
 @dataclass
+class MihoyoCharacter:
+    game: str
+    uid: str
+    avatar_id: str
+    name: str = ""
+    element: str = ""
+    rarity: int = 4
+    level: int = 1
+    constellation: int = 0
+    fetter: int = 0
+    weapon: dict = field(default_factory=dict)   # {name, level, affix, rarity}
+    relics: list = field(default_factory=list)
+    icon_url: str = ""
+    scan_ts: float = 0.0
+    raw: dict = field(default_factory=dict)
+
+
+@dataclass
 class MihoyoGacha:
     id: str
     uid: str
@@ -354,6 +372,63 @@ class MihoyoRepo:
                 id=r[0], uid=r[1], gacha_type=r[2], item_id=r[3],
                 item_type=r[4], name=r[5], rank_type=r[6],
                 time=r[7], time_ts=r[8], raw=self._loads(r[9], {}),
+            )
+            for r in rows
+        ]
+
+    # ---------- character ----------
+
+    async def character_upsert(
+        self, items: list[MihoyoCharacter], *, actor: str,
+    ) -> int:
+        """批量 upsert 角色。PK=(game, uid, avatar_id) 保证幂等。"""
+        if not items:
+            return 0
+        for c in items:
+            await self._db.execute(
+                "INSERT INTO mihoyo_character "
+                "(game, uid, avatar_id, name, element, rarity, level, "
+                " constellation, fetter, weapon_json, relics_json, "
+                " icon_url, scan_ts, raw_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(game, uid, avatar_id) DO UPDATE SET "
+                " name = excluded.name, element = excluded.element, "
+                " rarity = excluded.rarity, level = excluded.level, "
+                " constellation = excluded.constellation, fetter = excluded.fetter, "
+                " weapon_json = excluded.weapon_json, relics_json = excluded.relics_json, "
+                " icon_url = excluded.icon_url, scan_ts = excluded.scan_ts, "
+                " raw_json = excluded.raw_json",
+                (
+                    c.game, c.uid, c.avatar_id, c.name, c.element,
+                    c.rarity, c.level, c.constellation, c.fetter,
+                    json.dumps(c.weapon or {}, ensure_ascii=False),
+                    json.dumps(c.relics or [], ensure_ascii=False),
+                    c.icon_url, c.scan_ts,
+                    json.dumps(c.raw or {}, ensure_ascii=False),
+                ),
+            )
+        await self._db.commit()
+        logger.info("[世界树] {}·mihoyo_character upsert {} 个角色", actor, len(items))
+        return len(items)
+
+    async def character_list(self, game: str, uid: str) -> list[MihoyoCharacter]:
+        async with self._db.execute(
+            "SELECT game, uid, avatar_id, name, element, rarity, level, "
+            " constellation, fetter, weapon_json, relics_json, "
+            " icon_url, scan_ts, raw_json "
+            "FROM mihoyo_character WHERE game=? AND uid=? "
+            "ORDER BY rarity DESC, level DESC",
+            (game, uid),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            MihoyoCharacter(
+                game=r[0], uid=r[1], avatar_id=r[2], name=r[3], element=r[4],
+                rarity=r[5], level=r[6], constellation=r[7], fetter=r[8],
+                weapon=self._loads(r[9], {}),
+                relics=self._loads(r[10], []),
+                icon_url=r[11], scan_ts=r[12],
+                raw=self._loads(r[13], {}),
             )
             for r in rows
         ]

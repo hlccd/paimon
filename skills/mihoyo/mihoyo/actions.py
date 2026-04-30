@@ -314,6 +314,42 @@ async def poetry_abyss(uid: str, cookie: str, fp: str, device_id: str) -> dict[s
         return resp.json()
 
 
+async def gs_character_list(
+    uid: str, cookie: str, fp: str, device_id: str,
+    character_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    """原神角色列表 + 详情。POST `/character/list`，body 签名 DS。
+
+    character_ids 空 list 默认拿全部；想只查某几个传具体 ID 列表。
+    返回 `{avatars: [{id, name, level, rarity, element, actived_constellation_num, weapon, reliquaries, image, ...}]}`。
+    """
+    _is_os = server.is_os(uid, "gs")
+    server_id = server.get_server_id(uid, "gs")
+    url = api.URL_PLAYER_DETAIL_INFO_GS_OS if _is_os else api.URL_PLAYER_DETAIL_INFO_GS
+    body = {
+        "character_ids": list(character_ids or []),
+        "role_id": uid,
+        "server": server_id,
+    }
+    ds = sign.generate_os_ds() if _is_os else sign.get_ds_token("", body)
+    headers = device.build_headers(cookie, device_id, fp, ds=ds)
+
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        resp = await c.post(url, json=body, headers=headers)
+        data = _parse_json_safe(resp, ctx=f"gs-characters uid={uid}")
+    # 若命中风控，加 challenge 重试（米游社"角色接口"对风控非常敏感）
+    if data.get("retcode") in _DEAD_CODES:
+        import sys as _sys
+        print(f"[skill·mihoyo] gs-characters 命中风控 rc={data.get('retcode')}，重试", file=_sys.stderr)
+        extra_headers = dict(headers)
+        extra_headers.update(_CHALLENGE_HEADERS["gs"])
+        extra_headers["DS"] = sign.get_ds_token("", body)
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            resp = await c.post(url, json=body, headers=extra_headers)
+            data = _parse_json_safe(resp, ctx=f"gs-characters retry uid={uid}")
+    return data
+
+
 async def hard_challenge(uid: str, cookie: str, fp: str, device_id: str) -> dict[str, Any]:
     """幽境危战（Stygian Onslaught）。原神 5.6+ 新增副本，用户俗称"璃月深渊"。
 

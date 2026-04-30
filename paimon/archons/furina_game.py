@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from paimon.foundation.irminsul import (
-    Irminsul, MihoyoAbyss, MihoyoAccount, MihoyoGacha, MihoyoNote,
+    Irminsul, MihoyoAbyss, MihoyoAccount, MihoyoCharacter, MihoyoGacha, MihoyoNote,
 )
 
 if TYPE_CHECKING:
@@ -464,6 +464,70 @@ class FurinaGameService:
         await self._ir.mihoyo_abyss_upsert(a, actor="水神")
         return a
 
+    async def collect_gs_characters(self, uid: str) -> int:
+        """原神角色列表抓取 + 入库。返回写入条数。
+
+        米游社返回 `data.avatars: [...]`，每个 avatar 含 id/name/level/actived_constellation_num
+        /element/rarity/weapon/reliquaries/image 等。
+        """
+        acc = await self._ir.mihoyo_account_get("gs", uid)
+        if not acc or not acc.cookie:
+            return 0
+        try:
+            data = await self._run_skill("gs-characters", {
+                "uid": uid, "cookie": acc.cookie, "fp": acc.fp, "device_id": acc.device_id,
+                "character_ids": [],
+            })
+        except Exception as e:
+            logger.warning("[水神·游戏] 原神角色抓取失败 {}: {}", uid, e)
+            return 0
+        rc = data.get("retcode")
+        if rc != 0:
+            logger.warning("[水神·游戏] 原神角色 retcode={} msg={} uid={}",
+                           rc, data.get("message", ""), uid)
+            return 0
+        # 米游社 /character/list 返回的是 `data.list`（不是 `data.avatars`）
+        # 字段名搞错会静默返 0 —— 加 warning 让下次掉这里有痕迹
+        d = data.get("data") or {}
+        avatars = d.get("list") or d.get("avatars") or []
+        if not avatars:
+            logger.warning("[水神·游戏] 原神角色列表为空 uid={} data_keys={}",
+                           uid, list(d.keys()))
+            return 0
+        now_ts = time.time()
+        items: list[MihoyoCharacter] = []
+        for av in avatars:
+            weapon_raw = av.get("weapon") or {}
+            items.append(MihoyoCharacter(
+                game="gs", uid=uid,
+                avatar_id=str(av.get("id", "")),
+                name=str(av.get("name", "")),
+                element=str(av.get("element", "")),   # Anemo / Pyro / 等
+                rarity=int(av.get("rarity", 4) or 4),
+                level=int(av.get("level", 1) or 1),
+                constellation=int(av.get("actived_constellation_num", 0) or 0),
+                fetter=int(av.get("fetter", 0) or 0),
+                weapon={
+                    "name": weapon_raw.get("name", ""),
+                    "level": weapon_raw.get("level", 0),
+                    "affix": weapon_raw.get("affix_level", 0),
+                    "rarity": weapon_raw.get("rarity", 3),
+                    "icon": weapon_raw.get("icon", ""),
+                },
+                relics=[
+                    {"name": r.get("name",""), "pos": r.get("pos_name",""),
+                     "rarity": r.get("rarity",4), "level": r.get("level",0),
+                     "icon": r.get("icon","")}
+                    for r in (av.get("reliquaries") or [])
+                ],
+                icon_url=str(av.get("image", "") or av.get("icon", "")),
+                scan_ts=now_ts,
+                raw=av,
+            ))
+        n = await self._ir.mihoyo_character_upsert(items, actor="水神")
+        logger.info("[水神·游戏] 原神角色入库 gs/{} 共 {} 个", uid, n)
+        return n
+
     async def collect_hard_challenge(self, game: str, uid: str) -> MihoyoAbyss | None:
         """幽境危战（Stygian Onslaught，5.6+）。结构同 role_combat：
         `{data: {data: [期数], is_unlock}}`，每期 `schedule/single.best`。
@@ -850,68 +914,99 @@ class FurinaGameService:
         - 绝区零 zzz：式舆防卫战 + 危局强袭战
         """
         accs = await self._ir.mihoyo_account_list()
-        counts = {"sign": 0, "note": 0, "abyss": 0, "poetry": 0, "stygian": 0,
-                  "sr_fh": 0, "sr_pf": 0, "sr_apc": 0,
-                  "zzz_shiyu": 0, "zzz_mem": 0}
+        counts = self._empty_counts()
         for a in accs:
             if not a.enabled:
                 continue
-            # 签到（所有游戏）
-            try:
-                r = await self.sign_in(a.game, a.uid)
-                if r.get("ok"):
-                    counts["sign"] += 1
-            except Exception as e:
-                logger.warning("[水神·游戏] 签到异常 {}/{}: {}", a.game, a.uid, e)
-            await asyncio.sleep(1.0)
-
-            # 便笺（三游戏统一）
-            try:
-                if await self.collect_daily_note(
-                    a.game, a.uid, march=march, chat_id=chat_id, channel_name=channel_name,
-                ):
-                    counts["note"] += 1
-            except Exception as e:
-                logger.warning("[水神·游戏] 便笺异常 {}/{}: {}", a.game, a.uid, e)
-            await asyncio.sleep(1.0)
-
-            # 分游戏副本采集
-            if a.game == "gs":
-                try:
-                    if await self.collect_abyss(a.game, a.uid): counts["abyss"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 深渊 {}: {}", a.uid, e)
-                await asyncio.sleep(1.0)
-                try:
-                    if await self.collect_poetry(a.game, a.uid): counts["poetry"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 剧诗 {}: {}", a.uid, e)
-                await asyncio.sleep(1.0)
-                try:
-                    if await self.collect_hard_challenge(a.game, a.uid): counts["stygian"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 幽境 {}: {}", a.uid, e)
-            elif a.game == "sr":
-                try:
-                    if await self.collect_sr_forgotten_hall(a.uid): counts["sr_fh"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 忘却之庭 {}: {}", a.uid, e)
-                await asyncio.sleep(1.0)
-                try:
-                    if await self.collect_sr_pure_fiction(a.uid): counts["sr_pf"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 虚构叙事 {}: {}", a.uid, e)
-                await asyncio.sleep(1.0)
-                try:
-                    if await self.collect_sr_apocalyptic(a.uid): counts["sr_apc"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 末日幻影 {}: {}", a.uid, e)
-            elif a.game == "zzz":
-                try:
-                    if await self.collect_zzz_shiyu(a.uid): counts["zzz_shiyu"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 式舆 {}: {}", a.uid, e)
-                await asyncio.sleep(1.0)
-                try:
-                    if await self.collect_zzz_mem(a.uid): counts["zzz_mem"] += 1
-                except Exception as e: logger.warning("[水神·游戏] 危局 {}: {}", a.uid, e)
-            await asyncio.sleep(1.0)
-
+            await self._collect_one_account(a, counts, march=march, chat_id=chat_id, channel_name=channel_name)
         logger.info("[水神·游戏] 定时采集完成 {}", counts)
         return counts
+
+    async def collect_one(
+        self, game: str, uid: str,
+        march: "MarchService | None" = None,
+        chat_id: str = "", channel_name: str = "",
+    ) -> dict[str, Any]:
+        """只采一个账号（WebUI "刷新此账号数据" 按钮用）。复用 _collect_one_account。"""
+        acc = await self._ir.mihoyo_account_get(game, uid)
+        if not acc or not acc.enabled:
+            return {}
+        counts = self._empty_counts()
+        await self._collect_one_account(acc, counts, march=march, chat_id=chat_id, channel_name=channel_name)
+        logger.info("[水神·游戏] 单账号采集完成 {}/{} {}", game, uid, counts)
+        return counts
+
+    @staticmethod
+    def _empty_counts() -> dict[str, int]:
+        return {"sign": 0, "note": 0, "abyss": 0, "poetry": 0, "stygian": 0,
+                "gs_chars": 0,
+                "sr_fh": 0, "sr_pf": 0, "sr_apc": 0,
+                "zzz_shiyu": 0, "zzz_mem": 0}
+
+    async def _collect_one_account(
+        self, a: MihoyoAccount, counts: dict[str, int],
+        *, march: "MarchService | None" = None,
+        chat_id: str = "", channel_name: str = "",
+    ) -> None:
+        """单账号采集逻辑：签到 + 便笺 + 该游戏专属副本/角色。"""
+        # 签到（所有游戏）
+        try:
+            r = await self.sign_in(a.game, a.uid)
+            if r.get("ok"):
+                counts["sign"] += 1
+        except Exception as e:
+            logger.warning("[水神·游戏] 签到异常 {}/{}: {}", a.game, a.uid, e)
+        await asyncio.sleep(1.0)
+
+        # 便笺（三游戏统一）
+        try:
+            if await self.collect_daily_note(
+                a.game, a.uid, march=march, chat_id=chat_id, channel_name=channel_name,
+            ):
+                counts["note"] += 1
+        except Exception as e:
+            logger.warning("[水神·游戏] 便笺异常 {}/{}: {}", a.game, a.uid, e)
+        await asyncio.sleep(1.0)
+
+        # 分游戏副本采集
+        if a.game == "gs":
+            try:
+                if await self.collect_abyss(a.game, a.uid): counts["abyss"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 深渊 {}: {}", a.uid, e)
+            await asyncio.sleep(1.0)
+            try:
+                if await self.collect_poetry(a.game, a.uid): counts["poetry"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 剧诗 {}: {}", a.uid, e)
+            await asyncio.sleep(1.0)
+            try:
+                if await self.collect_hard_challenge(a.game, a.uid): counts["stygian"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 幽境 {}: {}", a.uid, e)
+            await asyncio.sleep(1.0)
+            try:
+                n = await self.collect_gs_characters(a.uid)
+                if n > 0: counts["gs_chars"] += n
+            except Exception as e: logger.warning("[水神·游戏] 角色 {}: {}", a.uid, e)
+        elif a.game == "sr":
+            try:
+                if await self.collect_sr_forgotten_hall(a.uid): counts["sr_fh"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 忘却之庭 {}: {}", a.uid, e)
+            await asyncio.sleep(1.0)
+            try:
+                if await self.collect_sr_pure_fiction(a.uid): counts["sr_pf"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 虚构叙事 {}: {}", a.uid, e)
+            await asyncio.sleep(1.0)
+            try:
+                if await self.collect_sr_apocalyptic(a.uid): counts["sr_apc"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 末日幻影 {}: {}", a.uid, e)
+        elif a.game == "zzz":
+            try:
+                if await self.collect_zzz_shiyu(a.uid): counts["zzz_shiyu"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 式舆 {}: {}", a.uid, e)
+            await asyncio.sleep(1.0)
+            try:
+                if await self.collect_zzz_mem(a.uid): counts["zzz_mem"] += 1
+            except Exception as e: logger.warning("[水神·游戏] 危局 {}: {}", a.uid, e)
+        await asyncio.sleep(1.0)
 
 
 # ============================================================
