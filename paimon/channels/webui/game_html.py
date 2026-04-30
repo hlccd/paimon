@@ -195,17 +195,24 @@ GAME_CSS = """
     }
     .gacha-summary .pity { color: var(--gold); font-weight: 600; font-family: monospace; }
     .gacha-summary .pity.warn { color: var(--status-error); }
+    .gacha-summary .pity.soft { color: #f4d03f; }     /* ≥软保底但未到硬保底 */
     .gacha-summary .sep { color: var(--text-muted); margin: 0 8px; }
-    .gacha-five-list { max-height: 220px; overflow-y: auto; }
+    .gacha-five-list { max-height: 260px; overflow-y: auto; }
     .gfive {
-        display: grid; grid-template-columns: 30px 1fr 70px 100px;
-        gap: 8px; align-items: center; padding: 5px 4px;
+        display: grid; grid-template-columns: 28px 1fr 56px 56px 92px;
+        gap: 6px; align-items: center; padding: 6px 4px;
         font-size: 12px; border-bottom: 1px dashed var(--paimon-border);
     }
     .gfive:last-child { border-bottom: none; }
     .gfive-badge { color: #f4d03f; font-weight: 700; text-align: center; }
     .gfive-name  { color: var(--text-primary); }
-    .gfive-type  { color: var(--text-muted); font-size: 11px; text-align: center; }
+    .gfive-pull  { color: var(--gold); font-family: monospace; text-align: center; }
+    .gfive-pull.lucky { color: var(--status-ok, #4caf50); }     /* ≤30 抽欧皇 */
+    .gfive-pull.heavy { color: var(--status-error); }            /* ≥80 抽接近硬保底 */
+    .gfive-up { font-size: 10px; padding: 1px 0; border-radius: 3px; text-align: center; font-weight: 600; }
+    .gfive-up.on  { background: rgba(76,175,80,.15); color: var(--status-ok, #4caf50); border: 1px solid rgba(76,175,80,.4); }
+    .gfive-up.off { background: rgba(255,152,0,.15); color: #ff9800; border: 1px solid rgba(255,152,0,.4); }
+    .gfive-up.none{ color: var(--text-muted); border: 1px solid var(--paimon-border); }
     .gfive-time  { color: var(--text-muted); font-family: monospace; font-size: 11px; text-align: right; }
     .gacha-sync-row {
         display: flex; justify-content: flex-end; align-items: center;
@@ -514,6 +521,13 @@ GAME_SCRIPT = """
             'gs':  {'301':'角色','302':'武器','200':'常驻','500':'集录'},
             'sr':  {'11':'角色','12':'光锥','1':'常驻','2':'新手'},
             'zzz': {'2':'独家','3':'音擎','1':'常驻','5':'邦布'},
+        };
+        // 单独维护顺序：JS 对纯数字字符串 key 会按数值升序排，Object.keys 拿不到插入顺序
+        // → 渲染必须用这个数组而不是 Object.keys(POOL_LABELS_BY_GAME[a.game])
+        var POOL_ORDER_BY_GAME = {
+            'gs':  ['301', '302', '200', '500'],
+            'sr':  ['11', '12', '1', '2'],
+            'zzz': ['2', '3', '1', '5'],
         };
 
         var _allAccs = [];
@@ -910,7 +924,7 @@ GAME_SCRIPT = """
             var slot = document.getElementById('gacha-'+k);
             if(!slot) return;
             var labels = POOL_LABELS_BY_GAME[a.game] || {};
-            var poolKeys = Object.keys(labels);
+            var poolKeys = POOL_ORDER_BY_GAME[a.game] || [];
             if(poolKeys.length === 0){
                 slot.innerHTML = '<div class="gacha-empty">暂不支持此游戏</div>';
                 return;
@@ -929,28 +943,46 @@ GAME_SCRIPT = """
             var s = d.stats || {total:0};
             var syncBtn = _gachaSyncBtn(a);
             if(!s.total){
+                var emptyHint = a.game === 'sr'
+                    ? '暂无数据，点右下角"URL 导入"（米哈游限制 SR 不能自动同步）'
+                    : '暂无数据，点右下角"同步抽卡"';
                 slot.innerHTML = poolsHtml
-                    + '<div class="gacha-empty">暂无数据，点右下角"同步抽卡"</div>'
+                    + '<div class="gacha-empty">'+emptyHint+'</div>'
                     + syncBtn;
                 _resumeGachaSyncIfRunning(a, slot);
                 return;
             }
-            var pityCls = s.pity_5 >= 70 ? 'warn' : '';
+            var hardPity = s.hard_pity || 90;
+            // 软保底 = 硬保底 × 0.8（GS 角色 73 / 武器 63；近似）
+            var softThreshold = Math.floor(hardPity * 0.8);
+            var pityCls = s.pity_5 >= hardPity - 10 ? 'warn' : (s.pity_5 >= softThreshold ? 'soft' : '');
+            var topName = (a.game === 'zzz') ? 'S 级' : '5 星';
             var fives = (s.fives||[]).slice(0, 30);
             var fivesHtml = fives.length === 0
-                ? '<div class="gacha-empty">此池暂无 5 星</div>'
+                ? '<div class="gacha-empty">此池暂无 '+topName+'</div>'
                 : fives.map(function(f){
+                    var pull = f.pull_count || 0;
+                    var pullCls = pull <= 30 ? 'lucky' : (pull >= softThreshold ? 'heavy' : '');
+                    var upHtml;
+                    if(f.is_up === true){
+                        upHtml = '<span class="gfive-up on" title="UP 出货">UP</span>';
+                    }else if(f.is_up === false){
+                        upHtml = '<span class="gfive-up off" title="出了常驻 = 歪了">歪</span>';
+                    }else{
+                        upHtml = '<span class="gfive-up none" title="此池无 UP 概念">—</span>';
+                    }
                     return '<div class="gfive">'
-                        + '<span class="gfive-badge">★5</span>'
+                        + '<span class="gfive-badge">★</span>'
                         + '<span class="gfive-name">'+esc(f.name)+'</span>'
-                        + '<span class="gfive-type">'+esc(f.item_type||'-')+'</span>'
+                        + '<span class="gfive-pull '+pullCls+'">'+pull+'抽</span>'
+                        + upHtml
                         + '<span class="gfive-time">'+esc((f.time||'').slice(5,16))+'</span>'
                         + '</div>';
                 }).join('');
             slot.innerHTML = poolsHtml
                 + '<div class="gacha-summary">总抽 <span class="pity">'+s.total
-                + '</span><span class="sep">·</span>保底 <span class="pity '+pityCls+'">'+s.pity_5
-                + '</span><span class="sep">·</span>5 星 <span class="pity">'+s.count_5
+                + '</span><span class="sep">·</span>'+topName+'保底 <span class="pity '+pityCls+'">'+s.pity_5+'/'+hardPity
+                + '</span><span class="sep">·</span>已出 '+topName+' <span class="pity">'+s.count_5
                 + '</span><span class="sep">·</span>平均 <span class="pity">'+s.avg_pity_5+'</span></div>'
                 + '<div class="gacha-five-list">'+fivesHtml+'</div>'
                 + syncBtn;

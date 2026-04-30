@@ -103,6 +103,50 @@ class MihoyoGacha:
     raw: dict = field(default_factory=dict)
 
 
+# 三游戏的常驻 5 星名单 —— UP 池里出常驻名字 = "歪了"
+# 米哈游偶尔加新常驻，过期后手动补；一时落后影响不大（顶多 UP 标错）
+PERMANENT_TOP_TIER: dict[str, set[str]] = {
+    "gs": {
+        # 常驻角色（标准池）
+        "迪卢克", "琴", "莫娜", "七七", "刻晴", "提纳里", "迪希雅",
+        # 常驻武器（标准池）
+        "风鹰剑", "天空之刃", "天空之傲",
+        "天空之翼", "阿莫斯之弓",
+        "天空之卷", "四风原典",
+        "天空之脊", "和璞鸢",
+        "狼的末路", "无工之剑",
+    },
+    "sr": {
+        # 常驻 5 星角色
+        "克拉拉", "希儿", "姬子", "布洛妮娅", "瓦尔特",
+        "白露", "彦卿", "杰帕德", "银狼", "符玄",
+        # 常驻 5 星光锥
+        "拂晓之前", "时节不居", "无可取代的东西", "以世界之名", "如泥酣眠",
+        "唯有沉默", "制胜的瞬间", "记一位星神的陨落", "在蓝天之下",
+    },
+    "zzz": {
+        # 常驻 S 级代理人
+        "莱卡恩", "格莉丝", "丽娜", "青衣", "11 号", "莱特", "苍角",
+        # 常驻 S 级音擎（部分）
+        "硫磺石", "燃狱齿轮",
+    },
+}
+
+# UP 池（区分歪/不歪有意义）；常驻/集录/邦布等不区分（is_up=None）
+UP_POOLS: dict[str, set[str]] = {
+    "gs": {"301", "302"},
+    "sr": {"11", "12"},
+    "zzz": {"2", "3"},
+}
+
+# 硬保底上限（角色 90 / 武器 80 等）；查不到走 90 默认
+HARD_PITY: dict[str, dict[str, int]] = {
+    "gs":  {"301": 90, "302": 80, "200": 90, "100": 20, "500": 90},
+    "sr":  {"11": 90, "12": 80, "1": 90, "2": 50},
+    "zzz": {"2": 90, "3": 80, "1": 90, "5": 90},
+}
+
+
 # ============ Repo ============
 
 
@@ -447,7 +491,7 @@ class MihoyoRepo:
         ]
 
     async def gacha_stats(self, game: str, uid: str, gacha_type: str) -> dict[str, Any]:
-        """抽卡统计：总数、最高级数、保底计数、次级数、历次最高级列表。
+        """抽卡统计：总数、最高级数、保底计数、次级数、历次最高级（含每发抽数 + 歪/UP 标记）。
 
         三游戏的 rank 体系不同：GS/SR 最高 5 星、次级 4 星；ZZZ S 级=4、A 级=3。
         以"最高级 / 次级"语义统一，对外字段名仍叫 count_5/pity_5 保持兼容。
@@ -458,31 +502,48 @@ class MihoyoRepo:
         total = len(items_asc)
         top_rank = 4 if game == "zzz" else 5    # ZZZ S 级 = 4
         sec_rank = 3 if game == "zzz" else 4
-        fives = [i for i in items_asc if i.rank_type == top_rank]
-        fours = [i for i in items_asc if i.rank_type == sec_rank]
-        # 大保底：自最后一个最高级之后抽了多少
-        last_five_idx = -1
+
+        is_up_pool = gacha_type in UP_POOLS.get(game, set())
+        permanent = PERMANENT_TOP_TIER.get(game, set())
+
+        # 一次扫描算 fives + pull_count + is_up
+        fives_detail: list[dict[str, Any]] = []
+        last_top_idx = -1
         for idx, it in enumerate(items_asc):
             if it.rank_type == top_rank:
-                last_five_idx = idx
-        pity_5 = total - 1 - last_five_idx if last_five_idx >= 0 else total
-        # 次级保底
+                pull_count = idx - last_top_idx        # 含本次：刚出货的"用了 N 抽"
+                is_up: bool | None = None
+                if is_up_pool and permanent:
+                    # 不在常驻名单 = UP；常驻名单未覆盖到的新角色会被误判为 UP，但实际可控
+                    is_up = it.name not in permanent
+                fives_detail.append({
+                    "name": it.name, "time": it.time, "item_type": it.item_type,
+                    "pull_count": pull_count, "is_up": is_up,
+                })
+                last_top_idx = idx
+        pity_5 = total - 1 - last_top_idx if last_top_idx >= 0 else total
+
         last_four_idx = -1
+        fours_count = 0
         for idx, it in enumerate(items_asc):
             if it.rank_type == sec_rank:
+                fours_count += 1
                 last_four_idx = idx
         pity_4 = total - 1 - last_four_idx if last_four_idx >= 0 else total
+
+        hard_pity = HARD_PITY.get(game, {}).get(gacha_type, 90)
+        fives_count = len(fives_detail)
+
         return {
             "total": total,
-            "count_5": len(fives),
-            "count_4": len(fours),
+            "count_5": fives_count,
+            "count_4": fours_count,
             "pity_5": pity_5,
             "pity_4": pity_4,
-            "avg_pity_5": round(total / len(fives), 1) if fives else 0,
-            "fives": [
-                {"name": f.name, "time": f.time, "item_type": f.item_type}
-                for f in reversed(fives)   # 新 → 旧
-            ],
+            "hard_pity": hard_pity,
+            "avg_pity_5": round(total / fives_count, 1) if fives_count else 0,
+            "is_up_pool": is_up_pool,
+            "fives": list(reversed(fives_detail)),     # 新 → 旧
         }
 
     # ---------- util ----------
