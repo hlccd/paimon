@@ -71,6 +71,31 @@ WEALTH_CSS = """
     .stock-table .score-high { color: var(--status-success); font-weight: 600; }
     .stock-table .score-mid { color: var(--gold); }
     .stock-table .score-low { color: var(--text-muted); }
+    /* hover 行才显示「+ 关注」按钮，避免视觉噪音；色调与 .uw-btn 对齐 */
+    .stock-table td.row-actions { width: 72px; text-align: center; padding: 4px 6px; }
+    .stock-table .addw-btn {
+        opacity: 0; transition: opacity .15s, background .12s, border-color .12s;
+        padding: 3px 12px; font-size: 11px; cursor: pointer;
+        background: rgba(212,175,55,.08);
+        color: var(--gold);
+        border: 1px solid rgba(212,175,55,.4);
+        border-radius: 4px;
+        white-space: nowrap; line-height: 1.5;
+    }
+    /* 默认全部不显示，仅 row hover 时显示（已关注的也不常驻，避免视觉噪音） */
+    .stock-table tbody tr:hover .addw-btn { opacity: 1; }
+    .stock-table .addw-btn:hover {
+        background: rgba(212,175,55,.18);
+        border-color: var(--gold);
+    }
+    .stock-table .addw-btn.added {
+        color: var(--status-success);
+        border-color: rgba(76,175,80,.5);
+        background: rgba(76,175,80,.1);
+        cursor: default;
+    }
+    .stock-table .addw-btn.added:hover { background: rgba(76,175,80,.1); border-color: rgba(76,175,80,.5); }
+    .stock-table .addw-btn:disabled { cursor: not-allowed; }
     .advice { font-size: 12px; color: var(--text-secondary); }
 
     /* 变化事件时间轴 */
@@ -309,22 +334,13 @@ WEALTH_BODY = """
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('recommended',this)">推荐选股</button>
+            <button class="tab-btn active" onclick="switchTab('userWatch',this);loadUserWatchlist();">我的关注</button>
+            <button class="tab-btn" onclick="switchTab('recommended',this)">推荐选股</button>
             <button class="tab-btn" onclick="switchTab('ranking',this)">评分排行</button>
             <button class="tab-btn" onclick="switchTab('changes',this)">变化事件</button>
-            <button class="tab-btn" onclick="switchTab('userWatch',this);loadUserWatchlist();">我的关注</button>
         </div>
 
-        <div id="recommended" class="tab-panel active">
-            <div id="recEl"><div class="empty-state">加载中...</div></div>
-        </div>
-        <div id="ranking" class="tab-panel">
-            <div id="rankEl"><div class="empty-state">加载中...</div></div>
-        </div>
-        <div id="changes" class="tab-panel">
-            <div id="chgEl"><div class="empty-state">加载中...</div></div>
-        </div>
-        <div id="userWatch" class="tab-panel">
+        <div id="userWatch" class="tab-panel active">
             <div class="uw-toolbar">
                 <input id="uwCodeInput" placeholder="股票代码（如 600519）" maxlength="12" />
                 <input id="uwNoteInput" placeholder="备注（可选）" maxlength="50" />
@@ -335,7 +351,16 @@ WEALTH_BODY = """
                 <button class="uw-btn" onclick="uwRefreshAll()" title="立即抓取所有关注股最新数据">立即抓取</button>
                 <button class="uw-btn" onclick="loadUserWatchlist()">刷新</button>
             </div>
-            <div id="uwListEl"><div class="empty-state">点击 tab 后加载关注列表</div></div>
+            <div id="uwListEl"><div class="empty-state">加载中...</div></div>
+        </div>
+        <div id="recommended" class="tab-panel">
+            <div id="recEl"><div class="empty-state">加载中...</div></div>
+        </div>
+        <div id="ranking" class="tab-panel">
+            <div id="rankEl"><div class="empty-state">加载中...</div></div>
+        </div>
+        <div id="changes" class="tab-panel">
+            <div id="chgEl"><div class="empty-state">加载中...</div></div>
         </div>
     </div>
 
@@ -681,9 +706,15 @@ WEALTH_SCRIPT = """
             }
         });
 
-        window.refreshAll=function(){
-            loadStats(); loadRecommended(); loadRanking(); loadChanges();
+        // 已关注 code 的集合，渲染推荐/排名时知道哪些股票已经加入了 → "+ 关注" 按钮直接 added 态
+        var _userWatchCodes = new Set();
+
+        window.refreshAll=async function(){
+            loadStats();
             loadZhongliBulletins(); loadScanScope();
+            // 先 await loadUserWatchlist 拿到 _userWatchCodes，再渲染推荐/排名（已关注的会标 added）
+            await loadUserWatchlist();
+            loadRecommended(); loadRanking(); loadChanges();
             // 历史折叠区按需加载（用户点「查看更多」时才 loadZhongliDigests）
         };
 
@@ -720,6 +751,9 @@ WEALTH_SCRIPT = """
 
         function renderRow(r){
             var dy=(r.dividend_yield||0)*100;
+            var added = _userWatchCodes.has(r.stock_code);
+            var btnCls = 'addw-btn' + (added ? ' added' : '');
+            var btnText = added ? '已关注' : '+ 关注';
             return '<tr onclick="openStock(\\''+esc(r.stock_code)+'\\',\\''+esc(r.stock_name)+'\\')">'
                 + '<td class="code">'+esc(r.stock_code)+'</td>'
                 + '<td>'+esc(r.stock_name)+'</td>'
@@ -730,6 +764,12 @@ WEALTH_SCRIPT = """
                 + '<td class="num">'+fmt(r.pb,2)+'</td>'
                 + '<td class="num">'+fmtCap(r.market_cap)+'</td>'
                 + '<td class="advice">'+esc(r.advice||'')+'</td>'
+                + '<td class="row-actions">'
+                +   '<button class="'+btnCls+'" data-code="'+esc(r.stock_code)+'" '
+                +     'onclick="event.stopPropagation();addToWatchlist(this)" '
+                +     (added ? 'disabled ' : '')
+                +     'title="'+(added?'已在我的关注':'加到我的关注')+'">'+btnText+'</button>'
+                + '</td>'
                 + '</tr>';
         }
 
@@ -739,10 +779,43 @@ WEALTH_SCRIPT = """
                 + '<th>代码</th><th>股票</th><th>行业</th>'
                 + '<th>评分</th><th>股息率</th><th>PE</th><th>PB</th><th>市值</th>'
                 + '<th>建议</th>'
+                + '<th></th>'
                 + '</tr></thead><tbody>'
                 + rows.map(renderRow).join('')
                 + '</tbody></table></div>';
         }
+
+        // 推荐选股 / 排名 → 一键加入"我的关注"，复用人工添加路径（后端会异步抓 5 年历史 + PE/PB 分位 + sparkline）
+        window.addToWatchlist = async function(btn){
+            if(btn.classList.contains('added')) return;   // 已关注态不响应点击
+            var code = btn.dataset.code;
+            btn.disabled = true;
+            var old = btn.textContent;
+            btn.textContent = '...';
+            try{
+                var r = await fetch('/api/wealth/user_watch/add', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    // note 留空（让用户后续自己加备注，不污染语义）；alert_pct 用默认 3.0
+                    body: JSON.stringify({code: code, note: '', alert_pct: 3.0}),
+                });
+                var d = await r.json();
+                // 已在关注列表 → 视觉等价于"已加入"（后端 409 但不算错）
+                if(!d.ok && r.status !== 409){
+                    alert('添加失败: ' + (d.error || 'unknown'));
+                    btn.disabled = false; btn.textContent = old;
+                    return;
+                }
+                _userWatchCodes.add(code);
+                btn.classList.add('added');
+                btn.textContent = '已关注';
+                btn.title = '已在我的关注';
+                // 刷一次"我的关注" tab 让占位行尽快出现
+                if(typeof loadUserWatchlist === 'function') loadUserWatchlist();
+            }catch(e){
+                alert('请求失败: ' + e);
+                btn.disabled = false; btn.textContent = old;
+            }
+        };
 
         async function loadRecommended(){
             var el=document.getElementById('recEl');
@@ -1001,6 +1074,8 @@ WEALTH_SCRIPT = """
                 var r = await fetch('/api/wealth/user_watch');
                 var d = await r.json();
                 var items = d.items || [];
+                // 同步 _userWatchCodes，供推荐/排名渲染时打"已关注"
+                _userWatchCodes = new Set(items.map(function(it){return it.stock_code;}));
                 if(items.length === 0){
                     el.innerHTML = '<div class="empty-state">暂无关注股。输入股票代码添加。</div>';
                     return;
