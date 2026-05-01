@@ -166,6 +166,10 @@ class WebUIChannel(Channel):
         self.app.router.add_post("/api/wealth/user_watch/remove", self.wealth_user_watch_remove_api)
         self.app.router.add_post("/api/wealth/user_watch/update", self.wealth_user_watch_update_api)
         self.app.router.add_post("/api/wealth/user_watch/refresh", self.wealth_user_watch_refresh_api)
+        # 岩神·关注股资讯订阅（隐式订阅，关注股生命周期带）
+        self.app.router.add_get("/api/wealth/stock_subscriptions", self.wealth_stock_subs_list_api)
+        self.app.router.add_post("/api/wealth/stock_subscriptions/{sub_id}/toggle", self.wealth_stock_subs_toggle_api)
+        self.app.router.add_post("/api/wealth/stock_subscriptions/{sub_id}/run", self.wealth_stock_subs_run_api)
         # 水神·游戏
         self.app.router.add_get("/game", self.game_page)
         self.app.router.add_get("/api/game/overview", self.game_overview_api)
@@ -1990,6 +1994,14 @@ class WebUIChannel(Channel):
                 self.state.zhongli.collect_user_watchlist(irminsul)
             )
 
+        # ensure 关注股资讯订阅 + task（异步，不阻塞 add 响应）
+        from paimon.archons.zhongli.zhongli import ensure_stock_subscriptions
+        asyncio.create_task(ensure_stock_subscriptions(
+            irminsul, self.state.march,
+            stock_code=code, stock_name="",  # 后续 collect_user_watchlist 补 stock_name 后下次 ensure 会更新 query
+            chat_id=PUSH_CHAT_ID, channel_name=self.name,
+        ))
+
         return web.json_response({"ok": True, "code": code})
 
     async def wealth_user_watch_remove_api(self, request: web.Request) -> web.Response:
@@ -2005,6 +2017,16 @@ class WebUIChannel(Channel):
         code = self._normalize_stock_code(data.get("code", ""))
         if not code:
             return web.json_response({"ok": False, "error": "股票代码无效"}, status=400)
+        # 先清关注股资讯订阅（订阅+task），再删 watchlist——避免孤儿订阅
+        try:
+            from paimon.archons.zhongli.zhongli import clear_stock_subscriptions
+            await clear_stock_subscriptions(
+                irminsul, self.state.march, stock_code=code,
+            )
+        except Exception as e:
+            logger.warning(
+                "[岩神·关注股订阅] 解绑前 clear 失败 stock={}: {}", code, e,
+            )
         ok = await irminsul.user_watch_remove(code, actor="WebUI")
         return web.json_response({"ok": ok})
 
@@ -2240,6 +2262,98 @@ class WebUIChannel(Channel):
             except Exception as e:
                 logger.exception(
                     "[水神·游戏订阅] 手动触发采集异常 sub={}: {}", sub_id, e,
+                )
+        _asyncio.create_task(_run())
+        return web.json_response({"ok": True, "message": "已触发，稍候刷新"})
+
+    # ===== 岩神·关注股资讯订阅 API（同水神 game_subscriptions_*_api 模式）=====
+
+    async def wealth_stock_subs_list_api(self, request: web.Request) -> web.Response:
+        """列岩神关注股资讯订阅（binding_kind='stock_watch'）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"subs": []})
+        subs = await irminsul.subscription_list_by_binding("stock_watch")
+        venti = self.state.venti
+        out = []
+        for s in subs:
+            item_count = await irminsul.feed_items_count(sub_id=s.id)
+            out.append({
+                "id": s.id,
+                "stock_code": s.binding_id,
+                "query": s.query,
+                "schedule_cron": s.schedule_cron,
+                "enabled": s.enabled,
+                "last_run_at": s.last_run_at,
+                "last_error": s.last_error,
+                "item_count": item_count,
+                "running": bool(venti and venti.is_running(s.id)),
+            })
+        return web.json_response({"subs": out})
+
+    async def wealth_stock_subs_toggle_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        """启停岩神关注股订阅。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"})
+        sub_id = request.match_info["sub_id"]
+        try:
+            data = await request.json()
+            enabled = bool(data.get("enabled"))
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        sub = await irminsul.subscription_get(sub_id)
+        if not sub or sub.binding_kind != "stock_watch":
+            return web.json_response(
+                {"ok": False, "error": "非岩神关注股订阅"}, status=400,
+            )
+        await irminsul.subscription_update(
+            sub_id, actor="WebUI·理财面板", enabled=enabled,
+        )
+        if sub.linked_task_id and self.state.march:
+            try:
+                if enabled:
+                    await self.state.march.resume_task(sub.linked_task_id)
+                else:
+                    await self.state.march.pause_task(sub.linked_task_id)
+            except Exception as e:
+                logger.warning(
+                    "[岩神·关注股订阅] 同步 task 启停失败 sub={}: {}", sub_id, e,
+                )
+        return web.json_response({"ok": True})
+
+    async def wealth_stock_subs_run_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        """立即触发一次岩神关注股资讯采集。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        venti = self.state.venti
+        if not irminsul or not venti:
+            return web.json_response({"ok": False, "error": "依赖未就绪"})
+        sub_id = request.match_info["sub_id"]
+        sub = await irminsul.subscription_get(sub_id)
+        if not sub or sub.binding_kind != "stock_watch":
+            return web.json_response(
+                {"ok": False, "error": "非岩神关注股订阅"}, status=400,
+            )
+        import asyncio as _asyncio
+        async def _run():
+            try:
+                await venti.collect_subscription(
+                    sub_id, irminsul=irminsul,
+                    model=self.state.model, march=self.state.march,
+                )
+            except Exception as e:
+                logger.exception(
+                    "[岩神·关注股订阅] 手动触发采集异常 sub={}: {}", sub_id, e,
                 )
         _asyncio.create_task(_run())
         return web.json_response({"ok": True, "message": "已触发，稍候刷新"})

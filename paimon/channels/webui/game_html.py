@@ -806,6 +806,30 @@ GAME_SCRIPT = """
     <script>
     (function(){
         function esc(s){return s===null||s===undefined?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+        // marked.parse 渲染 + 外部链接（http/https）改 target=_blank rel=noopener
+        // 站内相对链接保持当前页跳转
+        function _renderMdSafe(md){
+            if(typeof marked === 'undefined' || !marked || typeof marked.parse !== 'function'){
+                return '<pre>' + esc(md || '') + '</pre>';
+            }
+            try {
+                var raw = marked.parse(md || '');
+                var div = document.createElement('div');
+                div.innerHTML = raw;
+                var links = div.querySelectorAll('a[href]');
+                for(var i=0; i<links.length; i++){
+                    var href = links[i].getAttribute('href') || '';
+                    if(/^https?:\\/\\//i.test(href)){
+                        links[i].setAttribute('target', '_blank');
+                        links[i].setAttribute('rel', 'noopener noreferrer');
+                    }
+                }
+                return div.innerHTML;
+            } catch(e){
+                return '<pre>' + esc(md || '') + '</pre>';
+            }
+        }
         function fmtRelative(ts){
             if(!ts||ts<=0)return '-';
             var sec = (Date.now()/1000) - ts;
@@ -2153,18 +2177,11 @@ GAME_SCRIPT = """
                 return;
             }
 
-            // 详细：可展开折叠卡片（marked.parse 渲染完整 md）
-            var hasMarked = (typeof marked !== 'undefined' && marked && typeof marked.parse === 'function');
+            // 详细：可展开折叠卡片（marked.parse 渲染完整 md，外部链接 target=_blank）
             var items = pushes.slice(0, 8).map(function(p){
                 var t = _fmtSubTime(p.created_at || p.updated_at);
                 var md = p.message_md || '';
-                var bodyHtml;
-                if(hasMarked){
-                    try { bodyHtml = marked.parse(md); }
-                    catch(e){ bodyHtml = '<pre>' + esc(md) + '</pre>'; }
-                } else {
-                    bodyHtml = '<pre>' + esc(md) + '</pre>';
-                }
+                var bodyHtml = _renderMdSafe(md);
                 return '<div class="news-push-item">'
                     +   '<div class="news-push-head" onclick="this.parentElement.classList.toggle(\\'open\\')">'
                     +     '<span class="news-push-arrow">▶</span>'
@@ -2224,6 +2241,16 @@ GAME_SCRIPT = """
         window.onload = function(){
             loadOverview();
             loadGameSubs();
+            // 全局拦截外部链接（http/https）→ 新标签页打开（兜底所有不走 _renderMdSafe 的入口）
+            document.body.addEventListener('click', function(e){
+                var a = e.target && e.target.closest && e.target.closest('a[href]');
+                if(!a) return;
+                var href = a.getAttribute('href') || '';
+                if(/^https?:\\/\\//i.test(href)){
+                    e.preventDefault();
+                    window.open(href, '_blank', 'noopener,noreferrer');
+                }
+            });
         };
     })();
     </script>

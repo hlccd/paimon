@@ -272,6 +272,11 @@ async def create_app(cfg: Config) -> list[Channel]:
         ensure_mihoyo_subscriptions as _furina_ensure_sub,
     )
     _furina_sub_reg()  # 水神·游戏注册 'mihoyo_game'
+    from paimon.archons.zhongli.zhongli import (
+        register_subscription_types as _zhongli_sub_reg,
+        ensure_stock_subscriptions as _zhongli_ensure_sub,
+    )
+    _zhongli_sub_reg()  # 岩神·关注股注册 'stock_watch'
 
     # 启动时给所有米哈游账号 ensure 游戏资讯订阅（幂等：已存在仅触发迁移逻辑）
     # ensure_mihoyo_subscriptions 内含 task_type 迁移：feed_collect → mihoyo_game_collect
@@ -292,6 +297,24 @@ async def create_app(cfg: Config) -> list[Channel]:
             )
     except Exception as e:
         logger.warning("[水神·游戏订阅·启动 ensure] 失败（不阻塞启动）: {}", e)
+
+    # 启动时给所有关注股 ensure 资讯订阅（同水神模式：幂等 + 防御性 task_type 迁移）
+    try:
+        from paimon.channels.webui.channel import PUSH_CHAT_ID
+        entries = await state.irminsul.user_watch_list()
+        for e in entries:
+            await _zhongli_ensure_sub(
+                state.irminsul, state.march,
+                stock_code=e.stock_code, stock_name=e.stock_name,
+                chat_id=PUSH_CHAT_ID, channel_name="webui",
+            )
+        if entries:
+            logger.info(
+                "[岩神·关注股订阅·启动 ensure] 处理 {} 个股（含 task_type 迁移）",
+                len(entries),
+            )
+    except Exception as e:
+        logger.warning("[岩神·关注股订阅·启动 ensure] 失败（不阻塞启动）: {}", e)
 
     # 岩神·红利股定时任务：默认启用（dividend_auto_enable=True）
     # 单用户自用场景开箱即用；只创建缺失的 cron，不恢复被 /dividend off 过的
