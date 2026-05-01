@@ -93,3 +93,31 @@ class LLMRouteRepo:
                 profile_id, n, actor,
             )
         return n
+
+    async def delete_purpose_overrides_for(
+        self, component: str, *, actor: str,
+    ) -> list[str]:
+        """清空该 component 下所有 'component:purpose' 路由（不动 'component' 自身）。
+
+        面板 cascade 操作用：组级 selector 改值时，把已"独立设置"的 purpose 全部
+        恢复继承新组级值。返回被删 route_key 列表，调用方据此发 leyline 事件。
+        """
+        if not component:
+            return []
+        pattern = component + ":%"
+        async with self._db.execute(
+            "SELECT route_key FROM llm_routes WHERE route_key LIKE ?",
+            (pattern,),
+        ) as cur:
+            keys = [r[0] for r in await cur.fetchall()]
+        if not keys:
+            return []
+        await self._db.execute(
+            "DELETE FROM llm_routes WHERE route_key LIKE ?", (pattern,),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树·LLM 路由] 清空 component={} 下 purpose 路由 {} 条 actor={}",
+            component, len(keys), actor,
+        )
+        return keys

@@ -972,3 +972,10 @@ class Irminsul:
         self, profile_id: str, *, actor: str,
     ) -> int:
         return await self._llm_route.clear_for_profile(profile_id, actor=actor)
+
+    async def llm_route_delete_purpose_overrides(
+        self, component: str, *, actor: str,
+    ) -> list[str]:
+        return await self._llm_route.delete_purpose_overrides_for(
+            component, actor=actor,
+        )

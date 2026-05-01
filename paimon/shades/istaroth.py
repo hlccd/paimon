@@ -388,7 +388,7 @@ async def _build_memory_block(
     last_error = "unknown"
     for attempt in range(1, 4):
         try:
-            raw, usage = await model._stream_text(messages, component="compress", purpose="上下文压缩")
+            raw, usage = await model._stream_text(messages, component="时执", purpose="上下文压缩")
         except Exception as e:
             last_error = f"模型调用失败: {e}"
             logger.warning(
@@ -403,7 +403,7 @@ async def _build_memory_block(
             logger.warning("[时执·压缩] 记忆生成第 {}/3 次结果为空", attempt)
             continue
         await model._record_primogem(
-            session_id, "compress", usage, purpose="上下文压缩",
+            session_id, "时执", usage, purpose="上下文压缩",
         )
         return summary
 
@@ -470,9 +470,9 @@ async def extract_experience(
     ]
 
     try:
-        raw, usage = await model._stream_text(messages, component="extract", purpose="L1 记忆提取")
+        raw, usage = await model._stream_text(messages, component="时执", purpose="L1 记忆提取")
         await model._record_primogem(
-            session.id, "extract", usage, purpose="L1 记忆提取",
+            session.id, "时执", usage, purpose="L1 记忆提取",
         )
     except Exception as e:
         logger.warning("[时执·提取] LLM 调用失败: {}", e)

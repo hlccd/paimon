@@ -134,6 +134,7 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/llm/routes", self.llm_routes_list_api)
         self.app.router.add_post("/api/llm/routes/set", self.llm_route_set_api)
         self.app.router.add_post("/api/llm/routes/delete", self.llm_route_delete_api)
+        self.app.router.add_post("/api/llm/routes/cascade-clear", self.llm_route_cascade_clear_api)
         # 风神·信息流面板
         self.app.router.add_get("/feed", self.feed_page)
         self.app.router.add_get("/api/feed/stats", self.feed_stats_api)
@@ -997,6 +998,16 @@ class WebUIChannel(Channel):
         hits = router.get_hits()  # {route_key: {profile_id, model_name, provider_source, timestamp}}
         from paimon.foundation.model_router import KNOWN_CALLSITES
         default = await irminsul.llm_profile_get_default()
+        # skills：天使段下纯展示用；当前 architecture skill 不直接调 LLM，故面板 disabled
+        skills_list: list[dict] = []
+        try:
+            decls = await irminsul.skill_list(include_orphaned=False)
+            skills_list = [
+                {"name": s.name, "description": (s.description or "")[:100]}
+                for s in decls
+            ]
+        except Exception as e:
+            logger.debug("[神之心·LLM 面板] skill_list 失败: {}", e)
         return web.json_response({
             "routes": routes,
             "callsites": [
@@ -1006,6 +1017,7 @@ class WebUIChannel(Channel):
                 {"id": default.id, "name": default.name} if default else None
             ),
             "hits": hits,
+            "skills": skills_list,
         })
 
     async def llm_route_set_api(self, request: web.Request) -> web.Response:
@@ -1064,6 +1076,35 @@ class WebUIChannel(Channel):
             return web.json_response({"ok": ok})
         except Exception as e:
             logger.error("[神之心·LLM 面板] 删路由异常: {}", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def llm_route_cascade_clear_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        """清空 component 下所有 purpose 级路由（让它们全继承组级）。"""
+        if not self._check_auth(request):
+            return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+        if not self.state.model_router:
+            return web.json_response(
+                {"ok": False, "error": "路由器未就绪"}, status=500,
+            )
+        try:
+            data = await request.json()
+            component = (data.get("component") or "").strip()
+            if not component:
+                return web.json_response(
+                    {"ok": False, "error": "component 必填"}, status=400,
+                )
+            keys = await self.state.model_router.cascade_clear_purposes(
+                component, actor="WebUI",
+            )
+            for k in keys:
+                await self._llm_publish_route_event(k)
+            return web.json_response(
+                {"ok": True, "cleared": keys, "count": len(keys)},
+            )
+        except Exception as e:
+            logger.error("[神之心·LLM 面板] cascade-clear 异常: {}", e)
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
     # ---------- 风神 · 信息流面板 ----------

@@ -57,7 +57,7 @@ class TsaritsaArchon(Archon):
         async for _ in model.chat(
             temp_session, subtask.description,
             tools=tools, tool_executor=executor,
-            component="冰神", purpose="Skill管理",
+            component="冰神", purpose="Skill 汇总",
         ):
             pass
 

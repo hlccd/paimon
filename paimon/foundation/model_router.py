@@ -25,15 +25,30 @@ if TYPE_CHECKING:
 # 面板 "路由配置" Tab 按此渲染行；代码里新增调用点时更新此常量。
 # 动态 purpose（skill_name / check·{stage} / 生执的 2 种）也需在此列齐。
 KNOWN_CALLSITES: list[tuple[str, str]] = [
-    # 系统职能
-    ("march", "定时任务"),
+    # 派蒙 · 主对话
     ("chat", "闲聊"),
     ("paimon", "意图分类"),
-    ("remember", "记忆分类"),
     ("title", "标题生成"),
-    ("compress", "上下文压缩"),
-    ("extract", "L1 记忆提取"),
-    # 七神
+    # 三月 · 定时调度 + 自检
+    ("march", "定时任务"),
+    ("三月·自检", "Deep·code-health"),
+    # 世界树 · 记忆 / 知识库（语义聚合到存储域）
+    ("remember", "记忆分类"),
+    ("reconcile", "JSON 修复"),
+    ("reconcile", "记忆冲突检测"),
+    ("hygiene", "记忆批量整理"),
+    ("kb_remember", "知识分类"),
+    ("kb_remember", "知识冲突检测"),
+    ("kb_hygiene", "知识批量整理"),
+    # 四影 · 流程骨架
+    ("生执", "任务编排"),
+    ("生执", "任务修订编排"),
+    ("死执", "安全审查"),
+    ("死执", "skill 声明审查"),
+    ("时执", "上下文压缩"),
+    ("时执", "L1 记忆提取"),
+    ("空执", "动态路由"),  # 占位：当前 asmoday 不发 LLM；面板标 ⚠ 未接入 router
+    # 七神（嵌四影下）
     ("水神", "评审"),
     ("水神", "check·review_spec"),
     ("水神", "check·review_design"),
@@ -48,14 +63,12 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("风神", "事件日报"),
     ("风神", "事件聚类"),
     ("风神", "事件分析"),
-    ("冰神", "Skill管理"),
+    ("冰神", "Skill 汇总"),
     ("火神", "执行部署"),
     ("岩神", "理财分析"),
-    # 四影
-    ("死执", "安全审查"),
-    ("死执", "skill 声明审查"),
-    ("生执", "任务编排"),
-    ("生执", "任务修订编排"),
+    # 音视频处理（独立 tool；当前用 mimo_key 直连不走 router，面板标 ⚠ 未接入）
+    ("video_process", "音视频分析"),
+    ("audio_process", "音视频分析"),
 ]
 
 KNOWN_COMPONENTS: list[str] = sorted({c for c, _ in KNOWN_CALLSITES})
@@ -110,6 +123,21 @@ class ModelRouter:
         if ok:
             self._routes.pop(route_key, None)
         return ok
+
+    async def cascade_clear_purposes(
+        self, component: str, *, actor: str,
+    ) -> list[str]:
+        """清空 component 下所有 purpose 级路由，让它们全部回退到组件级继承。
+
+        面板组级 selector 改值时配合使用：先 set component 级，再 cascade 清掉
+        子项 override。返回被清空的 route_key 列表（调用方据此发 leyline 事件）。
+        """
+        keys = await self._irminsul.llm_route_delete_purpose_overrides(
+            component, actor=actor,
+        )
+        for k in keys:
+            self._routes.pop(k, None)
+        return keys
 
     def snapshot(self) -> dict[str, str]:
         """返回当前路由表副本（面板展示用）。"""
