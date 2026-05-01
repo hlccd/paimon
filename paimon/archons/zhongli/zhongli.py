@@ -1643,6 +1643,7 @@ def register_task_types() -> None:
         task_type="dividend_scan",
         display_label="岩神理财",
         manager_panel="/wealth",
+        archon="zhongli",
         icon="chart",
         description_builder=_desc,
         anchor_builder=None,  # /wealth 单面板，不需要 anchor

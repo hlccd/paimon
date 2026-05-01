@@ -2598,6 +2598,8 @@ class WebUIChannel(Channel):
                         "description": desc,
                         "jump_url": jump_url,
                         "manager_panel": meta.manager_panel,
+                        "archon": meta.archon,
+                        "archon_name": _tt.archon_name(meta.archon),
                         "editable": False,   # 内部类型统一禁止 /tasks 编辑
                     }
                 else:
@@ -2609,11 +2611,15 @@ class WebUIChannel(Channel):
                         "description": t.source_entity_id or "（未知来源）",
                         "jump_url": "",
                         "manager_panel": "",
+                        "archon": "",
+                        "archon_name": "其他",
                         "editable": False,
                     }
             rows.append(row)
 
-        return web.json_response({"tasks": rows})
+        # archons 排序列表用于前端渲染顺序（key→中文名），未登记的归到「其他」段落
+        archons = [{"key": k, "name": v} for k, v in _tt.ARCHONS.items()]
+        return web.json_response({"tasks": rows, "archons": archons})
 
     async def tasks_complex_list_api(self, request: web.Request) -> web.Response:
         """四影任务列表（docs/interaction.md §四 WebUI tab）。

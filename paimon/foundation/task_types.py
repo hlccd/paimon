@@ -25,6 +25,20 @@ if TYPE_CHECKING:
 # task_type='user' 保留给用户自然语言任务（task_prompt 直接喂 LLM），不需要注册。
 USER_TASK_TYPE = "user"
 
+# 神 → 中文显示名。/tasks「系统任务」tab 外层按神分组渲染，
+# 新增神时在此追加一行；TaskTypeMeta.archon 指向这里的 key。
+ARCHONS: dict[str, str] = {
+    "venti": "风神",
+    "zhongli": "岩神",
+    "furina": "水神",
+    "nahida": "草神",
+}
+
+
+def archon_name(key: str) -> str:
+    """archon key → 中文显示名；未登记的归到「其他」分组。"""
+    return ARCHONS.get(key, "其他")
+
 
 @dataclass(frozen=True)
 class TaskTypeMeta:
@@ -37,6 +51,8 @@ class TaskTypeMeta:
       dispatcher          _on_march_ring 到点触发时调的业务函数
 
     可选：
+      archon              所属神 key（见 ARCHONS）；/tasks 系统任务 tab 据此外层分组。
+                          空 = 未归属，落到「其他」组。
       icon                前端图标 key，如 'rss' / 'chart'
       description_builder 异步构造"本任务在做什么"的人类描述（/tasks 渲染时用）
                           入参 (source_entity_id, irminsul)，返回如 '风神订阅：Claude AI 资讯'
@@ -48,6 +64,7 @@ class TaskTypeMeta:
     display_label: str
     manager_panel: str
     dispatcher: Callable[["ScheduledTask", "State"], Awaitable[None]]
+    archon: str = ""
     icon: str = ""
     description_builder: Callable[[str, "Irminsul"], Awaitable[str]] | None = None
     anchor_builder: Callable[[str], str] | None = None

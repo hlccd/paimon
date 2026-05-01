@@ -1485,6 +1485,7 @@ def register_task_types() -> None:
         task_type="mihoyo_collect",
         display_label="米哈游采集",
         manager_panel="/game",
+        archon="furina",
         icon="gamepad",
         description_builder=_desc,
         anchor_builder=None,

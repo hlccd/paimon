@@ -984,6 +984,7 @@ def register_task_types() -> None:
         task_type="feed_collect",
         display_label="风神订阅",
         manager_panel="/feed",
+        archon="venti",
         icon="rss",
         description_builder=_desc,
         anchor_builder=lambda sid: f"sub-{sid}",

@@ -102,6 +102,72 @@ TASKS_CSS = """
     .task-source-hint a { color: var(--gold); text-decoration: none; }
     .task-source-hint a:hover { text-decoration: underline; }
 
+    /* 系统任务两层分组：外层按神 / 内层按精确分钟 cron */
+    .archon-section {
+        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
+        border-radius: 10px; margin-bottom: 16px; overflow: hidden;
+    }
+    .archon-header {
+        padding: 12px 18px; background: var(--paimon-panel-light);
+        border-bottom: 1px solid var(--paimon-border);
+        display: flex; align-items: center; gap: 10px;
+        cursor: pointer; user-select: none;
+    }
+    .archon-header:hover { background: rgba(245,158,11,.08); }
+    .archon-arrow { color: var(--gold); font-size: 11px; width: 12px; transition: transform .2s; }
+    .archon-section.collapsed .archon-arrow { transform: rotate(-90deg); }
+    .archon-section.collapsed .archon-header { border-bottom-color: transparent; }
+    .archon-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .archon-stat { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+    .archon-body { padding: 12px 18px; display: flex; flex-direction: column; gap: 10px; }
+    .archon-section.collapsed .archon-body { display: none; }
+
+    .time-group-head {
+        padding: 9px 12px; background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border); border-radius: 6px;
+        display: flex; align-items: center; gap: 10px;
+        cursor: pointer; user-select: none; transition: border-color .2s;
+    }
+    .time-group-head:hover { border-color: var(--gold-dark); }
+    .time-group.expanded .time-group-head {
+        border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+        border-color: var(--gold-dark);
+    }
+    .time-group-arrow { color: var(--text-muted); font-size: 10px; width: 10px; transition: transform .2s; }
+    .time-group.expanded .time-group-arrow { transform: rotate(90deg); color: var(--gold); }
+    .time-group-time { font-size: 13px; color: var(--text-primary); font-weight: 500; min-width: 140px; }
+    .time-group-count {
+        font-size: 11px; color: var(--gold);
+        padding: 1px 7px; border-radius: 9px; background: rgba(245,158,11,.15);
+    }
+    .time-group-preview {
+        font-size: 12px; color: var(--text-muted); flex: 1;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .time-group-body {
+        display: none;
+        padding: 12px;
+        border: 1px solid var(--gold-dark); border-top: none;
+        border-radius: 0 0 6px 6px;
+        background: rgba(245,158,11,.03);
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 12px;
+    }
+    .time-group.expanded .time-group-body { display: grid; }
+    .time-group-body .task-card { background: var(--paimon-panel); }
+
+    /* N=1 一行紧凑展示（不折叠） */
+    .time-single {
+        padding: 10px 14px; background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border); border-radius: 6px;
+        display: flex; align-items: center; gap: 12px;
+        cursor: pointer; transition: border-color .2s;
+    }
+    .time-single:hover { border-color: var(--gold-dark); }
+    .time-single.disabled { opacity: .55; }
+    .time-single-time { font-size: 13px; color: var(--text-primary); font-weight: 500; min-width: 140px; }
+    .time-single-desc { font-size: 13px; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
     .empty-state { text-align: center; padding: 80px 20px; color: var(--text-muted); font-size: 14px; }
     .empty-icon { font-size: 48px; margin-bottom: 16px; opacity: .5; }
 
@@ -206,8 +272,23 @@ TASKS_SCRIPT = """
                 if(s>=60)return '每'+Math.round(s/60)+'分钟';
                 return '每'+s+'秒';
             }
-            if(t.trigger_type==='cron')return 'cron: '+(t.trigger_value&&t.trigger_value.expr||'?');
+            if(t.trigger_type==='cron')return fmtCronZh(t.trigger_value&&t.trigger_value.expr||'');
             return t.trigger_type;
+        }
+        // 系统任务时间组用的中文化 cron（仅常见模式；不匹配则透出原 expr）
+        function fmtCronZh(expr){
+            if(!expr) return 'cron: ?';
+            var p=String(expr).trim().split(/\\s+/);
+            if(p.length!==5) return 'cron: '+expr;
+            var m=p[0], h=p[1], dom=p[2], mon=p[3], dow=p[4];
+            if(!/^\\d+$/.test(m) || !/^\\d+$/.test(h)) return 'cron: '+expr;
+            var hh=h.padStart(2,'0'), mm=m.padStart(2,'0'), time=hh+':'+mm;
+            if(dom==='*' && mon==='*' && dow==='*') return '每日 '+time;
+            if(dom==='*' && mon==='*' && dow==='1-5') return '每工作日 '+time;
+            var DOW=['日','一','二','三','四','五','六'];
+            if(dom==='*' && mon==='*' && /^[0-6]$/.test(dow)) return '每周'+DOW[parseInt(dow)]+' '+time;
+            if(/^\\d+$/.test(dom) && mon==='*' && dow==='*') return '每月 '+dom+' 号 '+time;
+            return 'cron: '+expr;
         }
         var STATUS_LABEL={pending:'待处理',running:'进行中',completed:'完成',failed:'失败',rejected:'已拒绝',skipped:'已跳过'};
         var STATUS_BADGE={pending:'badge-pending',running:'badge-running',completed:'badge-completed',failed:'badge-failed',rejected:'badge-rejected',skipped:'badge-pending'};
@@ -269,6 +350,85 @@ TASKS_SCRIPT = """
                 +'</div>';
         }
 
+        // ===== 系统任务两层分组（外层按神 / 内层按精确分钟 cron） =====
+        function groupKeyOf(t){
+            if(t.trigger_type==='cron'){
+                return 'cron:'+(t.trigger_value && t.trigger_value.expr || '?');
+            }
+            return 'tid:'+t.id;  // 非 cron 一任务一组
+        }
+        function renderSingleRow(t, timeLabel){
+            var src=t.source||{};
+            var enabledCls=t.enabled?'':' disabled';
+            var jump=src.jump_url ? ' onclick="window.location=\\''+esc(src.jump_url)+'\\'"' : '';
+            var stopBadge=t.enabled?'':'<span class="task-badge badge-disabled">已停止</span>';
+            var errBadge=t.last_error?'<span class="task-badge badge-failed" title="'+esc(t.last_error.substring(0,200))+'">⚠ 失败</span>':'';
+            return '<div class="time-single'+enabledCls+'"'+jump+'>'
+                +'<span class="time-single-time">'+esc(timeLabel)+'</span>'
+                +'<span class="time-single-desc">'+esc(src.description||src.task_type||'-')+'</span>'
+                +errBadge+stopBadge
+                +'</div>';
+        }
+        function renderTimeGroup(g){
+            var preview=g.tasks.slice(0,3).map(function(t){return (t.source && t.source.description) || '?';}).join(' · ');
+            if(g.tasks.length>3) preview+=' …';
+            var body=g.tasks.map(renderTaskCard).join('');
+            return '<div class="time-group">'
+                +'<div class="time-group-head" onclick="toggleTimeGroup(this)">'
+                +  '<span class="time-group-arrow">▶</span>'
+                +  '<span class="time-group-time">'+esc(g.label)+'</span>'
+                +  '<span class="time-group-count">'+g.tasks.length+' 项</span>'
+                +  '<span class="time-group-preview">'+esc(preview)+'</span>'
+                +'</div>'
+                +'<div class="time-group-body">'+body+'</div>'
+                +'</div>';
+        }
+        function renderSystemGrid(sysTasks, archons){
+            // 1. 桶：archonKey → {name, groups{groupKey→{label,tasks}}, order[groupKey]}
+            var byArchon={};
+            sysTasks.forEach(function(t){
+                var ak=(t.source && t.source.archon)||'';
+                var an=(t.source && t.source.archon_name)||'其他';
+                if(!byArchon[ak]) byArchon[ak]={key:ak, name:an, groups:{}, order:[]};
+                var gk=groupKeyOf(t);
+                if(!byArchon[ak].groups[gk]){
+                    var label=t.trigger_type==='cron'
+                        ? fmtCronZh(t.trigger_value && t.trigger_value.expr || '')
+                        : fmtTrigger(t);
+                    byArchon[ak].groups[gk]={key:gk, label:label, tasks:[]};
+                    byArchon[ak].order.push(gk);
+                }
+                byArchon[ak].groups[gk].tasks.push(t);
+            });
+            // 2. 排序：先按 archons[] 顺序，未登记的归到末尾
+            var ordered=[], seen={};
+            (archons||[]).forEach(function(a){
+                if(byArchon[a.key]){ ordered.push(byArchon[a.key]); seen[a.key]=true; }
+            });
+            Object.keys(byArchon).forEach(function(k){
+                if(!seen[k]) ordered.push(byArchon[k]);
+            });
+            // 3. 渲染
+            return ordered.map(function(arch){
+                var totalGroups=arch.order.length;
+                var totalTasks=arch.order.reduce(function(s,gk){return s+arch.groups[gk].tasks.length;},0);
+                var bodyHtml=arch.order.map(function(gk){
+                    var g=arch.groups[gk];
+                    return g.tasks.length===1 ? renderSingleRow(g.tasks[0], g.label) : renderTimeGroup(g);
+                }).join('');
+                return '<div class="archon-section">'
+                    +'<div class="archon-header" onclick="toggleArchon(this)">'
+                    +  '<span class="archon-arrow">▼</span>'
+                    +  '<span class="archon-name">'+esc(arch.name)+'</span>'
+                    +  '<span class="archon-stat">'+totalGroups+' 组 / '+totalTasks+' 项</span>'
+                    +'</div>'
+                    +'<div class="archon-body">'+bodyHtml+'</div>'
+                    +'</div>';
+            }).join('');
+        }
+        window.toggleArchon=function(el){ el.parentElement.classList.toggle('collapsed'); };
+        window.toggleTimeGroup=function(el){ el.parentElement.classList.toggle('expanded'); };
+
         window.loadTasks=async function(){
             var userEl=document.getElementById('taskGrid');
             var sysEl=document.getElementById('systemGrid');
@@ -296,7 +456,7 @@ TASKS_SCRIPT = """
                 if(!sysTasks.length){
                     sysEl.innerHTML='<div class="empty-state"><div class="empty-icon">&#9881;&#65039;</div>暂无系统任务<br><br>开启订阅推送（/feed 面板）或红利股追踪（/wealth 面板）后，这里会显示由系统代管的周期任务</div>';
                 }else{
-                    sysEl.innerHTML=sysTasks.map(renderTaskCard).join('');
+                    sysEl.innerHTML=renderSystemGrid(sysTasks, data.archons||[]);
                 }
 
                 window._tasksLoaded=true;
