@@ -238,7 +238,11 @@ async def create_app(cfg: Config) -> list[Channel]:
             state.skill_hot_loader = None
 
     # 风神单例（供三月 cron 触发订阅采集；四影管线另走 archon registry 路径）
-    from paimon.archons.venti import VentiArchon, register_task_types as _venti_reg
+    from paimon.archons.venti import (
+        VentiArchon,
+        register_task_types as _venti_reg,
+        register_subscription_types as _venti_sub_reg,
+    )
     state.venti = VentiArchon()
 
     # 岩神单例（红利股追踪 cron 触发；同上）
@@ -259,6 +263,35 @@ async def create_app(cfg: Config) -> list[Channel]:
     _furina_game_reg()
     from paimon.core.memory_classifier import register_task_types as _hygiene_reg
     _hygiene_reg()
+
+    # 订阅类型注册（venti.collect_subscription dispatch 时按 binding_kind 查表）
+    # venti 注册 'manual'（用户手填）；其他 archon 各自实装自己的 binding_kind
+    _venti_sub_reg()
+    from paimon.archons.furina_game import (
+        register_subscription_types as _furina_sub_reg,
+        ensure_mihoyo_subscriptions as _furina_ensure_sub,
+    )
+    _furina_sub_reg()  # 水神·游戏注册 'mihoyo_game'
+
+    # 启动时给所有米哈游账号 ensure 游戏资讯订阅（幂等：已存在仅触发迁移逻辑）
+    # ensure_mihoyo_subscriptions 内含 task_type 迁移：feed_collect → mihoyo_game_collect
+    # 不能 if existing: continue 跳过，否则迁移代码永远跑不到
+    try:
+        from paimon.channels.webui.channel import PUSH_CHAT_ID
+        accs = await state.irminsul.mihoyo_account_list()
+        for acc in accs:
+            await _furina_ensure_sub(
+                state.irminsul, state.march,
+                uid=acc.uid, game=acc.game,
+                chat_id=PUSH_CHAT_ID, channel_name="webui",
+            )
+        if accs:
+            logger.info(
+                "[水神·游戏订阅·启动 ensure] 处理 {} 个账号（含 task_type 迁移）",
+                len(accs),
+            )
+    except Exception as e:
+        logger.warning("[水神·游戏订阅·启动 ensure] 失败（不阻塞启动）: {}", e)
 
     # 岩神·红利股定时任务：默认启用（dividend_auto_enable=True）
     # 单用户自用场景开箱即用；只创建缺失的 cron，不恢复被 /dividend off 过的

@@ -183,6 +183,10 @@ class WebUIChannel(Channel):
         self.app.router.add_get("/api/game/gacha/sync/status", self.game_gacha_sync_status_api)
         self.app.router.add_get("/api/game/gacha/stats", self.game_gacha_stats_api)
         self.app.router.add_get("/api/game/characters", self.game_characters_api)
+        # 水神·游戏资讯订阅（隐式订阅，账号生命周期带）
+        self.app.router.add_get("/api/game/subscriptions", self.game_subscriptions_list_api)
+        self.app.router.add_post("/api/game/subscriptions/{sub_id}/toggle", self.game_subscriptions_toggle_api)
+        self.app.router.add_post("/api/game/subscriptions/{sub_id}/run", self.game_subscriptions_run_api)
         self.app.router.add_post("/api/authz/answer", self.authz_answer_api)
         # 三月·自检面板
         self.app.router.add_get("/selfcheck", self.selfcheck_page)
@@ -1149,7 +1153,9 @@ class WebUIChannel(Channel):
         irminsul = self.state.irminsul
         if not irminsul:
             return web.json_response({"subs": []})
-        subs = await irminsul.subscription_list()
+        # 风神面板只展示用户手填的 manual 订阅；
+        # 业务实体衍生订阅（mihoyo_game / 未来 stock_watch 等）由各自 archon 面板管理
+        subs = await irminsul.subscription_list_by_binding("manual")
         venti = self.state.venti
         out = []
         for s in subs:
@@ -2084,6 +2090,22 @@ class WebUIChannel(Channel):
             )
         except Exception as e:
             return web.json_response({"stat": "Error", "msg": str(e)})
+        # 扫码 confirm 成功后给每个绑定的 (game, uid) ensure 游戏资讯订阅
+        # 业务层（channel）持有 chat_id/channel_name，下沉到 furina_game 辅助函数
+        if r.get("stat") == "Confirmed" and r.get("bound"):
+            from paimon.archons.furina_game import ensure_mihoyo_subscriptions
+            for b in r["bound"]:
+                try:
+                    await ensure_mihoyo_subscriptions(
+                        self.state.irminsul, self.state.march,
+                        uid=b["uid"], game=b["game"],
+                        chat_id=PUSH_CHAT_ID, channel_name=self.name,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[水神·游戏订阅] ensure 失败 game={} uid={}: {}",
+                        b.get("game"), b.get("uid"), e,
+                    )
         return web.json_response(r)
 
     async def game_unbind_api(self, request: web.Request) -> web.Response:
@@ -2100,6 +2122,16 @@ class WebUIChannel(Channel):
         uid = (data.get("uid") or "").strip()
         if game not in ("gs", "sr", "zzz") or not uid:
             return web.json_response({"ok": False, "error": "game/uid 无效"}, status=400)
+        # 先清水神游戏订阅（订阅+ScheduledTask），再删账号——避免孤儿订阅
+        try:
+            from paimon.archons.furina_game import clear_mihoyo_subscriptions
+            await clear_mihoyo_subscriptions(
+                irminsul, self.state.march, uid=uid, game=game,
+            )
+        except Exception as e:
+            logger.warning(
+                "[水神·游戏订阅] 解绑前 clear 失败 game={} uid={}: {}", game, uid, e,
+            )
         ok = await irminsul.mihoyo_account_remove(game, uid, actor="WebUI")
         return web.json_response({"ok": ok})
 
@@ -2114,6 +2146,103 @@ class WebUIChannel(Channel):
             return web.json_response({"ok": False, "msg": "JSON 无效"}, status=400)
         r = await self.state.furina_game.sign_in(data["game"], data["uid"])
         return web.json_response(r)
+
+    # ===== 水神·游戏资讯订阅 API =====
+
+    async def game_subscriptions_list_api(self, request: web.Request) -> web.Response:
+        """列水神游戏资讯订阅（binding_kind='mihoyo_game'）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"subs": []})
+        subs = await irminsul.subscription_list_by_binding("mihoyo_game")
+        venti = self.state.venti  # is_running 用于"采集中..."状态
+        out = []
+        for s in subs:
+            game, _, uid = (s.binding_id or "").partition(":")
+            item_count = await irminsul.feed_items_count(sub_id=s.id)
+            out.append({
+                "id": s.id,
+                "game": game,
+                "uid": uid,
+                "query": s.query,
+                "schedule_cron": s.schedule_cron,
+                "enabled": s.enabled,
+                "last_run_at": s.last_run_at,
+                "last_error": s.last_error,
+                "item_count": item_count,
+                "running": bool(venti and venti.is_running(s.id)),
+            })
+        return web.json_response({"subs": out})
+
+    async def game_subscriptions_toggle_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        """启停水神游戏订阅。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        if not irminsul:
+            return web.json_response({"ok": False, "error": "世界树未就绪"})
+        sub_id = request.match_info["sub_id"]
+        try:
+            data = await request.json()
+            enabled = bool(data.get("enabled"))
+        except Exception:
+            return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+        # 校验是水神订阅，避免越权改 manual
+        sub = await irminsul.subscription_get(sub_id)
+        if not sub or sub.binding_kind != "mihoyo_game":
+            return web.json_response(
+                {"ok": False, "error": "非水神游戏订阅"}, status=400,
+            )
+        await irminsul.subscription_update(
+            sub_id, actor="WebUI·游戏面板", enabled=enabled,
+        )
+        # 同步 march task 的启停（pause/resume）
+        if sub.linked_task_id and self.state.march:
+            try:
+                if enabled:
+                    await self.state.march.resume_task(sub.linked_task_id)
+                else:
+                    await self.state.march.pause_task(sub.linked_task_id)
+            except Exception as e:
+                logger.warning(
+                    "[水神·游戏订阅] 同步 task 启停失败 sub={}: {}", sub_id, e,
+                )
+        return web.json_response({"ok": True})
+
+    async def game_subscriptions_run_api(
+        self, request: web.Request,
+    ) -> web.Response:
+        """立即触发一次水神游戏订阅采集（dispatch 到 venti.collect_subscription）。"""
+        if not self._check_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        irminsul = self.state.irminsul
+        venti = self.state.venti
+        if not irminsul or not venti:
+            return web.json_response({"ok": False, "error": "依赖未就绪"})
+        sub_id = request.match_info["sub_id"]
+        sub = await irminsul.subscription_get(sub_id)
+        if not sub or sub.binding_kind != "mihoyo_game":
+            return web.json_response(
+                {"ok": False, "error": "非水神游戏订阅"}, status=400,
+            )
+        # 后台跑（fire-and-forget）；面板轮询 last_run_at 看进度
+        import asyncio as _asyncio
+        async def _run():
+            try:
+                await venti.collect_subscription(
+                    sub_id, irminsul=irminsul,
+                    model=self.state.model, march=self.state.march,
+                )
+            except Exception as e:
+                logger.exception(
+                    "[水神·游戏订阅] 手动触发采集异常 sub={}: {}", sub_id, e,
+                )
+        _asyncio.create_task(_run())
+        return web.json_response({"ok": True, "message": "已触发，稍候刷新"})
 
     async def game_sign_all_api(self, request: web.Request) -> web.Response:
         if not self._check_auth(request):

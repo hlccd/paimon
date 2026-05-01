@@ -650,6 +650,37 @@ class Irminsul:
     async def subscription_delete(self, sub_id: str, *, actor: str) -> bool:
         return await self._subscription.delete(sub_id, actor=actor)
 
+    async def subscription_list_by_binding(
+        self, binding_kind: str, binding_id: str = "",
+    ) -> list[Subscription]:
+        return await self._subscription.list_by_binding(binding_kind, binding_id)
+
+    async def subscription_ensure_for(
+        self, *,
+        binding_kind: str,
+        binding_id: str,
+        query: str,
+        schedule_cron: str,
+        channel_name: str,
+        chat_id: str,
+        max_items: int = 10,
+        engine: str = "",
+        actor: str,
+    ) -> Subscription:
+        return await self._subscription.ensure_for(
+            binding_kind=binding_kind, binding_id=binding_id,
+            query=query, schedule_cron=schedule_cron,
+            channel_name=channel_name, chat_id=chat_id,
+            max_items=max_items, engine=engine, actor=actor,
+        )
+
+    async def subscription_clear_for(
+        self, binding_kind: str, binding_id: str, *, actor: str,
+    ) -> list[str]:
+        return await self._subscription.clear_for(
+            binding_kind, binding_id, actor=actor,
+        )
+
     async def feed_items_insert(
         self, sub_id: str, items: list[dict], *, actor: str,
     ) -> list[int]:

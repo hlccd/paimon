@@ -34,6 +34,13 @@ class Subscription:
     last_error: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
+    # 业务实体绑定（订阅生命周期改造）：
+    # - binding_kind='manual'：用户在 /feed 手填关键词订阅（默认值，旧数据迁移后归此）
+    # - binding_kind='mihoyo_game'：水神隐式订阅，binding_id='{game}:{uid}'
+    # - 后续可扩 'stock_watch' 等
+    # 命名区别于 ScheduledTask.source_entity_id（那个存 sub_id），避坑同名异义
+    binding_kind: str = "manual"
+    binding_id: str = ""
 
 
 @dataclass
@@ -70,20 +77,22 @@ class SubscriptionRepo:
             "INSERT INTO subscriptions "
             "(id, user_id, query, channel_name, chat_id, schedule_cron, "
             "max_items, engine, enabled, linked_task_id, last_run_at, "
-            "last_error, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "last_error, created_at, updated_at, binding_kind, binding_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 sub.id, sub.user_id, sub.query, sub.channel_name, sub.chat_id,
                 sub.schedule_cron, sub.max_items, sub.engine,
                 1 if sub.enabled else 0, sub.linked_task_id,
                 sub.last_run_at, sub.last_error,
                 sub.created_at, sub.updated_at,
+                sub.binding_kind, sub.binding_id,
             ),
         )
         await self._db.commit()
         logger.info(
-            "[世界树] {}·创建订阅 {} query='{}' cron='{}'",
-            actor, sub.id, sub.query[:30], sub.schedule_cron,
+            "[世界树] {}·创建订阅 {} kind={} binding={} query='{}' cron='{}'",
+            actor, sub.id, sub.binding_kind, sub.binding_id,
+            sub.query[:30], sub.schedule_cron,
         )
         return sub.id
 
@@ -145,6 +154,87 @@ class SubscriptionRepo:
         if deleted:
             logger.info("[世界树] {}·删除订阅 {}", actor, sub_id)
         return deleted
+
+    # ---------- 业务实体绑定（订阅生命周期改造）----------
+
+    async def list_by_binding(
+        self, binding_kind: str, binding_id: str = "",
+    ) -> list[Subscription]:
+        """按 (binding_kind, binding_id) 过滤订阅。binding_id="" 时返该 kind 全部。"""
+        if binding_id:
+            sql = (
+                "SELECT * FROM subscriptions "
+                "WHERE binding_kind = ? AND binding_id = ? "
+                "ORDER BY created_at ASC"
+            )
+            params: tuple = (binding_kind, binding_id)
+        else:
+            sql = (
+                "SELECT * FROM subscriptions "
+                "WHERE binding_kind = ? "
+                "ORDER BY created_at ASC"
+            )
+            params = (binding_kind,)
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_sub(r) for r in rows]
+
+    async def ensure_for(
+        self, *,
+        binding_kind: str,
+        binding_id: str,
+        query: str,
+        schedule_cron: str,
+        channel_name: str,
+        chat_id: str,
+        max_items: int = 10,
+        engine: str = "",
+        actor: str,
+    ) -> Subscription:
+        """幂等：(binding_kind, binding_id) 已存在则更新 query/cron 并返回；不存在则 create。
+
+        archon 业务层在"绑定实体"时调用，比如水神扫码 confirm 后给账号 ensure 游戏资讯订阅。
+        """
+        existing = await self.list_by_binding(binding_kind, binding_id)
+        if existing:
+            sub = existing[0]
+            await self.update(
+                sub.id, actor=actor,
+                query=query, schedule_cron=schedule_cron,
+                channel_name=channel_name, chat_id=chat_id,
+                max_items=max_items, engine=engine,
+            )
+            return await self.get(sub.id) or sub
+        # 不存在，create
+        sub = Subscription(
+            query=query, schedule_cron=schedule_cron,
+            channel_name=channel_name, chat_id=chat_id,
+            max_items=max_items, engine=engine,
+            binding_kind=binding_kind, binding_id=binding_id,
+        )
+        await self.create(sub, actor=actor)
+        return sub
+
+    async def clear_for(
+        self, binding_kind: str, binding_id: str, *, actor: str,
+    ) -> list[str]:
+        """删除该 (binding_kind, binding_id) 下所有订阅。返回被删 sub_id 列表。
+
+        必须循环调 self.delete()——它主动清 feed_items + feed_events，
+        裸 DELETE FROM subscriptions WHERE ... 会因 FK 约束失败。
+        调用方拿到 sub_id 列表后自行清 march 的 ScheduledTask（Repo 不碰 march）。
+        """
+        subs = await self.list_by_binding(binding_kind, binding_id)
+        deleted_ids: list[str] = []
+        for sub in subs:
+            if await self.delete(sub.id, actor=actor):
+                deleted_ids.append(sub.id)
+        if deleted_ids:
+            logger.info(
+                "[世界树] {}·清空绑定订阅 kind={} id={} 共 {} 条",
+                actor, binding_kind, binding_id, len(deleted_ids),
+            )
+        return deleted_ids
 
     # ---------- feed_items ----------
 
@@ -355,6 +445,7 @@ class SubscriptionRepo:
             "schedule_cron", "max_items", "engine", "enabled",
             "linked_task_id", "last_run_at", "last_error",
             "created_at", "updated_at",
+            "binding_kind", "binding_id",
         ]
         d = dict(zip(cols, row))
         d["enabled"] = bool(d["enabled"])

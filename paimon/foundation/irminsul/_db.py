@@ -558,6 +558,10 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("scheduled_tasks", "source_entity_id", "TEXT NOT NULL DEFAULT ''"),
     # 水神·抽卡三游戏化：旧数据全归原神（gs）
     ("mihoyo_gacha", "game", "TEXT NOT NULL DEFAULT 'gs'"),
+    # 订阅生命周期改造：subscription 加业务实体绑定字段（区别于 ScheduledTask.source_entity_id）
+    # binding_kind='manual' 是手填关键词订阅；'mihoyo_game' 是水神隐式订阅；后续可扩 stock_watch 等
+    ("subscriptions", "binding_kind", "TEXT NOT NULL DEFAULT 'manual'"),
+    ("subscriptions", "binding_id",   "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

@@ -557,6 +557,197 @@ GAME_CSS = """
         border: 1px dashed var(--paimon-border);
     }
     .coming-soon .cs-title { color: var(--gold); font-size: 13px; margin-bottom: 6px; }
+
+    /* ========= 📰 游戏资讯订阅（总览卡资讯行 + 详情区完整控件）========= */
+    /* 总览卡资讯行：紧贴账号卡内部，单行显示状态+预览+立即采集 */
+    .ac-news-line {
+        display: grid;
+        grid-template-columns: auto auto 1fr auto;
+        gap: 10px; align-items: center;
+        margin: 0 18px 12px;
+        padding: 6px 10px;
+        background: var(--paimon-bg);
+        border-radius: 6px;
+        border-left: 2px solid var(--paimon-border);
+        font-size: 12px; color: var(--text-secondary);
+        transition: border-color .15s, background .15s;
+    }
+    .ac-news-line.on { border-left-color: var(--status-success); }
+    .ac-news-line.err { border-left-color: var(--status-error); background: rgba(239,68,68,.04); }
+    .ac-news-line.busy {
+        border-left-color: var(--gold);
+        background: rgba(245,158,11,.06);
+    }
+    .ac-news-line.busy .news-toggle {
+        color: var(--gold);
+    }
+    .ac-news-line.busy .news-toggle .dot {
+        background: var(--gold);
+        animation: news-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes news-pulse {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 1; }
+    }
+    .ac-news-line .news-toggle {
+        display: inline-flex; align-items: center; gap: 5px;
+        cursor: pointer; user-select: none;
+        color: var(--text-muted); font-size: 11px;
+    }
+    .ac-news-line .news-toggle .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--text-muted); transition: background .15s;
+    }
+    .ac-news-line.on .news-toggle { color: var(--status-success); }
+    .ac-news-line.on .news-toggle .dot { background: var(--status-success); }
+    .ac-news-line .news-icon { color: var(--gold); font-size: 12px; }
+    .ac-news-line .news-text {
+        color: var(--text-secondary);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        min-width: 0;
+    }
+    .ac-news-line .news-text .meta { color: var(--text-muted); margin-right: 6px; }
+    .ac-news-line .news-text .title { color: var(--text-primary); }
+    .ac-news-line .news-text .err-msg { color: var(--status-error); }
+    .ac-news-line .news-run {
+        padding: 3px 10px; font-size: 11px;
+        background: transparent; color: var(--text-muted);
+        border: 1px solid var(--paimon-border); border-radius: 4px;
+        cursor: pointer; transition: border-color .15s, color .15s;
+    }
+    .ac-news-line .news-run:hover {
+        border-color: var(--gold-dark); color: var(--gold);
+    }
+    .ac-news-line .news-run:disabled { opacity: .5; cursor: progress; }
+
+    /* 详情卡专属：推送列表面板（仅游戏 tab 完整卡有，紧贴 ac-news-line 下方）*/
+    .ac-news-pushes:empty { display: none; }
+    .ac-news-pushes {
+        margin: 0 18px 14px;
+        padding: 10px 14px;
+        background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border);
+        border-radius: 8px;
+    }
+    .news-pushes-head {
+        font-size: 12px; color: var(--text-secondary); font-weight: 600;
+        margin-bottom: 8px;
+    }
+    .news-pushes-list {
+        list-style: none; padding: 0; margin: 0;
+        display: flex; flex-direction: column; gap: 6px;
+    }
+    .news-push-item {
+        padding: 7px 10px;
+        background: var(--paimon-panel);
+        border-left: 2px solid var(--gold-dark);
+        border-radius: 0 4px 4px 0;
+    }
+    .news-push-head {
+        display: flex; align-items: baseline; gap: 8px;
+        margin-bottom: 3px;
+        overflow: hidden;
+    }
+    .news-push-time {
+        font-size: 11px; color: var(--text-muted);
+        font-family: 'SF Mono', Consolas, monospace; flex-shrink: 0;
+    }
+    .news-push-title {
+        font-size: 13px; color: var(--text-primary); font-weight: 500;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        flex: 1; min-width: 0;
+    }
+    /* 折叠交互（div + class.open，不用 native details 避免 md 内容污染） */
+    .news-pushes-hint {
+        font-size: 10px; color: var(--text-muted); font-weight: 400;
+        margin-left: 6px;
+    }
+    .news-push-item .news-push-body { display: none; }
+    .news-push-item.open .news-push-body { display: block; }
+    .news-push-item.open .news-push-head {
+        border-bottom: 1px solid var(--paimon-border);
+        padding-bottom: 6px; margin-bottom: 8px;
+    }
+    .news-push-head {
+        cursor: pointer; user-select: none;
+        display: flex; align-items: baseline; gap: 8px;
+    }
+    .news-push-arrow {
+        color: var(--gold); font-size: 10px;
+        transition: transform .15s;
+        flex-shrink: 0;
+    }
+    .news-push-item.open .news-push-arrow { transform: rotate(90deg); }
+
+    /* 总览汇总形态：极简列表 + 跳详情链接 */
+    .news-pushes-list-summary {
+        list-style: none; padding: 0; margin: 0;
+    }
+    .news-summary-row {
+        display: flex; gap: 10px; align-items: baseline;
+        padding: 4px 0;
+        font-size: 12px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .news-summary-row .news-push-time {
+        color: var(--text-muted); flex-shrink: 0;
+        font-family: 'SF Mono', Consolas, monospace;
+    }
+    .news-summary-row .news-push-title {
+        color: var(--text-primary);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        flex: 1; min-width: 0;
+    }
+    .news-more {
+        margin-top: 6px; padding-top: 6px;
+        border-top: 1px dashed var(--paimon-border);
+        text-align: right;
+    }
+    .news-more-link {
+        font-size: 11px; color: var(--gold); cursor: pointer;
+        user-select: none;
+    }
+    .news-more-link:hover { color: var(--gold-light); text-decoration: underline; }
+
+    /* markdown body 样式（同主聊天面板渲染风格）*/
+    .news-push-body.markdown-body {
+        font-size: 13px; color: var(--text-primary); line-height: 1.6;
+        padding: 6px 4px;
+    }
+    .news-push-body h1, .news-push-body h2, .news-push-body h3,
+    .news-push-body h4, .news-push-body h5, .news-push-body h6 {
+        color: var(--gold); font-weight: 600;
+        margin: 12px 0 6px; line-height: 1.3;
+    }
+    .news-push-body h1 { font-size: 16px; }
+    .news-push-body h2 { font-size: 15px; }
+    .news-push-body h3 { font-size: 14px; }
+    .news-push-body h4, .news-push-body h5, .news-push-body h6 { font-size: 13px; }
+    .news-push-body p { margin: 6px 0; }
+    .news-push-body ul, .news-push-body ol { margin: 6px 0; padding-left: 22px; }
+    .news-push-body li { margin: 2px 0; }
+    .news-push-body a { color: var(--gold-light); text-decoration: underline; }
+    .news-push-body a:hover { color: var(--gold); }
+    .news-push-body code {
+        background: var(--paimon-bg); padding: 1px 5px; border-radius: 3px;
+        font-family: 'SF Mono', Consolas, monospace; font-size: 12px;
+        color: var(--gold-light);
+    }
+    .news-push-body pre {
+        background: var(--paimon-bg); padding: 8px 10px; border-radius: 5px;
+        overflow-x: auto; margin: 6px 0;
+    }
+    .news-push-body pre code {
+        background: transparent; padding: 0; color: var(--text-primary);
+    }
+    .news-push-body blockquote {
+        border-left: 3px solid var(--gold-dark);
+        padding: 2px 10px; margin: 6px 0;
+        color: var(--text-muted);
+    }
+    .news-push-body strong { color: var(--text-primary); font-weight: 600; }
+    .news-push-body hr { border: none; border-top: 1px dashed var(--paimon-border); margin: 10px 0; }
+
 """
 
 
@@ -736,6 +927,8 @@ GAME_SCRIPT = """
             var pane = document.getElementById('tab-'+key);
             if(pane){ pane.classList.add('active'); }
             _fillTab(key);
+            // 切 tab 时同步订阅按钮状态（新渲染的卡可能 hydrate 还没跑过）
+            if(typeof _hydrateSubsBtns === 'function') _hydrateSubsBtns();
         };
 
         function _fillTab(key){
@@ -757,6 +950,8 @@ GAME_SCRIPT = """
                 // 异步填每个账号的战报/抽卡（模拟展开效果）
                 accs.forEach(function(a){ _fillAccountDetail(a); });
             }
+            // 订阅按钮 hydrate（loadGameSubs 拉完后会 hydrate 占位的 ac-subs-btn）
+            if(typeof _hydrateSubsBtns === 'function') _hydrateSubsBtns();
         }
 
         function _renderStatusSub(){
@@ -793,9 +988,17 @@ GAME_SCRIPT = """
                 + '    <button class="ac-toggle" onclick="switchGameTab(\\''+esc(a.game)+'\\')">看详细 →</button>'
                 + '  </div>'
                 + '</div>'
+                + '<div class="ac-news-line" data-news-line-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'">'
+                +   '<span class="news-toggle"><span class="dot"></span>加载中</span>'
+                +   '<span class="news-icon">📰</span>'
+                +   '<span class="news-text"><span class="meta">资讯订阅</span></span>'
+                +   '<button class="news-run" disabled>采集</button>'
+                + '</div>'
+                + '<div class="ac-news-pushes" data-pushes-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'"></div>'
                 + '</div>';
         }
 
+        // 总览只读汇总（_renderSummaryCard 用），游戏 tab 可展开（_renderFullCard 用，data-detailed="1"）
         function _renderFullCard(a){
             // 游戏 tab 用：顶部账号摘要 + 展开的详情区（便笺派遣 / 战报 / 抽卡 / 角色占位）
             var k = keyOf(a);
@@ -818,6 +1021,13 @@ GAME_SCRIPT = """
                 + '    <button class="btn tiny primary" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameSignOne(this)">签到</button>'
                 + '  </div>'
                 + '</div>'
+                + '<div class="ac-news-line" data-news-line-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'">'
+                +   '<span class="news-toggle"><span class="dot"></span>加载中</span>'
+                +   '<span class="news-icon">📰</span>'
+                +   '<span class="news-text"><span class="meta">资讯订阅</span></span>'
+                +   '<button class="news-run" disabled>采集</button>'
+                + '</div>'
+                + '<div class="ac-news-pushes" data-pushes-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" data-detailed="1"></div>'
                 + '<div class="ac-detail open" id="detail-'+esc(k)+'">加载中...</div>'
                 + '</div>';
         }
@@ -1755,7 +1965,266 @@ GAME_SCRIPT = """
             }, 2000);
         };
 
-        window.onload = loadOverview;
+        // ========= 📰 游戏资讯订阅（按钮集成进账号卡，详情区有完整控件 + 推送预览）=========
+        var _subsCache = [];        // 全部 mihoyo_game 订阅
+        var _pushesCache = {};      // {game: [push records]} 按游戏分桶
+
+        function _fmtSubTime(ts){
+            if(!ts) return '从未运行';
+            var d = new Date(ts*1000);
+            return (d.getMonth()+1)+'-'+d.getDate()+' '
+                + d.getHours().toString().padStart(2,'0')+':'
+                + d.getMinutes().toString().padStart(2,'0');
+        }
+
+        function _findSub(game, uid){
+            for(var i=0; i<_subsCache.length; i++){
+                if(_subsCache[i].game === game && _subsCache[i].uid === uid) return _subsCache[i];
+            }
+            return null;
+        }
+
+        // 拉订阅 + 推送数据，刷新 UI；自带递归轮询（同风神 feed_html 模式）：
+        // 有 sub.running 时 2s 后自动再调一次直到全部完成
+        var _subsPollTimer = null;
+        async function loadGameSubs(){
+            try {
+                var r = await fetch('/api/game/subscriptions');
+                var data = await r.json();
+                _subsCache = data.subs || [];
+            } catch(e){ console.error('subs fetch failed', e); _subsCache = []; }
+
+            try {
+                var rp = await fetch('/api/push_archive/list?actor=' + encodeURIComponent('水神') + '&limit=30');
+                var dp = await rp.json();
+                var records = dp.records || [];
+                _pushesCache = { gs: [], sr: [], zzz: [] };
+                records.forEach(function(rec){
+                    // source 形如 '水神·mihoyo_game:gs:113975833'（archon 中文名前缀，不固定位置 0）
+                    var src = rec.source || '';
+                    if(src.indexOf('mihoyo_game:gs:') >= 0) _pushesCache.gs.push(rec);
+                    else if(src.indexOf('mihoyo_game:sr:') >= 0) _pushesCache.sr.push(rec);
+                    else if(src.indexOf('mihoyo_game:zzz:') >= 0) _pushesCache.zzz.push(rec);
+                });
+            } catch(e){ console.error('pushes fetch failed', e); _pushesCache = {}; }
+
+            _hydrateSubsBtns();
+
+            // 有采集中的订阅 → 2s 后自动再刷一次，直到全部完成
+            if(_subsCache.some(function(s){return s.running;})){
+                if(_subsPollTimer) clearTimeout(_subsPollTimer);
+                _subsPollTimer = setTimeout(loadGameSubs, 2000);
+            }
+        }
+
+        // 填充：账号卡资讯行 + 详情区推送面板
+        function _hydrateSubsBtns(){
+            var rows = document.querySelectorAll('.ac-news-line');
+            for(var i=0; i<rows.length; i++){
+                var row = rows[i];
+                _renderNewsLine(row,
+                    row.getAttribute('data-game'),
+                    row.getAttribute('data-uid'));
+            }
+            // 详情卡才有 ac-news-pushes 占位（_renderFullCard 渲染的卡才有）
+            var panels = document.querySelectorAll('.ac-news-pushes');
+            for(var j=0; j<panels.length; j++){
+                var p = panels[j];
+                _renderPushesPanel(p,
+                    p.getAttribute('data-game'),
+                    p.getAttribute('data-uid'));
+            }
+        }
+
+        // 总览资讯行（精简）：状态 toggle + 上次时间·条数 + 立即采集按钮
+        // 不显示推送标题（标题留给详情卡的 ac-news-pushes 面板展示）
+        function _renderNewsLine(row, game, uid){
+            var sub = _findSub(game, uid);
+            var pushes = (_pushesCache[game] || []).filter(function(p){
+                return (p.source || '').indexOf('mihoyo_game:' + game + ':' + uid) >= 0;
+            });
+            row.classList.remove('on', 'err', 'busy');
+
+            // 未就绪：占位
+            if(!sub){
+                row.innerHTML =
+                    '<span class="news-toggle"><span class="dot"></span>加载中</span>'
+                    + '<span class="news-icon">📰</span>'
+                    + '<span class="news-text"><span class="meta">资讯订阅</span></span>'
+                    + '<button class="news-run" disabled>采集</button>';
+                return;
+            }
+
+            // 采集中：优先级最高（正在跑就是正在跑，覆盖启停/失败显示）
+            if(sub.running){
+                row.classList.add('busy');
+                row.innerHTML =
+                    '<label class="news-toggle busy">'
+                    +   '<span class="dot"></span>采集中…'
+                    + '</label>'
+                    + '<span class="news-icon">⏳</span>'
+                    + '<span class="news-text"><span class="meta">任务运行中，稍候自动刷新</span></span>'
+                    + '<button class="news-run" disabled>采集中</button>';
+                return;
+            }
+
+            // 状态色
+            if(sub.last_error) row.classList.add('err');
+            else if(sub.enabled) row.classList.add('on');
+
+            var toggleLabel = sub.enabled ? '运行中' : '已停止';
+            var toggleCls = 'news-toggle' + (sub.enabled ? ' on' : '');
+
+            // 总览精简：仅状态摘要，不带标题
+            var textHtml;
+            if(sub.last_error){
+                textHtml = '<span class="err-msg">⚠ ' + esc(sub.last_error.substring(0, 80)) + '</span>';
+            } else if(pushes.length){
+                var latest = pushes[0];
+                var t = _fmtSubTime(latest.created_at || latest.updated_at);
+                textHtml = '<span class="meta">上次 ' + esc(t) + ' · ' + pushes.length + ' 条今日推送</span>';
+            } else {
+                var stat = sub.last_run_at
+                    ? '上次 ' + _fmtSubTime(sub.last_run_at) + ' · 暂无新资讯'
+                    : '暂无推送 · 每天 7 点采集';
+                textHtml = '<span class="meta">' + esc(stat) + '</span>';
+            }
+
+            row.innerHTML =
+                '<label class="' + toggleCls + '" title="点击启停">'
+                +   '<input type="checkbox" ' + (sub.enabled ? 'checked' : '') + ' '
+                +     'style="display:none">'
+                +   '<span class="dot"></span>' + toggleLabel
+                + '</label>'
+                + '<span class="news-icon">📰</span>'
+                + '<span class="news-text">' + textHtml + '</span>'
+                + '<button class="news-run" title="立即采集一次">采集</button>';
+
+            var subId = sub.id;
+            var label = row.querySelector('.news-toggle');
+            var checkbox = label.querySelector('input');
+            var runBtn = row.querySelector('.news-run');
+            label.onclick = function(e){
+                if(e.target === checkbox) return;
+                checkbox.checked = !checkbox.checked;
+                toggleGameSub(checkbox, subId);
+            };
+            runBtn.onclick = function(){
+                runBtn.disabled = true;
+                runBtn.textContent = '采集中…';
+                runGameSub(subId, runBtn);
+            };
+        }
+
+        // 推送面板：holder.dataset.detailed='1' = 游戏 tab 完整版（可展开看完整 md）
+        // 否则 = 总览只读汇总（仅标题列表 + 跳转链接）
+        function _renderPushesPanel(holder, game, uid){
+            var pushes = (_pushesCache[game] || []).filter(function(p){
+                return (p.source || '').indexOf('mihoyo_game:' + game + ':' + uid) >= 0;
+            });
+            if(!pushes.length){
+                holder.innerHTML = '';  // 没推送时整段隐藏
+                return;
+            }
+            var detailed = holder.getAttribute('data-detailed') === '1';
+
+            // 提取每条的标题（首个非空行去 md 标记）
+            function _summary(md){
+                var firstLine = (md || '').split('\\n').filter(function(L){return L.trim();})[0] || '';
+                return firstLine.replace(/^[#*\\-\\s>]+/, '').substring(0, 80) || '(空标题)';
+            }
+
+            // 总览：只读汇总列表 + 跳详情
+            if(!detailed){
+                var rows = pushes.slice(0, 5).map(function(p){
+                    var t = _fmtSubTime(p.created_at || p.updated_at);
+                    return '<li class="news-summary-row">'
+                        + '<span class="news-push-time">' + esc(t) + '</span>'
+                        + '<span class="news-push-title">' + esc(_summary(p.message_md)) + '</span>'
+                        + '</li>';
+                }).join('');
+                var more = pushes.length > 5
+                    ? '<a class="news-more-link" onclick="switchGameTab(\\''+esc(game)+'\\')">查看全部 '+pushes.length+' 条 →</a>'
+                    : '<a class="news-more-link" onclick="switchGameTab(\\''+esc(game)+'\\')">进游戏页看完整内容 →</a>';
+                holder.innerHTML =
+                    '<div class="news-pushes-head">📰 今日推送 · ' + pushes.length + ' 条</div>'
+                    + '<ul class="news-pushes-list news-pushes-list-summary">' + rows + '</ul>'
+                    + '<div class="news-more">' + more + '</div>';
+                return;
+            }
+
+            // 详细：可展开折叠卡片（marked.parse 渲染完整 md）
+            var hasMarked = (typeof marked !== 'undefined' && marked && typeof marked.parse === 'function');
+            var items = pushes.slice(0, 8).map(function(p){
+                var t = _fmtSubTime(p.created_at || p.updated_at);
+                var md = p.message_md || '';
+                var bodyHtml;
+                if(hasMarked){
+                    try { bodyHtml = marked.parse(md); }
+                    catch(e){ bodyHtml = '<pre>' + esc(md) + '</pre>'; }
+                } else {
+                    bodyHtml = '<pre>' + esc(md) + '</pre>';
+                }
+                return '<div class="news-push-item">'
+                    +   '<div class="news-push-head" onclick="this.parentElement.classList.toggle(\\'open\\')">'
+                    +     '<span class="news-push-arrow">▶</span>'
+                    +     '<span class="news-push-time">' + esc(t) + '</span>'
+                    +     '<span class="news-push-title">' + esc(_summary(md)) + '</span>'
+                    +   '</div>'
+                    +   '<div class="news-push-body markdown-body">' + bodyHtml + '</div>'
+                    + '</div>';
+            }).join('');
+            holder.innerHTML =
+                '<div class="news-pushes-head">📰 今日推送 · ' + pushes.length + ' 条 <span class="news-pushes-hint">点击单条展开</span></div>'
+                + '<div class="news-pushes-list">' + items + '</div>';
+        }
+
+
+        window.toggleGameSub = async function(checkbox, subId){
+            var enabled = checkbox.checked;
+            try {
+                var r = await fetch('/api/game/subscriptions/'+encodeURIComponent(subId)+'/toggle', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({enabled: enabled}),
+                });
+                var d = await r.json();
+                if(!d.ok){
+                    alert('切换失败: '+(d.error||'unknown'));
+                    checkbox.checked = !enabled;
+                } else {
+                    loadGameSubs();
+                }
+            } catch(e){
+                alert('请求失败: '+e.message);
+                checkbox.checked = !enabled;
+            }
+        };
+
+        window.runGameSub = async function(subId, btn){
+            // btn 文字已由 _renderNewsLine 的 onclick 提前置为"采集中…"
+            try {
+                var r = await fetch('/api/game/subscriptions/'+encodeURIComponent(subId)+'/run', {method:'POST'});
+                var d = await r.json();
+                if(!d.ok){
+                    alert('触发失败: '+(d.error||'unknown'));
+                    if(btn){ btn.disabled = false; btn.textContent = '采集'; }
+                    return;
+                }
+            } catch(e){
+                alert('请求失败: '+e.message);
+                if(btn){ btn.disabled = false; btn.textContent = '采集'; }
+                return;
+            }
+            // loadGameSubs 自带递归轮询：检测到 sub.running 会 setTimeout(loadGameSubs, 2000)
+            // 直到 running=false 自然停（同风神 feed_html.py 模式）
+            await loadGameSubs();
+        };
+
+        // 入口：loadOverview + loadGameSubs 并行
+        window.onload = function(){
+            loadOverview();
+            loadGameSubs();
+        };
     })();
     </script>
 """
@@ -1769,6 +2238,8 @@ def build_game_html() -> str:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Paimon - 游戏</title>
+    <!-- 推送内容用 markdown 渲染（同主聊天面板） -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>"""
         + THEME_COLORS
         + BASE_CSS

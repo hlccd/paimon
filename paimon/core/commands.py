@@ -532,6 +532,9 @@ async def create_subscription(
         chat_id=chat_id,
         schedule_cron=cron,
         engine=engine,
+        # /subscribe 命令永远建 manual 订阅；业务衍生订阅走 archon ensure_for
+        binding_kind="manual",
+        binding_id="",
     )
     sub_id = await state.irminsul.subscription_create(sub, actor="派蒙")
 
