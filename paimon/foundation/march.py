@@ -168,12 +168,13 @@ class MarchService:
         self._running = False
 
     async def _poll(self) -> None:
+        from paimon.foundation.bg import bg
         now = time.time()
         due_tasks = await self._irminsul.schedule_list_due(now)
         for task in due_tasks:
             if task.id in self._running_tasks:
                 continue
-            asyncio.create_task(self._fire_task(task))
+            bg(self._fire_task(task), label=f"march·{task.task_type}·{task.id[:8]}")
 
         # 时执生命周期清扫（独立 task 运行，不阻塞轮询）
         self._maybe_trigger_lifecycle_sweep(now)
@@ -196,7 +197,8 @@ class MarchService:
             return
 
         self._last_lifecycle_sweep = now
-        asyncio.create_task(self._run_lifecycle_sweep(now))
+        from paimon.foundation.bg import bg
+        bg(self._run_lifecycle_sweep(now), label="march·生命周期清扫")
 
     async def _run_lifecycle_sweep(self, now: float) -> None:
         """调时执 run_lifecycle_sweep；整条链路失败只记 log 不抛。"""

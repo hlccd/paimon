@@ -559,13 +559,13 @@ async def create_subscription(
     # 首次采集：创建即跑一次，免等 cron（复用手动「运行」按钮链路）
     # fire-and-forget：不阻塞 API 返回，失败落 last_error，空跑走占位公告
     if state.venti and sub.enabled:
-        import asyncio as _asyncio
-        _asyncio.create_task(state.venti.collect_subscription(
+        from paimon.foundation.bg import bg
+        bg(state.venti.collect_subscription(
             sub_id,
             irminsul=state.irminsul,
             model=state.model,
             march=state.march,
-        ))
+        ), label=f"venti·订阅采集·{sub_id[:8]}·首次")
 
     task = await state.irminsul.schedule_get(task_id)
     import time as _time
@@ -707,10 +707,10 @@ async def cmd_subs(ctx: CommandContext) -> str:
         if not state.venti:
             return "风神未初始化"
         # 后台异步跑，不阻塞指令返回
-        import asyncio as _asyncio
-        _asyncio.create_task(state.venti.collect_subscription(
+        from paimon.foundation.bg import bg
+        bg(state.venti.collect_subscription(
             sub.id, irminsul=state.irminsul, model=state.model, march=state.march,
-        ))
+        ), label=f"venti·订阅采集·{sub.id[:8]}·手动")
         return f"已手动触发采集 #{sub.id[:8]} ({sub.query})，稍后查看推送"
 
     return f"未知子命令: {action}。可用: list / rm / on / off / run"
@@ -846,14 +846,14 @@ async def cmd_dividend(ctx: CommandContext) -> str:
             return "三月未就绪"
         if state.zhongli.is_scanning():
             return "已有扫描在进行，请等待完成后再触发"
-        import asyncio as _asyncio
-        _asyncio.create_task(state.zhongli.collect_dividend(
+        from paimon.foundation.bg import bg
+        bg(state.zhongli.collect_dividend(
             mode=mode,
             irminsul=state.irminsul,
             march=state.march,
             chat_id=ctx.msg.chat_id,
             channel_name=ctx.msg.channel_name,
-        ))
+        ), label=f"zhongli·红利股·{mode}")
         hint = {
             "full": "约 15-20 分钟",
             "daily": "约 30-60 秒",

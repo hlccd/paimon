@@ -115,6 +115,10 @@ CHAT_HTML = (
             overflow-y: auto;
             padding: 24px;
         }
+        /* 每个 session 一个独立的 pane，currentSession 的 display=block，
+           其他 display=none。让 A 在 streaming 时切到 B 不会丢 A 的 typing chunk。 */
+        .session-pane { display: none; }
+        .session-pane.active { display: block; }
         .message {
             margin-bottom: 24px;
             animation: fadeIn .3s ease-in;
@@ -282,9 +286,29 @@ CHAT_HTML = (
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         let currentSession = 'default';
-        let isWaitingResponse = false;
-        // 权限询问挂起标记：true 时允许输入答复，sendMessage 走 /api/authz/answer
-        let pendingAuthzAsk = false;
+        // 多会话并发支持：每个 session 独立的 pending 状态。
+        // 之前是单一全局 isWaitingResponse 锁导致 A 在跑时不能在 B 发新消息；
+        // 现在按 session id 跟踪，A/B 各自独立 streaming 互不影响。
+        const waitingSessions = new Set();
+        const pendingAuthzAskSessions = new Set();
+        // 工具：取/创建一个 session 的 messages pane
+        function getSessionPane(sid) {
+            const container = document.getElementById('messagesContainer');
+            let pane = container.querySelector('.session-pane[data-sid="' + sid + '"]');
+            if (!pane) {
+                pane = document.createElement('div');
+                pane.className = 'session-pane';
+                pane.dataset.sid = sid;
+                container.appendChild(pane);
+            }
+            return pane;
+        }
+        function showSessionPane(sid) {
+            const container = document.getElementById('messagesContainer');
+            container.querySelectorAll('.session-pane').forEach(function(p) {
+                p.classList.toggle('active', p.dataset.sid === sid);
+            });
+        }
         // 推送长连接（/api/push）与未读计数
         let pushSource = null;
         let unreadPushCount = 0;
@@ -366,16 +390,24 @@ CHAT_HTML = (
             if (sessionId === PUSH_SESSION_ID) {
                 unreadPushCount = 0;
             }
-            document.getElementById('messagesContainer').innerHTML = '';
+            // 每个 session 独立 pane：切 session 时仅切显示，不动其他 pane 的 DOM
+            const pane = getSessionPane(sessionId);
+            showSessionPane(sessionId);
             loadSessions();
             updateInputMode();
+            // streaming 中的 session 不重新拉历史（避免覆盖正在 stream 的 typing 气泡）
+            // 仅未 streaming 时才清空 + fetch
+            const isStreaming = waitingSessions.has(sessionId);
             try {
                 const resp = await fetch('/api/sessions/' + sessionId + '/messages');
                 const data = await resp.json();
                 document.getElementById('chatTitle').textContent = data.name || sessionId;
-                (data.messages || []).forEach(function(m) {
-                    appendMessage(m.role, m.content);
-                });
+                if (!isStreaming) {
+                    pane.innerHTML = '';
+                    (data.messages || []).forEach(function(m) {
+                        appendMessage(m.role, m.content, sessionId);
+                    });
+                }
             } catch (e) {
                 document.getElementById('chatTitle').textContent = sessionId;
             }
@@ -434,9 +466,14 @@ CHAT_HTML = (
             if (!confirm('确定删除会话「' + name + '」？')) return;
             try {
                 await fetch('/api/sessions/' + sessionId + '/delete', { method: 'POST' });
+                // 清掉对应 pane（无论是否当前会话）
+                const oldPane = document.querySelector('.session-pane[data-sid="' + sessionId + '"]');
+                if (oldPane) oldPane.remove();
+                waitingSessions.delete(sessionId);
+                pendingAuthzAskSessions.delete(sessionId);
                 if (currentSession === sessionId) {
                     currentSession = 'default';
-                    document.getElementById('messagesContainer').innerHTML = '';
+                    showSessionPane('default');
                     document.getElementById('chatTitle').textContent = '新对话';
                 }
                 loadSessions();
@@ -460,44 +497,50 @@ CHAT_HTML = (
         async function sendMessage() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
-            // 允许在"挂起权限询问"时发送答复；否则 isWaitingResponse 阻断
-            if (!message || (isWaitingResponse && !pendingAuthzAsk)) return;
+            // 锁定本次请求归属的 session：发起后用户切走，DOM 操作仍要落到这个 session 的 pane
+            const reqSession = currentSession;
+            // per-session 状态：当前 session 在 streaming 且无挂起权限询问 → 拒绝；
+            // 其他 session 在 streaming 不影响当前 session 发送。
+            if (!message ||
+                (waitingSessions.has(reqSession) && !pendingAuthzAskSessions.has(reqSession))) {
+                return;
+            }
 
             // 答复权限询问走专用端点：不创建新的 typing bubble（原 SSE 流会继续写）
-            if (pendingAuthzAsk) {
-                pendingAuthzAsk = false;
-                appendMessage('user', message);
+            if (pendingAuthzAskSessions.has(reqSession)) {
+                pendingAuthzAskSessions.delete(reqSession);
+                appendMessage('user', message, reqSession);
                 input.value = '';
                 input.style.height = 'auto';
-                updateStatus('处理中…');
+                if (currentSession === reqSession) updateStatus('处理中…');
                 try {
                     const resp = await fetch('/api/authz/answer', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ session_id: currentSession, answer: message })
+                        body: JSON.stringify({ session_id: reqSession, answer: message })
                     });
                     if (!resp.ok) {
                         const err = await resp.json().catch(() => ({}));
-                        appendMessage('assistant', '⚠️ ' + (err.error || '权限询问已关闭，请稍后重试'));
-                        isWaitingResponse = false;
-                        updateStatus('就绪');
+                        appendMessage('assistant', '⚠️ ' + (err.error || '权限询问已关闭，请稍后重试'), reqSession);
+                        waitingSessions.delete(reqSession);
+                        if (currentSession === reqSession) updateStatus('就绪');
                     }
                 } catch (e) {
                     console.error('权限答复发送失败:', e);
-                    appendMessage('assistant', '⚠️ 答复发送失败: ' + e.message);
-                    isWaitingResponse = false;
-                    updateStatus('就绪');
+                    appendMessage('assistant', '⚠️ 答复发送失败: ' + e.message, reqSession);
+                    waitingSessions.delete(reqSession);
+                    if (currentSession === reqSession) updateStatus('就绪');
                 }
                 return;
             }
 
-            appendMessage('user', message);
+            appendMessage('user', message, reqSession);
             input.value = '';
             input.style.height = 'auto';
 
-            isWaitingResponse = true;
-            updateStatus('思考中…');
-            let typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
+            waitingSessions.add(reqSession);
+            if (currentSession === reqSession) updateStatus('思考中…');
+            let typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>', reqSession);
             // 权限询问后需要另起气泡：true 时下一条 message 会新建 typingMsg + 重置 fullResponse
             let needNewBubble = false;
             // watchdog thinking 只用一个元素，后来的覆盖前面的（avoid "还在忙/还在忙/还在忙" 堆积）
@@ -507,7 +550,7 @@ CHAT_HTML = (
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: message, session_id: currentSession })
+                    body: JSON.stringify({ message: message, session_id: reqSession })
                 });
 
                 if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -532,14 +575,14 @@ CHAT_HTML = (
                                 if (data.type === 'message') {
                                     // 权限询问之后的首个 message chunk：新建气泡，让派蒙新回复独立显示
                                     if (needNewBubble) {
-                                        typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
+                                        typingMsg = appendMessage('assistant', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>', reqSession);
                                         fullResponse = '';
                                         needNewBubble = false;
                                         lastThinkingEl = null;
                                     }
                                     fullResponse += (data.content || '');
                                     typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
-                                    scrollToBottom();
+                                    if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'notice') {
                                     // 中间状态提示（ack/milestone/tool/thinking/done_recap）
                                     // 渲染为浅灰小字独立元素，插到 typing 占位气泡之前
@@ -551,15 +594,16 @@ CHAT_HTML = (
                                         const noticeEl = document.createElement('div');
                                         noticeEl.className = 'notice' + (kind === 'thinking' ? ' thinking' : '');
                                         noticeEl.textContent = content;
-                                        const container = document.getElementById('messagesContainer');
-                                        if (typingMsg && typingMsg.parentNode === container) {
-                                            container.insertBefore(noticeEl, typingMsg);
+                                        // 路由到 reqSession 对应的 pane（用户切走了也写在原 pane）
+                                        const pane = getSessionPane(reqSession);
+                                        if (typingMsg && typingMsg.parentNode === pane) {
+                                            pane.insertBefore(noticeEl, typingMsg);
                                         } else {
-                                            container.appendChild(noticeEl);
+                                            pane.appendChild(noticeEl);
                                         }
                                         if (kind === 'thinking') lastThinkingEl = noticeEl;
                                     }
-                                    scrollToBottom();
+                                    if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'question') {
                                     // 权限/魔女会询问作为独立气泡。
                                     // 若当前气泡已有正文（例如天使已回了一段再触发魔女会询问），
@@ -568,19 +612,19 @@ CHAT_HTML = (
                                         '\\n\\n*直接在下方输入回复即可。默认 30 秒无答复视为拒绝。*';
                                     if (fullResponse) {
                                         // 封存已有内容的气泡，新建一个独立气泡放询问
-                                        typingMsg = appendMessage('assistant', '');
+                                        typingMsg = appendMessage('assistant', '', reqSession);
                                         fullResponse = '';
                                         lastThinkingEl = null;
                                     }
                                     typingMsg.querySelector('.message-content').innerHTML = marked.parse(q);
-                                    pendingAuthzAsk = true;
+                                    pendingAuthzAskSessions.add(reqSession);
                                     // 用户答复后的下一条 message 仍需新起气泡（同意后的派蒙回复独立）
                                     needNewBubble = true;
-                                    updateStatus('等你答复…');
-                                    scrollToBottom();
+                                    if (currentSession === reqSession) updateStatus('等你答复…');
+                                    if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'done') {
-                                    isWaitingResponse = false;
-                                    updateStatus('就绪');
+                                    waitingSessions.delete(reqSession);
+                                    if (currentSession === reqSession) updateStatus('就绪');
                                     // 防御：若整个请求期间都没收到 message 事件（极端情况，
                                     // 如四影 prepare 失败 + reply_text 为空，或服务端异常），
                                     // typing 占位气泡从未被正文替换 → 移除避免底部残留空动画。
@@ -592,30 +636,36 @@ CHAT_HTML = (
                                         }
                                     }
                                     loadSessions();
-                                    scrollToBottom();
+                                    if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'error') {
                                     fullResponse += '\\n\\n> ' + (data.content || '未知错误');
                                     typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
-                                    isWaitingResponse = false;
-                                    updateStatus('就绪');
+                                    waitingSessions.delete(reqSession);
+                                    if (currentSession === reqSession) updateStatus('就绪');
                                 }
                             } catch (e) { }
                         }
                     }
                 }
 
-                if (isWaitingResponse) { isWaitingResponse = false; updateStatus('就绪'); }
+                if (waitingSessions.has(reqSession)) {
+                    waitingSessions.delete(reqSession);
+                    if (currentSession === reqSession) updateStatus('就绪');
+                }
 
             } catch (err) {
                 console.error('发送消息失败:', err);
-                typingMsg.querySelector('.message-content').textContent = '连接失败: ' + err.message;
-                isWaitingResponse = false;
-                updateStatus('就绪');
+                if (typingMsg) typingMsg.querySelector('.message-content').textContent = '连接失败: ' + err.message;
+                waitingSessions.delete(reqSession);
+                if (currentSession === reqSession) updateStatus('就绪');
             }
         }
 
-        function appendMessage(role, content) {
-            const container = document.getElementById('messagesContainer');
+        function appendMessage(role, content, sid) {
+            // 第三参数 sid 默认 currentSession；多会话并发时，sendMessage 内部会显式传
+            // 入 reqSession 让消息落到正确 pane（即便用户已切走该 session）。
+            const targetSid = sid || currentSession;
+            const container = getSessionPane(targetSid);
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message ' + role;
 
@@ -631,7 +681,8 @@ CHAT_HTML = (
                 + '<div class="message-content">' + (role === 'user' ? content : marked.parse(content)) + '</div>';
 
             container.appendChild(msgDiv);
-            scrollToBottom();
+            // 仅当目标 session 是当前显示的才 scroll（否则 scroll 当前 session 的内容会让用户困惑）
+            if (targetSid === currentSession) scrollToBottom();
             return msgDiv;
         }
 

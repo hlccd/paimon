@@ -182,11 +182,15 @@ class SkillHotLoader:
             _, old_timer = self._pending[skill_dir]
             old_timer.cancel()
 
+        from paimon.foundation.bg import bg
         loop = asyncio.get_running_loop()
         # delete 事件即使之前有 create/modify 挂起，也优先 delete（文件没了）
         timer = loop.call_later(
             _DEBOUNCE_MS / 1000.0,
-            lambda: asyncio.create_task(self._dispatch(skill_dir, event_type)),
+            lambda: bg(
+                self._dispatch(skill_dir, event_type),
+                label=f"watcher·{event_type}·{skill_dir}",
+            ),
         )
         self._pending[skill_dir] = (event_type, timer)
 

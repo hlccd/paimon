@@ -77,6 +77,22 @@
     - 绝区零：S 级 0.6%（硬保底 90），A 级 9%，S 级角色"信号"小保底 50%
     - UI：设定池子/已有保底进度 → 模拟抽 N 次 → 展示历次出货、平均出金抽数、小保底命中率
 
+- [ ] **用户帮助/教程体系** —— 当前 [`/help`](../paimon/core/commands.py) 是硬编码 plain text 列 22 个命令名，无场景/示例/分组；docs/ 全是开发者文档无新手 onboarding；WebUI 无引导界面入口；skill 隐式触发（如输入 `bilibili.com` 自动走 bili）用户不知道
+  - **二级 `/help`**：`/help <cmd>` 显示子命令详情 + 典型例子（如 `/help dividend` 列 9 个子动作含 cron 写法）；实现：`@command` 装饰器接 `description` + `usage_examples` 字段，`/help` 自动 reflect 而非硬编码
+  - **`/help` 分组+排序**：按 会话管理 / 任务 / 订阅 / 理财 / 记忆 / 系统 分组列，常用前置；当前 22 行平铺密度过高
+  - **WebUI 新手引导**：首次空对话显示 welcome card（4-5 个按钮例子：发"你好" / 输入 b 站链接 / `/task` 写代码 / 红利股查询 / `/remember`）；输入框旁加 "?" 图标点开帮助 modal
+  - **docs/getting-started.md**：用户视角的"30 分钟上手"，5 个典型场景配 GIF/截图（闲聊 / b 站 / 红利股 / 定时提醒 / `/task` 复杂任务）
+  - **隐式 skill 触发提示**：intent 命中 skill 时 UI 显示 "🎯 走 X skill — 因为消息含 trigger Y"（[`intent.py`](../paimon/core/intent.py) 已 logger.info，UI 未展示）
+  - **`paimon --tutorial` CLI**：交互式上手教程入口（用 ascii art 引导走完 5 个场景）
+
+- [ ] **四影执行时长优化** —— 复杂任务（`/task`）当前从死执到时执串行 LLM 调用，单次跑分钟级；用户感知慢
+  - **管线阶段并发**：死执 review（仅看用户原文） + 草神 起草 spec.md（同样仅需原文）可并发，等齐后再进生执 plan；当前 [`shades/pipeline.py`](../paimon/shades/pipeline.py) 是死执→草神 串行 ~10s
+  - **review-revise 回合压缩**：草→雷→水多轮迭代上限 [`shades_max_rounds=3`](../paimon/config.py#L91)，但 LLM 经常 1 轮就过；可加"水神高置信通过"早停规则避免无意义多跑
+  - **轻量验证用浅层模型**：死执"明显安全"路径用 shallow LLM（flash 级），仅疑似危险升级到 deep；当前 [`shades/jonova.py`](../paimon/shades/jonova.py) 都走 deep
+  - **prompt cache 命中率**：[`archons/base.py`](../paimon/archons/base.py) feedback 注入已稳态排序（按 created_at ASC），但 system prompt 主体仍每次 from scratch；改用模板化稳定前缀 → 后缀变量段，让 Anthropic / DeepSeek 缓存命中
+  - **空执流水线化**：[`shades/asmoday.py`](../paimon/shades/asmoday.py) 同层 gather 已并发但层间严格串行；可流水线（前层未全完，下层无依赖节点开始）— 实现复杂度高，先不做
+  - **可观测性**：每段 LLM 调用 elapsed/tokens 已部分入 [`primogem`](../paimon/foundation/primogem.py)，[`tasks_html.py`](../paimon/channels/webui/tasks_html.py) 加四影执行甘特图方便定位瓶颈
+
 ## 2. 技术选型层面
 
 - [ ] **异常日志落盘方案** —— [`log.py`](../paimon/log.py) 全文 25 行，只 `logger.add(sys.stderr, ...)` + 可选 `logger.add(paimon.log, 10MB rotation / 7 天 retention, level=DEBUG)`，全 level 混合、无独立 error-only handler / 无结构化异常归档 / 无 error 专属路径。待定：加 error 专属 file handler，或接外部聚合（Sentry 之类）

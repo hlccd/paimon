@@ -296,10 +296,7 @@ async def enter_shades_pipeline_background(
         except Exception as e:
             logger.warning("[派蒙·四影] 推 summary 失败: {}", e)
 
-    def _track_bg_task(t: asyncio.Task) -> None:
-        """fire-and-forget task 挂全局 set 防 GC；done 时自己 discard。"""
-        state.pending_bg_tasks.add(t)
-        t.add_done_callback(state.pending_bg_tasks.discard)
+    from paimon.foundation.bg import bg
 
     if reply_for_notice.streaming:
         # 流式渠道：同步等 execute，拿 final 交给外层走正文。
@@ -342,7 +339,7 @@ async def enter_shades_pipeline_background(
             logger.info(
                 "[派蒙·四影] SSE 断开 task={}，execute 继续后台完成", task_id[:8],
             )
-            _track_bg_task(asyncio.create_task(_finalize_after_disconnect()))
+            bg(_finalize_after_disconnect(), label=f"shades·finalize·{task_id[:8]}")
             raise
         except Exception as e:
             logger.exception("[派蒙·四影] execute 异常 task={}: {}", task_id, e)
@@ -374,7 +371,7 @@ async def enter_shades_pipeline_background(
             (final or "(无产物)")[:5000],
         )
 
-    _track_bg_task(asyncio.create_task(_bg()))
+    bg(_bg(), label=f"shades·qq_bg·{task_id[:8]}")
     # QQ 路径 return 空串，外层不再 reply.send 正文 hint（信息已在 🚀 milestone 里）。
     return ""
 
@@ -849,12 +846,31 @@ async def handle_chat(
 
     user_msgs = [m for m in session.messages if m.get("role") == "user"]
     if len(user_msgs) == 1 and session.name.startswith("s-"):
-        logger.debug("[派蒙·对话] 自动生成标题 {}", session.id)
-        title = await model.generate_title(user_msgs[0]["content"], session_id=session.id)
-        if title:
-            session.name = title
+        logger.debug("[派蒙·对话] 自动生成标题 {}（后台）", session.id)
+        # fire-and-forget：title 生成 LLM 调用 10-20s，若 await 会阻塞 SSE 'done'
+        # 帧 → 浏览器 fetch streaming 不结束 → 用户切会话发新消息会被 lock。
+        # 改为 bg 后台跑，主响应立即返回，标题完成后再写入 session.name。
+        user_text = user_msgs[0]["content"]
+
+        async def _generate_title_bg() -> None:
+            try:
+                t = await model.generate_title(user_text, session_id=session.id)
+            except Exception as e:
+                logger.warning("[派蒙·对话] 标题生成失败 {}: {}", session.id[:8], e)
+                return
+            if not t:
+                return
+            # race 防护：用户可能在标题生成期间 /delete 该会话；
+            # 不能让 bg 路径"复活"已删除的会话条目。
+            if session.id not in session_mgr.sessions:
+                logger.debug("[派蒙·对话] 标题生成完但会话已删 {}", session.id[:8])
+                return
+            session.name = t
             session_mgr.save_session(session)
-            logger.info("[派蒙·对话] 会话{}标题: {}", session.id, title)
+            logger.info("[派蒙·对话] 会话{}标题: {}", session.id, t)
+
+        from paimon.foundation.bg import bg
+        bg(_generate_title_bg(), label=f"chat·title·{session.id[:8]}")
 
 
 async def _build_system_prompt(

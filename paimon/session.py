@@ -107,13 +107,14 @@ class SessionManager:
     def save_session(self, s: Session) -> None:
         """同步入口：旧代码大量使用。内部 schedule 异步落盘任务。"""
         import asyncio
+        from paimon.foundation.bg import bg
         s.updated_at = time.time()
         # 先更新内存
         self.sessions[s.id] = s
         # 异步触发落盘（不阻塞调用方）
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._save(s))
+            asyncio.get_running_loop()
+            bg(self._save(s), label=f"session·save·{s.id[:8]}")
         except RuntimeError:
             # 无运行中事件循环（不应该发生在派蒙业务代码中）
             asyncio.run(self._save(s))
@@ -162,6 +163,7 @@ class SessionManager:
 
     def delete(self, sid: str) -> None:
         import asyncio
+        from paimon.foundation.bg import bg
         if sid in self.sessions:
             s = self.sessions.pop(sid)
             # 清除绑定
@@ -170,8 +172,8 @@ class SessionManager:
                 del self.bindings[k]
             # 异步落盘：从世界树删除
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._irminsul.session_delete(sid, actor="派蒙"))
+                asyncio.get_running_loop()
+                bg(self._irminsul.session_delete(sid, actor="派蒙"), label=f"session·delete·{sid[:8]}")
             except RuntimeError:
                 asyncio.run(self._irminsul.session_delete(sid, actor="派蒙"))
             logger.info("[派蒙·会话] 已删除会话: {}", sid)

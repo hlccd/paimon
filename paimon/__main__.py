@@ -1,4 +1,5 @@
 import asyncio
+import signal
 import sys
 import time
 
@@ -12,8 +13,30 @@ _RESTART_WINDOW = 300
 _RESTART_DELAY = 5
 
 
+def _install_signal_handlers() -> None:
+    """Windows 下让 CTRL_BREAK_EVENT / SIGTERM 也走 KeyboardInterrupt 路径。
+
+    默认 Python 在 Windows 仅对 CTRL_C 抛 KeyboardInterrupt；
+    SIGBREAK / SIGTERM 默认是直接终止进程，**finally 块不会执行**。
+    Windows 服务管理器（NSSM / SCM）和子进程包装器通常发 SIGBREAK 来停服务，
+    显式注册让 paimon 走完 shutdown_pending + cleanup 路径，避免数据残缺。
+    """
+    def _raise_kbd(sig, frame):
+        raise KeyboardInterrupt()
+
+    # SIGBREAK 仅 Windows 有；SIGTERM 跨平台
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _raise_kbd)
+    try:
+        signal.signal(signal.SIGTERM, _raise_kbd)
+    except (ValueError, OSError):
+        # 某些环境下（如已有 handler）会失败，忽略
+        pass
+
+
 async def main():
     setup_logging(debug=config.debug, log_dir=config.paimon_home)
+    _install_signal_handlers()
 
     try:
         channels = await create_app(config)
@@ -36,6 +59,14 @@ async def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # 先等所有 fire-and-forget 后台任务完成（最多 10s），避免 bg 写库时
+        # irminsul.close 截断造成数据残缺。详见 paimon/foundation/bg.py。
+        try:
+            from paimon.foundation.bg import shutdown_pending
+            await shutdown_pending(timeout=10.0)
+        except Exception as e:
+            print(f"[三月·守护] bg 任务清理异常: {e}", file=sys.stderr)
+
         for name, cleanup in [
             ("冰神·watcher", lambda: state.skill_hot_loader.stop() if state.skill_hot_loader else None),
             ("三月", lambda: state.march.stop() if state.march else None),

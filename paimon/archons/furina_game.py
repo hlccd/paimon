@@ -1189,7 +1189,8 @@ class FurinaGameService:
             "started_at": time.time(),
         }
         logger.info("[水神·游戏] 抽卡同步启动 {}/{}（stoken）", game, uid)
-        asyncio.create_task(self._gacha_sync_worker(uid, game, key))
+        from paimon.foundation.bg import bg
+        bg(self._gacha_sync_worker(uid, game, key), label=f"furina·gacha·stoken·{game}·{uid}")
         return {"ok": True}
 
     async def start_gacha_sync_from_url(
@@ -1214,9 +1215,10 @@ class FurinaGameService:
             "[水神·游戏] 抽卡同步启动 {}/{}（URL 导入）  authkey_len={} is_os={}",
             game, uid, len(authkey), is_os,
         )
-        asyncio.create_task(self._gacha_sync_worker(
+        from paimon.foundation.bg import bg
+        bg(self._gacha_sync_worker(
             uid, game, key, override_authkey=authkey, override_is_os=is_os,
-        ))
+        ), label=f"furina·gacha·url·{game}·{uid}")
         return {"ok": True}
 
     async def _gacha_sync_worker(
@@ -1343,7 +1345,8 @@ class FurinaGameService:
             "started_at": time.time(),
         }
         logger.info("[水神·游戏] 单账号采集启动 {}/{}", game, uid)
-        asyncio.create_task(self._collect_worker(game, uid, key))
+        from paimon.foundation.bg import bg
+        bg(self._collect_worker(game, uid, key), label=f"furina·collect·{game}·{uid}")
         return {"ok": True}
 
     async def _collect_worker(self, game: str, uid: str, key: str) -> None:

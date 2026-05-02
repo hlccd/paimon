@@ -155,14 +155,14 @@ class DividendTool(BaseTool):
             }[action]
             channel_name = ctx.channel.name if ctx.channel else "webui"
 
-            import asyncio as _asyncio
-            _asyncio.create_task(zhongli.collect_dividend(
+            from paimon.foundation.bg import bg
+            bg(zhongli.collect_dividend(
                 mode=mode,
                 irminsul=irminsul,
                 march=state.march,
                 chat_id=ctx.chat_id,
                 channel_name=channel_name,
-            ))
+            ), label=f"zhongli·红利股·{mode}·tool")
             hint = {
                 "full": "全市场扫描约 15-20 分钟，完成后会自动推送报告",
                 "daily": "watchlist 日更约 30-60 秒，完成后自动推送",

@@ -13,6 +13,7 @@ from aiohttp import web
 from loguru import logger
 
 from paimon.channels.base import Channel, ChannelReply, IncomingMessage
+from paimon.foundation.bg import bg
 
 if TYPE_CHECKING:
     from paimon.state import RuntimeState
@@ -400,8 +401,7 @@ class WebUIChannel(Channel):
             return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
 
         # fire-and-forget 后台跑；前端用 status 轮询
-        import asyncio as _asyncio
-        _asyncio.create_task(run_hygiene(irminsul, model, trigger="manual"))
+        bg(run_hygiene(irminsul, model, trigger="manual"), label="草神·记忆整理·手动")
         return web.json_response({"ok": True, "started": True})
 
     async def knowledge_memory_hygiene_status_api(self, request: web.Request) -> web.Response:
@@ -620,8 +620,7 @@ class WebUIChannel(Channel):
         model = self.state.model
         if not irminsul or not model:
             return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
-        import asyncio as _asyncio
-        _asyncio.create_task(run_kb_hygiene(irminsul, model, trigger="manual"))
+        bg(run_kb_hygiene(irminsul, model, trigger="manual"), label="草神·知识库整理·手动")
         return web.json_response({"ok": True, "started": True})
 
     async def knowledge_kb_hygiene_status_api(self, request: web.Request) -> web.Response:
@@ -1272,12 +1271,12 @@ class WebUIChannel(Channel):
         sub = await self.state.irminsul.subscription_get(sub_id)
         if not sub:
             return web.json_response({"ok": False, "error": "订阅不存在"}, status=404)
-        asyncio.create_task(self.state.venti.collect_subscription(
+        bg(self.state.venti.collect_subscription(
             sub_id,
             irminsul=self.state.irminsul,
             model=self.state.model,
             march=self.state.march,
-        ))
+        ), label=f"venti·订阅采集·{sub_id[:8]}·webui")
         return web.json_response({"ok": True})
 
     async def feed_items_api(self, request: web.Request) -> web.Response:
@@ -1878,13 +1877,13 @@ class WebUIChannel(Channel):
                 status=409,
             )
 
-        asyncio.create_task(self.state.zhongli.collect_dividend(
+        bg(self.state.zhongli.collect_dividend(
             mode=mode,
             irminsul=self.state.irminsul,
             march=self.state.march,
             chat_id=PUSH_CHAT_ID,   # 同文件顶部的常量
             channel_name=self.name,
-        ))
+        ), label=f"zhongli·红利股·{mode}·webui")
         return web.json_response({"ok": True, "mode": mode})
 
     # ---------- 用户关注股（user_watchlist）----------
@@ -1990,17 +1989,18 @@ class WebUIChannel(Channel):
 
         # 首次添加后异步补抓 3 年历史 + 最新快照（不阻塞请求）
         if self.state.zhongli:
-            asyncio.create_task(
-                self.state.zhongli.collect_user_watchlist(irminsul)
+            bg(
+                self.state.zhongli.collect_user_watchlist(irminsul),
+                label=f"zhongli·关注股·补抓·{code}",
             )
 
         # ensure 关注股资讯订阅 + task（异步，不阻塞 add 响应）
         from paimon.archons.zhongli.zhongli import ensure_stock_subscriptions
-        asyncio.create_task(ensure_stock_subscriptions(
+        bg(ensure_stock_subscriptions(
             irminsul, self.state.march,
             stock_code=code, stock_name="",  # 后续 collect_user_watchlist 补 stock_name 后下次 ensure 会更新 query
             chat_id=PUSH_CHAT_ID, channel_name=self.name,
-        ))
+        ), label=f"zhongli·股票订阅·ensure·{code}")
 
         return web.json_response({"ok": True, "code": code})
 
@@ -2065,8 +2065,9 @@ class WebUIChannel(Channel):
             return web.json_response({"error": "Unauthorized"}, status=401)
         if not self.state.zhongli or not self.state.irminsul:
             return web.json_response({"ok": False, "error": "岩神/世界树未就绪"}, status=500)
-        asyncio.create_task(
-            self.state.zhongli.collect_user_watchlist(self.state.irminsul)
+        bg(
+            self.state.zhongli.collect_user_watchlist(self.state.irminsul),
+            label="zhongli·关注股·手动刷新",
         )
         return web.json_response({"ok": True})
 
@@ -2252,7 +2253,7 @@ class WebUIChannel(Channel):
                 {"ok": False, "error": "非水神游戏订阅"}, status=400,
             )
         # 后台跑（fire-and-forget）；面板轮询 last_run_at 看进度
-        import asyncio as _asyncio
+        # bg() 会在异常时自动 logger.exception，但保留内层 try 保持原日志标签
         async def _run():
             try:
                 await venti.collect_subscription(
@@ -2263,7 +2264,7 @@ class WebUIChannel(Channel):
                 logger.exception(
                     "[水神·游戏订阅] 手动触发采集异常 sub={}: {}", sub_id, e,
                 )
-        _asyncio.create_task(_run())
+        bg(_run(), label=f"venti·游戏订阅采集·{sub_id[:8]}·webui")
         return web.json_response({"ok": True, "message": "已触发，稍候刷新"})
 
     # ===== 岩神·关注股资讯订阅 API（同水神 game_subscriptions_*_api 模式）=====
@@ -2344,7 +2345,6 @@ class WebUIChannel(Channel):
             return web.json_response(
                 {"ok": False, "error": "非岩神关注股订阅"}, status=400,
             )
-        import asyncio as _asyncio
         async def _run():
             try:
                 await venti.collect_subscription(
@@ -2355,7 +2355,7 @@ class WebUIChannel(Channel):
                 logger.exception(
                     "[岩神·关注股订阅] 手动触发采集异常 sub={}: {}", sub_id, e,
                 )
-        _asyncio.create_task(_run())
+        bg(_run(), label=f"venti·关注股订阅采集·{sub_id[:8]}·webui")
         return web.json_response({"ok": True, "message": "已触发，稍候刷新"})
 
     async def game_sign_all_api(self, request: web.Request) -> web.Response:
@@ -2402,10 +2402,10 @@ class WebUIChannel(Channel):
         if not self.state.furina_game:
             return web.json_response({"ok": False, "msg": "水神未就绪"})
         # 异步跑（通常 10~30s，不等它）
-        asyncio.create_task(self.state.furina_game.collect_all(
+        bg(self.state.furina_game.collect_all(
             march=self.state.march,
             chat_id=PUSH_CHAT_ID, channel_name=self.name,
-        ))
+        ), label="furina·游戏全量采集·webui")
         return web.json_response({"ok": True})
 
     async def game_abyss_latest_api(self, request: web.Request) -> web.Response:

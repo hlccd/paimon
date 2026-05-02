@@ -211,11 +211,11 @@ class SubscribeTool(BaseTool):
         if action == "run":
             if not state.venti:
                 return "风神未就绪"
-            import asyncio as _asyncio
-            _asyncio.create_task(state.venti.collect_subscription(
+            from paimon.foundation.bg import bg
+            bg(state.venti.collect_subscription(
                 sub.id,
                 irminsul=state.irminsul, model=state.model, march=march,
-            ))
+            ), label=f"venti·订阅采集·{sub.id[:8]}·tool")
             return f"已手动触发 #{sub.id[:8]} ({sub.query})，稍后查看推送"
 
         if action == "pause":
