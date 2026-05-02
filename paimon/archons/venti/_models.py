@@ -31,8 +31,9 @@ if TYPE_CHECKING:
     from paimon.foundation.march import MarchService
 
 # web-search skill 脚本路径（文件存在则订阅能力可用；不存在仅告警不阻塞启动）
+# 路径：paimon/archons/venti/_models.py → 上 4 级到项目根 → skills/web-search/search.py
 _SKILL_SEARCH_PY = (
-    Path(__file__).resolve().parent.parent.parent / "skills" / "web-search" / "search.py"
+    Path(__file__).resolve().parent.parent.parent.parent / "skills" / "web-search" / "search.py"
 )
 
 # subprocess 超时：双引擎并发 + 反爬偶发慢，默认 60s

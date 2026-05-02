@@ -24,8 +24,9 @@ if TYPE_CHECKING:
     from paimon.foundation.march import MarchService
 
 
+# 路径：paimon/archons/furina_game/service.py → 上 4 级到项目根 → skills/mihoyo/main.py
 _SKILL_MIHOYO = (
-    Path(__file__).resolve().parent.parent.parent / "skills" / "mihoyo" / "main.py"
+    Path(__file__).resolve().parent.parent.parent.parent / "skills" / "mihoyo" / "main.py"
 )
 
 # 便笺抓取常量
