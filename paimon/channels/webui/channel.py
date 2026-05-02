@@ -113,11 +113,6 @@ class WebUIChannel(Channel):
 
 
 
-    @staticmethod
-
-    @staticmethod
-
-    @staticmethod
 
 
 
@@ -176,7 +171,6 @@ class WebUIChannel(Channel):
 
     # ---------- 用户关注股（user_watchlist）----------
 
-    @staticmethod
 
 
 
