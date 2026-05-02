@@ -1,73 +1,34 @@
-"""
-三月 (March) — 守护与定时调度服务
+"""三月调度服务核心：MarchService 类（poll / fire / 任务管理 / 响铃 delegator）。
 
-核心约束（来自架构文档）：
-- 三月不直接对用户发消息，一切通过派蒙（走地脉 march.ring）
-- 三月不自己运行 LLM，需要 LLM 时转发给派蒙处理
-- 三月是唯一响铃入口
+事件响铃实现拆到 _ring.py（148 行），通用 helper 拆到 _helpers.py，避免单文件超 500。
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from paimon.foundation.irminsul.schedule import ScheduledTask
+
+from ._helpers import (
+    MAX_FAILURES,
+    MIN_INTERVAL,
+    RING_EVENT_MAX_PER_WINDOW,
+    RING_EVENT_WINDOW_SECONDS,
+    _cron_next,
+)
+
 if TYPE_CHECKING:
     from paimon.foundation.irminsul import Irminsul
     from paimon.foundation.leyline import Leyline
 
-from paimon.foundation.irminsul.schedule import ScheduledTask
-
-# 轮询粒度：每分钟的 :00 对齐
-# 设计取舍：多数定时场景（新闻、股价、提醒）精度到分钟已经足够；
-# 对齐 :00 之后，`cron * * * * *` / `interval=60` 都会在整分钟触发，日志时间戳整齐好读。
-POLL_INTERVAL = 60
-MAX_FAILURES = 3
-# interval 下限：小于 60s 的设置会被提升到 60s，避免虚假的高精度预期
-MIN_INTERVAL = 60
-
-# 事件响铃限流（内存滑动窗口）：每个 (source, channel, chat_id) 60s 最多 10 条
-# docs/foundation/march.md §推送响铃
-RING_EVENT_WINDOW_SECONDS = 60
-RING_EVENT_MAX_PER_WINDOW = 10
-
-
-def today_local_bounds(now: float | None = None) -> tuple[float, float]:
-    """返回当地时区今天 [00:00, 次日 00:00) 的 unix 秒区间。
-
-    用于 ring_event(dedup_per_day=True) 计算日级幂等键。与前端的
-    `new Date(Y, M-1, D, 0,0,0).getTime()/1000` 保持一致（同机器时区）。
-    """
-    t = time.time() if now is None else now
-    lt = time.localtime(t)
-    midnight = time.mktime(
-        (lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, lt.tm_isdst)
-    )
-    return midnight, midnight + 86400
-
-
-def _cron_next(expr: str, base_ts: float) -> float:
-    """计算 cron 表达式相对 base_ts 的下次触发 unix 时间戳。
-
-    必须显式用 timezone-aware datetime 喂给 croniter——否则 croniter 把 cron
-    解析为 UTC 而非系统本地时区（即使系统 timezone 已正确配置）。
-    举例：cron '0 12 * * *' 在中国大陆 (UTC+8) 应返回北京时间 12:00 unix，
-    但如果传 unix timestamp 或 naive datetime，会返回 UTC 12:00 (= 北京 20:00)。
-    """
-    from datetime import datetime
-    from croniter import croniter
-
-    # astimezone() 无参数 = 用系统本地时区，结果是 timezone-aware datetime
-    base_dt = datetime.fromtimestamp(base_ts).astimezone()
-    nxt_dt = croniter(expr, base_dt).get_next(datetime)
-    return nxt_dt.timestamp()
-
 
 class MarchService:
-    def __init__(self, irminsul: Irminsul, leyline: Leyline):
+    """三月守护与定时调度服务：唯一响铃入口；不直接发消息（一律走地脉/push_archive）。"""
+
+    def __init__(self, irminsul: "Irminsul", leyline: "Leyline"):
         self._irminsul = irminsul
         self._leyline = leyline
         self._running = False
@@ -127,6 +88,7 @@ class MarchService:
             logger.info("[三月] 启动 cron 重对齐：修复 {} 条错位任务", fixed)
 
     async def start(self) -> None:
+        """启动调度循环：先重对齐 cron，再对齐到下一个整分钟轮询。"""
         self._running = True
 
         # 启动时纠正 cron next_run_at（修历史时区错位 + 重启对齐）
@@ -165,9 +127,11 @@ class MarchService:
             logger.info("[三月] 调度服务已停止")
 
     async def stop(self) -> None:
+        """停止调度循环（设置 _running=False 让下个 sleep 后退出）。"""
         self._running = False
 
     async def _poll(self) -> None:
+        """单次轮询：拉到期任务 → bg fire；并按周期触发生命周期清扫。"""
         from paimon.foundation.bg import bg
         now = time.time()
         due_tasks = await self._irminsul.schedule_list_due(now)
@@ -220,6 +184,7 @@ class MarchService:
             self._lifecycle_sweep_running = False
 
     async def _fire_task(self, task: ScheduledTask) -> None:
+        """触发单条任务：发地脉 march.ring → 算下次时间 → 失败累计 + 退避。"""
         self._running_tasks.add(task.id)
         try:
             logger.info("[三月] 响铃 task={} prompt={}", task.id, task.task_prompt[:60])
@@ -258,6 +223,7 @@ class MarchService:
             self._running_tasks.discard(task.id)
 
     async def _mark_failure(self, task: ScheduledTask, error: str) -> None:
+        """记一次失败：累计 consecutive_failures；指数退避；3 次自动 disable。"""
         failures = task.consecutive_failures + 1
         update_fields: dict[str, Any] = {
             "last_error": error[:500],
@@ -278,6 +244,7 @@ class MarchService:
 
     @staticmethod
     def _calc_next_run(task: ScheduledTask, finished_at: float) -> float | None:
+        """完成一次后算下次时间：once → None；interval → +seconds；cron → next。"""
         if task.trigger_type == "once":
             return None
 
@@ -340,14 +307,17 @@ class MarchService:
         return task_id
 
     async def delete_task(self, task_id: str) -> bool:
+        """删任务（世界树持久化删除）。"""
         return await self._irminsul.schedule_delete(task_id, actor="三月")
 
     async def pause_task(self, task_id: str) -> bool:
+        """暂停任务（仅置 enabled=False，保留记录便于面板观察）。"""
         return await self._irminsul.schedule_update(
             task_id, actor="三月", enabled=False,
         )
 
     async def resume_task(self, task_id: str) -> bool:
+        """恢复任务：清零 failure / last_error，重算 next_run_at。"""
         task = await self._irminsul.schedule_get(task_id)
         if not task:
             return False
@@ -360,6 +330,7 @@ class MarchService:
         )
 
     async def list_tasks(self) -> list[ScheduledTask]:
+        """列全部任务（启用/未启用都返回，给 /tasks 面板）。"""
         return await self._irminsul.schedule_list()
 
     # ---- 事件响铃 ----
@@ -377,141 +348,14 @@ class MarchService:
         extra: dict | None = None,
         dedup_per_day: bool = False,
     ) -> bool:
-        """事件响铃入口（2026-04-25 改造为静默归档）。
-
-        历史：原本经地脉 `march.ring` 投递到聊天会话，污染对话流。
-        现在：所有 ring_event 调用静默落地到世界树 `push_archive` 域，
-        WebUI 导航栏全局红点 + 抽屉消费；聊天会话只承载用户对话 + /schedule
-        定时任务（_fire_task 路径不变）。
-
-        参数：
-          channel_name: 推送目标频道（webui / telegram / qq），仅供归档元信息
-          chat_id:      推送目标会话 id（同上，归档用）
-          source:       调用方（"风神·舆情日报" / "风神·舆情预警" / "岩神·..."）
-          message:      整理好的 markdown 文案（必填；prompt 字段已废弃）
-          prompt:       已废弃，传入会被并入 message 末尾（保兼容）
-          task_id:      可选，关联的定时任务 id（写入 extra_json）
-          level:        'silent'（默认，不打断）| 'loud'（预留，当前实现仍是静默）
-          dedup_per_day: 日级幂等模式（默认 False）。True 时按 (actor, source,
-                        当地日期) 去重：当日首次响铃新建一条；同日再次响铃且
-                        message 未变 → no-op；message 变了 → 原地更新并 reset
-                        未读。适用于「每日订阅日报」/「红利股变化」这类 cron
-                        + 手动刷新会重复推送的场景。事件驱动型（P0 预警）应
-                        保持 False。dedup 路径跳过滑窗限流（upsert 本身幂等）。
-
-        返回：
-          True  — 已归档（含 created / updated / unchanged）
-          False — 被限流拒绝（仅非 dedup 路径）
-
-        抛出：
-          ValueError — message 为空 / source / channel_name / chat_id 缺失
-        """
-        # prompt 字段早期设计为 LLM 人格化提示，现已废弃；如调用方还传，并入 message
-        if prompt and not message:
-            message = prompt
-        elif prompt and message:
-            message = f"{message}\n\n{prompt}"
-        if not message:
-            raise ValueError("ring_event: message 非空（prompt 已废弃，请用 message）")
-        # strip 校验
-        source = (source or "").strip()
-        channel_name = (channel_name or "").strip()
-        chat_id = (chat_id or "").strip()
-        if not source or not channel_name or not chat_id:
-            raise ValueError("ring_event: source / channel_name / chat_id 均必填")
-        if any(c in source for c in "\n\r\t"):
-            raise ValueError("ring_event: source 不能含换行/制表符")
-
-        # 非 dedup 路径才走滑窗限流；dedup 是幂等 upsert，重复调用本身无副作用
-        if not dedup_per_day:
-            key = (source, channel_name, chat_id)
-            if not self._rate_limit_check(key):
-                logger.warning(
-                    "[三月·事件响铃] 限流拒绝 source={} channel={}/{} "
-                    "({}s 内已 ≥{} 次)",
-                    source, channel_name, chat_id[:20],
-                    RING_EVENT_WINDOW_SECONDS, RING_EVENT_MAX_PER_WINDOW,
-                )
-                return False
-
-        # 从 source 推出 actor（"风神·舆情日报" → "风神"）；用于面板按神分组
-        actor = source.split("·", 1)[0] if "·" in source else source
-
-        # 落地到 push_archive（静默归档）
-        # extra: 调用方扩展字段（如 sub_id / event_id / change_id）+ task_id（如有）
-        merged_extra: dict = dict(extra) if extra else {}
-        if task_id and "task_id" not in merged_extra:
-            merged_extra["task_id"] = task_id
-        rec_id = ""
-        upsert_status = ""  # created / updated / unchanged（仅 dedup 路径有值）
-        try:
-            if dedup_per_day:
-                day_start, day_end = today_local_bounds()
-                upsert_status, rec_id = await self._irminsul.push_archive_upsert_daily(
-                    source=source, actor=actor,
-                    message_md=message,
-                    day_start=day_start, day_end=day_end,
-                    channel_name=channel_name, chat_id=chat_id,
-                    level=level,
-                    extra=merged_extra,
-                )
-            else:
-                rec_id = await self._irminsul.push_archive_create(
-                    source=source, actor=actor,
-                    message_md=message,
-                    channel_name=channel_name, chat_id=chat_id,
-                    level=level,
-                    extra=merged_extra,
-                )
-        except Exception as e:
-            logger.error("[三月·事件响铃] 归档失败 source={}: {}", source, e)
-            return False
-
-        # 通知 WebUI 红点更新（前端 SSE 可订阅；当前用前端 30s 轮询，
-        # 这条 publish 是预留扩展点）
-        # dedup 路径下 unchanged 状态不再触发红点（用户既然已读、内容也没变）
-        publish_event = not (dedup_per_day and upsert_status == "unchanged")
-        if publish_event:
-            try:
-                await self._leyline.publish(
-                    "push.archived",
-                    {"id": rec_id, "actor": actor, "source": source, "level": level},
-                    source=f"三月·事件响铃@{actor}",
-                )
-            except Exception as e:
-                logger.debug("[三月·事件响铃] leyline publish 失败（不影响归档）: {}", e)
-
-        if dedup_per_day:
-            logger.info(
-                "[三月·事件响铃] source={} → push_archive {} (actor={} len={} daily={})",
-                source, rec_id, actor, len(message), upsert_status,
-            )
-        else:
-            logger.info(
-                "[三月·事件响铃] source={} → push_archive {} (actor={} len={})",
-                source, rec_id, actor, len(message),
-            )
-
-        # audit 落盘（失败不影响推送链路）
-        try:
-            await self._irminsul.audit_append(
-                event_type="march_ring_event",
-                payload={
-                    "source": source,
-                    "actor": actor,
-                    "archive_id": rec_id,
-                    "channel_name": channel_name,
-                    "chat_id": chat_id,
-                    "level": level,
-                    "message_prefix": message[:200],
-                    "task_id": task_id,
-                },
-                actor=f"三月·{source}",
-            )
-        except Exception as e:
-            logger.debug("[三月·事件响铃] audit 写入失败（不影响推送）: {}", e)
-
-        return True
+        """事件响铃 delegator → _ring.ring_event_impl；行为见该文件 docstring。"""
+        from ._ring import ring_event_impl
+        return await ring_event_impl(
+            self,
+            channel_name=channel_name, chat_id=chat_id,
+            source=source, message=message, prompt=prompt, task_id=task_id,
+            level=level, extra=extra, dedup_per_day=dedup_per_day,
+        )
 
     def _rate_limit_check(self, key: tuple) -> bool:
         """事件响铃滑动窗口限流。返回 True=允许通过；False=超限拒绝。"""
@@ -527,6 +371,7 @@ class MarchService:
 
     @staticmethod
     def _calc_initial_next_run(trigger_type: str, trigger_value: dict, now: float) -> float:
+        """新建/恢复任务时初始下次运行时间：once 用 at；interval 用 +seconds；cron 用 next。"""
         if trigger_type == "once":
             return trigger_value.get("at", now + 60)
 

@@ -1,162 +1,38 @@
-"""米哈游账号数据域 —— 世界树域 8.7
+"""米哈游 Repo —— 域 8.7 唯一写入者：水神。
 
-唯一写入者：水神
-读取者：水神（业务流程）、WebUI /game 面板
+按业务子域划分方法块：account / note / abyss / gacha / character + gacha_stats 派生统计。
 """
 from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
 import aiosqlite
 from loguru import logger
 
-
-# ============ dataclasses ============
-
-
-@dataclass
-class MihoyoAccount:
-    game: str                        # gs | sr | zzz
-    uid: str
-    mys_id: str = ""
-    cookie: str = ""
-    stoken: str = ""
-    fp: str = ""
-    device_id: str = ""
-    device_info: str = ""
-    authkey: str = ""
-    authkey_ts: float = 0.0
-    note: str = ""
-    added_date: str = ""
-    last_sign_at: float = 0.0
-    enabled: bool = True
-
-
-@dataclass
-class MihoyoNote:
-    game: str
-    uid: str
-    scan_ts: float = 0.0
-    current_resin: int = 0
-    max_resin: int = 160
-    resin_full_ts: float = 0.0
-    finished_tasks: int = 0
-    total_tasks: int = 4
-    daily_reward: int = 0
-    remain_discount: int = 3
-    current_expedition: int = 0
-    max_expedition: int = 5
-    expeditions: list[dict] = field(default_factory=list)
-    transformer_ready: bool = False
-    raw: dict = field(default_factory=dict)
-
-
-@dataclass
-class MihoyoAbyss:
-    game: str
-    uid: str
-    abyss_type: str                 # spiral | poetry
-    schedule_id: str
-    scan_ts: float = 0.0
-    max_floor: str = ""
-    total_star: int = 0
-    total_battle: int = 0
-    total_win: int = 0
-    start_time: str = ""
-    end_time: str = ""
-    raw: dict = field(default_factory=dict)
-
-
-@dataclass
-class MihoyoCharacter:
-    game: str
-    uid: str
-    avatar_id: str
-    name: str = ""
-    element: str = ""
-    rarity: int = 4
-    level: int = 1
-    constellation: int = 0
-    fetter: int = 0
-    weapon: dict = field(default_factory=dict)   # {name, level, affix, rarity}
-    relics: list = field(default_factory=list)
-    icon_url: str = ""
-    scan_ts: float = 0.0
-    raw: dict = field(default_factory=dict)
-
-
-@dataclass
-class MihoyoGacha:
-    id: str
-    uid: str
-    gacha_type: str                 # gs:301/302/200/100/500 sr:1/2/11/12 zzz:1/2/3/5
-    game: str = "gs"
-    item_id: str = ""
-    item_type: str = ""
-    name: str = ""
-    rank_type: int = 3
-    time: str = ""
-    time_ts: float = 0.0
-    raw: dict = field(default_factory=dict)
-
-
-# 三游戏的常驻 5 星名单 —— UP 池里出常驻名字 = "歪了"
-# 米哈游偶尔加新常驻，过期后手动补；一时落后影响不大（顶多 UP 标错）
-PERMANENT_TOP_TIER: dict[str, set[str]] = {
-    "gs": {
-        # 常驻角色（标准池）
-        "迪卢克", "琴", "莫娜", "七七", "刻晴", "提纳里", "迪希雅",
-        # 常驻武器（标准池）
-        "风鹰剑", "天空之刃", "天空之傲",
-        "天空之翼", "阿莫斯之弓",
-        "天空之卷", "四风原典",
-        "天空之脊", "和璞鸢",
-        "狼的末路", "无工之剑",
-    },
-    "sr": {
-        # 常驻 5 星角色
-        "克拉拉", "希儿", "姬子", "布洛妮娅", "瓦尔特",
-        "白露", "彦卿", "杰帕德", "银狼", "符玄",
-        # 常驻 5 星光锥
-        "拂晓之前", "时节不居", "无可取代的东西", "以世界之名", "如泥酣眠",
-        "唯有沉默", "制胜的瞬间", "记一位星神的陨落", "在蓝天之下",
-    },
-    "zzz": {
-        # 常驻 S 级代理人
-        "莱卡恩", "格莉丝", "丽娜", "青衣", "11 号", "莱特", "苍角",
-        # 常驻 S 级音擎（部分）
-        "硫磺石", "燃狱齿轮",
-    },
-}
-
-# UP 池（区分歪/不歪有意义）；常驻/集录/邦布等不区分（is_up=None）
-UP_POOLS: dict[str, set[str]] = {
-    "gs": {"301", "302"},
-    "sr": {"11", "12"},
-    "zzz": {"2", "3"},
-}
-
-# 硬保底上限（角色 90 / 武器 80 等）；查不到走 90 默认
-HARD_PITY: dict[str, dict[str, int]] = {
-    "gs":  {"301": 90, "302": 80, "200": 90, "100": 20, "500": 90},
-    "sr":  {"11": 90, "12": 80, "1": 90, "2": 50},
-    "zzz": {"2": 90, "3": 80, "1": 90, "5": 90},
-}
-
-
-# ============ Repo ============
+from ._models import (
+    HARD_PITY,
+    PERMANENT_TOP_TIER,
+    UP_POOLS,
+    MihoyoAbyss,
+    MihoyoAccount,
+    MihoyoCharacter,
+    MihoyoGacha,
+    MihoyoNote,
+)
 
 
 class MihoyoRepo:
+    """米哈游业务域仓储；只对世界树 SQLite 操作，不直接调外部 API（那是水神的活）。"""
+
     def __init__(self, db: aiosqlite.Connection):
         self._db = db
 
     # ---------- account CRUD ----------
 
     async def account_upsert(self, acc: MihoyoAccount, *, actor: str) -> None:
+        """upsert 单账号：authkey/authkey_ts 仅在新值非空时覆盖（避免被空抹掉）。"""
         await self._db.execute(
             "INSERT INTO mihoyo_account "
             "(game, uid, mys_id, cookie, stoken, fp, device_id, device_info, "
@@ -178,6 +54,7 @@ class MihoyoRepo:
         logger.info("[世界树] {}·mihoyo_account upsert {}/{}", actor, acc.game, acc.uid)
 
     async def account_remove(self, game: str, uid: str, *, actor: str) -> bool:
+        """删账号 + 级联清空便笺/深渊/抽卡/角色记录。返回是否真的删掉。"""
         async with self._db.execute(
             "DELETE FROM mihoyo_account WHERE game=? AND uid=?", (game, uid),
         ) as cur:
@@ -192,6 +69,7 @@ class MihoyoRepo:
         return n > 0
 
     async def account_get(self, game: str, uid: str) -> MihoyoAccount | None:
+        """单账号取详情（含 cookie/stoken/authkey 全字段）。"""
         async with self._db.execute(
             "SELECT game, uid, mys_id, cookie, stoken, fp, device_id, device_info, "
             " authkey, authkey_ts, note, added_date, last_sign_at, enabled "
@@ -209,6 +87,7 @@ class MihoyoRepo:
         )
 
     async def account_list(self, *, game: str | None = None) -> list[MihoyoAccount]:
+        """列账号（可选 game 过滤）；按 added_date DESC 排序。"""
         sql = (
             "SELECT game, uid, mys_id, cookie, stoken, fp, device_id, device_info, "
             " authkey, authkey_ts, note, added_date, last_sign_at, enabled "
@@ -234,6 +113,7 @@ class MihoyoRepo:
     async def account_update_authkey(
         self, uid: str, authkey: str, *, game: str = "gs", actor: str,
     ) -> None:
+        """单独刷 authkey + authkey_ts（抽卡链接验证后用）。"""
         await self._db.execute(
             "UPDATE mihoyo_account SET authkey=?, authkey_ts=? WHERE game=? AND uid=?",
             (authkey, time.time(), game, uid),
@@ -242,6 +122,7 @@ class MihoyoRepo:
         logger.info("[世界树] {}·mihoyo_account authkey 更新 {}/{}", actor, game, uid)
 
     async def account_set_sign_time(self, game: str, uid: str, ts: float) -> None:
+        """签到成功后回写 last_sign_at（不改其他字段）。"""
         await self._db.execute(
             "UPDATE mihoyo_account SET last_sign_at=? WHERE game=? AND uid=?",
             (ts, game, uid),
@@ -251,6 +132,7 @@ class MihoyoRepo:
     # ---------- note ----------
 
     async def note_upsert(self, n: MihoyoNote, *, actor: str) -> None:
+        """upsert 实时便笺；expeditions/raw 都序列化成 JSON 列。"""
         await self._db.execute(
             "INSERT INTO mihoyo_note "
             "(game, uid, scan_ts, current_resin, max_resin, resin_full_ts, "
@@ -280,6 +162,7 @@ class MihoyoRepo:
                      actor, n.game, n.uid, n.current_resin, n.max_resin)
 
     async def note_get(self, game: str, uid: str) -> MihoyoNote | None:
+        """单游戏单 UID 最新便笺。"""
         async with self._db.execute(
             "SELECT game, uid, scan_ts, current_resin, max_resin, resin_full_ts, "
             " finished_tasks, total_tasks, daily_reward, remain_discount, "
@@ -302,6 +185,7 @@ class MihoyoRepo:
         )
 
     async def note_list(self) -> list[MihoyoNote]:
+        """全部账号便笺；按 scan_ts DESC 排序。"""
         async with self._db.execute(
             "SELECT game, uid, scan_ts, current_resin, max_resin, resin_full_ts, "
             " finished_tasks, total_tasks, daily_reward, remain_discount, "
@@ -326,6 +210,7 @@ class MihoyoRepo:
     # ---------- abyss ----------
 
     async def abyss_upsert(self, a: MihoyoAbyss, *, actor: str) -> None:
+        """upsert 单期深渊；PK=(game, uid, abyss_type, schedule_id)。"""
         await self._db.execute(
             "INSERT INTO mihoyo_abyss "
             "(game, uid, abyss_type, schedule_id, scan_ts, max_floor, "
@@ -348,6 +233,7 @@ class MihoyoRepo:
     async def abyss_latest(
         self, game: str, uid: str, abyss_type: str,
     ) -> MihoyoAbyss | None:
+        """取最近一期深渊（schedule_id DESC LIMIT 1）。"""
         async with self._db.execute(
             "SELECT game, uid, abyss_type, schedule_id, scan_ts, max_floor, "
             " total_star, total_battle, total_win, start_time, end_time, raw_json "
@@ -406,6 +292,7 @@ class MihoyoRepo:
         return added
 
     async def gacha_max_id(self, game: str, uid: str, gacha_type: str) -> str:
+        """单池最大 id（增量同步 endId 起点）。"""
         async with self._db.execute(
             "SELECT MAX(id) FROM mihoyo_gacha WHERE game=? AND uid=? AND gacha_type=?",
             (game, uid, gacha_type),
@@ -416,6 +303,7 @@ class MihoyoRepo:
     async def gacha_list(
         self, game: str, uid: str, gacha_type: str, *, limit: int = 500,
     ) -> list[MihoyoGacha]:
+        """单池历史抽卡（time_ts DESC，默认上限 500）。"""
         async with self._db.execute(
             "SELECT id, game, uid, gacha_type, item_id, item_type, name, "
             " rank_type, time, time_ts, raw_json "
@@ -469,6 +357,7 @@ class MihoyoRepo:
         return len(items)
 
     async def character_list(self, game: str, uid: str) -> list[MihoyoCharacter]:
+        """单账号全部角色，按 rarity DESC, level DESC 排序。"""
         async with self._db.execute(
             "SELECT game, uid, avatar_id, name, element, rarity, level, "
             " constellation, fetter, weapon_json, relics_json, "
@@ -550,6 +439,7 @@ class MihoyoRepo:
 
     @staticmethod
     def _loads(raw: Any, default: Any) -> Any:
+        """JSON 列读取兜底：None / 解析失败都返回 default。"""
         if not raw:
             return default
         try:
