@@ -3,11 +3,35 @@
 每条 _MIGRATIONS 是 (table, column, col_def) 三元组；启动幂等执行，已存在的列跳过。
 _backfill_scheduled_task_types：把旧 [PREFIX] 编码的 task_prompt 升级到 task_type 字段。
 _drop_legacy_tables：清理被替代的历史表名。
+
+SEC-001 防注入：_run_migrations 用 f-string 拼 SQL，table/column 来源是本文件硬编码
+列表，但加 _validate_identifier 二次校验确保未来误传非法字符也不会拼出可注入 SQL。
 """
 from __future__ import annotations
 
+import re
+
 import aiosqlite
 from loguru import logger
+
+
+# SQL 标识符（表名/列名）格式：[a-zA-Z_][a-zA-Z0-9_]*，长度 ≤ 64
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z_0-9]{0,63}$")
+# 列定义允许的字符：类型关键字、空格、括号、引号、单引号包字符串默认值；
+# 拒绝分号 / 注释序列 / 反引号 等可拼接出新语句的字符
+_COLDEF_BLOCKLIST = re.compile(r"[;`]|--|/\*|\*/")
+
+
+def _validate_identifier(name: str, kind: str) -> None:
+    """校验 SQL 标识符（表名/列名）。不通过即抛 ValueError。"""
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"非法 {kind} 名（仅允许字母数字下划线，≤64 字符）: {name!r}")
+
+
+def _validate_col_def(col_def: str) -> None:
+    """校验列定义字符串：拒绝分号/SQL 注释序列等会改变语句结构的字符。"""
+    if _COLDEF_BLOCKLIST.search(col_def):
+        raise ValueError(f"非法列定义（含 ; 或注释序列）: {col_def!r}")
 
 
 # 未来新增列时，在此注册一条 (table, column, col_def)；启动时幂等 ALTER
@@ -93,6 +117,10 @@ async def _drop_legacy_tables(db: aiosqlite.Connection) -> None:
 async def _run_migrations(db: aiosqlite.Connection) -> None:
     """跑 _MIGRATIONS 列表：每条幂等 ALTER（已存在的列跳过）。"""
     for table, column, col_def in _MIGRATIONS:
+        # SEC-001 二次校验：拒绝任何非合法 SQL 标识符 / 含分号或注释的列定义
+        _validate_identifier(table, "table")
+        _validate_identifier(column, "column")
+        _validate_col_def(col_def)
         async with db.execute(f"PRAGMA table_info({table})") as cur:
             cols = {row[1] async for row in cur}
         if column not in cols:

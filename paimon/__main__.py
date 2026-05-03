@@ -10,7 +10,9 @@ from paimon.state import state
 
 _MAX_RESTARTS = 5
 _RESTART_WINDOW = 300
-_RESTART_DELAY = 5
+_RESTART_DELAY_BASE = 5      # 首次重启等待秒数
+_RESTART_DELAY_MAX = 120     # 退避上限（避免崩溃越久重启越久）
+_HEALTHY_RUN_SECONDS = 300   # 进程稳定运行 ≥ 此值视作健康，重置 crashes 计数
 
 
 def _install_signal_handlers() -> None:
@@ -82,9 +84,16 @@ async def main():
 
 
 def entry():
-    """三月守护：崩溃自动重启，防止 crash loop。"""
+    """三月守护：崩溃自动重启，防止 crash loop。
+
+    REL-014 改进：
+    - 指数退避：5s → 10 → 20 → 40 → 80 → 120s 上限，避免反复立即重启耗资源
+    - 健康运行重置：进程稳定跑 ≥ _HEALTHY_RUN_SECONDS 视作恢复，crashes 计数清零
+      （否则一次零星崩溃后任何后续小问题都会触发"崩溃次数累计"）
+    """
     crashes: list[float] = []
     while True:
+        run_started_at = time.time()
         try:
             asyncio.run(main())
             break
@@ -94,6 +103,19 @@ def entry():
             break
         except Exception as e:
             now = time.time()
+            run_duration = now - run_started_at
+
+            # 健康运行重置：本次跑了足够久，前面的崩溃记录视作已恢复
+            if run_duration >= _HEALTHY_RUN_SECONDS:
+                if crashes:
+                    print(
+                        f"[三月·守护] 上次运行 {int(run_duration)}s 视作健康，"
+                        f"重置 crashes 计数（之前 {len(crashes)} 次）",
+                        file=sys.stderr,
+                    )
+                crashes = []
+
+            # 滑窗清理：只保留 _RESTART_WINDOW 内的崩溃
             crashes = [t for t in crashes if now - t < _RESTART_WINDOW]
             crashes.append(now)
 
@@ -104,12 +126,14 @@ def entry():
                 )
                 sys.exit(1)
 
+            # 指数退避：5 → 10 → 20 → 40 → 80 → 上限
+            delay = min(_RESTART_DELAY_BASE * (2 ** (len(crashes) - 1)), _RESTART_DELAY_MAX)
             print(
-                f"[三月·守护] 派蒙崩溃: {e}，{_RESTART_DELAY}s 后重启 "
-                f"({len(crashes)}/{_MAX_RESTARTS})",
+                f"[三月·守护] 派蒙崩溃: {e}，{delay}s 后重启 "
+                f"({len(crashes)}/{_MAX_RESTARTS}, 本次跑 {int(run_duration)}s)",
                 file=sys.stderr,
             )
-            time.sleep(_RESTART_DELAY)
+            time.sleep(delay)
 
 
 if __name__ == "__main__":

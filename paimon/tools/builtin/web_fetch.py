@@ -1,16 +1,24 @@
 """web_fetch — 网页抓取工具（风神用）
 
 抓取 URL 内容，返回纯文本。UA 仿真 Chrome 桌面浏览器，绕过基础反爬。
+
+SEC-004 SSRF 防护：
+- 只允许 http/https 协议
+- DNS 解析后检查 IP 是否在私有/loopback/链路本地/保留段，命中即拒绝
+- httpx event hook 在每次 redirect 时重新校验目标 URL（防 redirect 到内网）
 """
 from __future__ import annotations
 
+import ipaddress
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 from paimon.tools.base import BaseTool, ToolContext
 
 MAX_LENGTH = 20000
 
-# 真实 Chrome 桌面 UA + Accept-Language（参考 fairy/skills/web/web.py）
+# 真实 Chrome 桌面 UA + Accept-Language
 # 默认 Paimon/1.0 的 UA 会被小红书等站点直接拦截，这里仿真浏览器
 _HEADERS = {
     "User-Agent": (
@@ -23,18 +31,67 @@ _HEADERS = {
 }
 
 
+def _is_blocked_ip(ip_str: str) -> bool:
+    """判定 IP 是否在禁止段：私有/loopback/链路本地/保留/multicast。"""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def _check_url_safe(url: str) -> str | None:
+    """SSRF 防护：检查 URL 是否安全。返回拒绝原因，None 表示通过。"""
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        return f"URL 解析失败: {e}"
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return f"不允许的协议: {scheme!r}（只支持 http/https）"
+    host = parsed.hostname
+    if not host:
+        return "URL 缺少 host"
+    # 1. 直接是 IP 字面量的情况
+    try:
+        if _is_blocked_ip(host):
+            return f"拒绝访问私有/保留 IP: {host}"
+    except (ValueError, OSError):
+        pass
+    # 2. DNS 解析后查每个 IP（包括 IPv4/IPv6 全部）
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        return f"DNS 解析失败: {host}（{e}）"
+    except Exception as e:
+        return f"DNS 异常: {host}（{e}）"
+    for info in infos:
+        ip_str = info[4][0]
+        if _is_blocked_ip(ip_str):
+            return f"DNS 解析到私有/保留 IP: {host} → {ip_str}"
+    return None
+
+
 class WebFetchTool(BaseTool):
     name = "web_fetch"
     description = (
         "网页内容抓取工具。输入 URL，返回网页的纯文本正文（已剥离脚本/样式/导航/页脚）。"
         "适合抓取新闻、文章、小红书/B站等内容页。"
+        "出于安全考虑：只允许 http/https；不允许访问私有/loopback/内网 IP；redirect 到内网会被拦截。"
     )
     parameters = {
         "type": "object",
         "properties": {
             "url": {
                 "type": "string",
-                "description": "要抓取的 URL",
+                "description": "要抓取的 URL（http/https，公网地址）",
             },
             "max_length": {
                 "type": "integer",
@@ -53,11 +110,27 @@ class WebFetchTool(BaseTool):
 
         if not url:
             return "缺少 url 参数"
-        if not url.startswith(("http://", "https://")):
-            return "URL 必须以 http:// 或 https:// 开头"
+
+        # 入口 URL SSRF 检查
+        err = _check_url_safe(url)
+        if err:
+            return f"SSRF 防护拦截: {err}"
+
+        # redirect 校验 hook：每次发出新 request（含 redirect 目标）都校验
+        async def _validate_request(request: "httpx.Request") -> None:
+            err2 = _check_url_safe(str(request.url))
+            if err2:
+                # 抛出 RequestError 让外层 except httpx.RequestError 兜底
+                raise httpx.RequestError(
+                    f"redirect SSRF 拦截: {err2}", request=request,
+                )
 
         try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=30.0,
+                follow_redirects=True,
+                event_hooks={"request": [_validate_request]},
+            ) as client:
                 resp = await client.get(url, headers=_HEADERS)
                 resp.raise_for_status()
                 html = resp.text

@@ -47,29 +47,83 @@ async def review(
     model: Model,
     irminsul: Irminsul,
 ) -> tuple[bool, str]:
+    """安全审查。区分错误类型避免一刀切 fail-open（REL-002/007）：
+
+    - LLM 调用失败（网络/超时）→ fail-open 保持可用性 + audit 留痕
+      （否则 LLM 偶发故障会让所有任务都被拒，user 体验差）
+    - LLM 输出非合法 JSON / 缺 safe 字段 → fail-closed
+      （这两种是 prompt injection 让 LLM 绕过 JSON 输出格式的典型 surface）
+    """
     messages = [
         {"role": "system", "content": _REVIEW_PROMPT},
         {"role": "user", "content": f"请审查以下请求:\n\n{task.title}\n{task.description}"},
     ]
 
+    # Step 1: LLM 调用 — 失败 fail-open（保持可用性）+ audit 留痕
     try:
         raw, usage = await model._stream_text(messages, component="死执", purpose="安全审查")
         await model._record_primogem(task.session_id, "死执", usage, purpose="安全审查")
+    except Exception as e:
+        logger.error("[死执] LLM 调用失败，跳过审查（fail-open，已 audit）: {}", e)
+        try:
+            await irminsul.flow_append(
+                task_id=task.id,
+                from_agent="派蒙",
+                to_agent="死执",
+                action="security_review_skipped",
+                payload={"reason": "llm_call_failed", "error": str(e)[:200]},
+                actor="死执",
+            )
+        except Exception:
+            pass  # audit 失败不阻塞主路径
+        return True, ""
 
-        raw = raw.strip()
-        if raw.startswith("```"):
-            lines = raw.splitlines()
-            raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
+    # Step 2: JSON 解析 — 失败 fail-closed（防止 prompt injection 让 LLM 输出非 JSON 绕审）
+    raw = raw.strip()
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        raw = "\n".join(lines[1:-1]) if len(lines) > 2 else raw
 
+    try:
         result = json.loads(raw)
-        safe = result.get("safe", True)
-        reason = result.get("reason", "")
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(
+            "[死执] 审查 LLM 输出非合法 JSON，保守拒绝: {} 原始={}",
+            e, raw[:200],
+        )
+        try:
+            await irminsul.flow_append(
+                task_id=task.id, from_agent="派蒙", to_agent="死执",
+                action="security_review",
+                payload={"safe": False, "reason": "llm_output_not_json", "raw": raw[:200]},
+                actor="死执",
+            )
+        except Exception:
+            pass
+        return False, "审查 LLM 输出非合法 JSON（疑似 prompt injection 尝试）"
 
-        if safe:
-            logger.info("[死执] 审查通过: {}", task.title[:60])
-        else:
-            logger.warning("[死执] 审查拒绝: {} — {}", task.title[:60], reason)
+    if not isinstance(result, dict) or "safe" not in result:
+        logger.warning("[死执] 审查 LLM 输出缺 safe 字段，保守拒绝: {}", raw[:200])
+        try:
+            await irminsul.flow_append(
+                task_id=task.id, from_agent="派蒙", to_agent="死执",
+                action="security_review",
+                payload={"safe": False, "reason": "missing_safe_field", "raw": raw[:200]},
+                actor="死执",
+            )
+        except Exception:
+            pass
+        return False, "审查 LLM 输出缺 safe 字段"
 
+    safe = bool(result.get("safe"))
+    reason = str(result.get("reason", ""))
+
+    if safe:
+        logger.info("[死执] 审查通过: {}", task.title[:60])
+    else:
+        logger.warning("[死执] 审查拒绝: {} — {}", task.title[:60], reason)
+
+    try:
         await irminsul.flow_append(
             task_id=task.id,
             from_agent="派蒙",
@@ -78,12 +132,10 @@ async def review(
             payload={"safe": safe, "reason": reason},
             actor="死执",
         )
-
-        return safe, reason
-
     except Exception as e:
-        logger.error("[死执] 审查异常，默认放行: {}", e)
-        return True, ""
+        logger.warning("[死执] audit 写入失败（不阻塞）: {}", e)
+
+    return safe, reason
 
 
 # ==================== 新 skill / plugin 声明审查 ====================

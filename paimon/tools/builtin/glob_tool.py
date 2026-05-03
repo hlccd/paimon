@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from paimon.tools.base import BaseTool, ToolContext
+from paimon.tools.builtin.file_ops import _is_allowed, _allowed_roots
 
 # 单次调用返回的匹配数上限（防止几千条塞爆 LLM context）
 MAX_MATCHES = 500
@@ -70,8 +71,12 @@ class GlobTool(BaseTool):
         # 起始目录
         if path_str:
             base = Path(path_str).expanduser().resolve()
-            if ".." in base.parts:
-                return "path 不允许包含 .."
+            # SEC-003 路径穿越防护：base 必须在白名单 root 内（与 file_ops 一致）
+            # 旧 `".." in base.parts` 检查在 resolve() 后永为 False，已替换为
+            # is_relative_to(allowed_root)
+            if not _is_allowed(base):
+                roots_str = " / ".join(str(r) for r in _allowed_roots())
+                return f"path 不允许（必须在项目根或 paimon_home 内）: {base}（允许 root: {roots_str}）"
             if not base.is_dir():
                 return f"起始目录不存在或非目录: {base}"
         else:
