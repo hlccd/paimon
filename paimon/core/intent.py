@@ -176,12 +176,20 @@ async def classify_intent(
         {"role": "user", "content": user_input},
     ]
 
+    # REL-012：意图分类应该秒级返回；LLM 卡住时不该让 user 等几十秒，超时即降级 chat
+    import asyncio as _asyncio
     try:
-        raw, usage = await model._stream_text(messages, component="paimon", purpose="意图分类")
-        await model._record_primogem(session.id, "paimon", usage, purpose="意图分类")
+        async def _classify() -> str:
+            raw, usage = await model._stream_text(messages, component="paimon", purpose="意图分类")
+            await model._record_primogem(session.id, "paimon", usage, purpose="意图分类")
+            return raw
+        raw = await _asyncio.wait_for(_classify(), timeout=15.0)
         label = raw.strip().lower()
         # 有些模型喜欢加句号、引号、markdown 包装——宽容解析
         label = label.strip(" .,!?`\"'")
+    except _asyncio.TimeoutError:
+        logger.warning("[派蒙·意图] 分类超时（>15s），回退到 chat")
+        return IntentResult(kind="chat")
     except Exception as e:
         logger.warning("[派蒙·意图] 分类失败，回退到 chat: {}", e)
         return IntentResult(kind="chat")

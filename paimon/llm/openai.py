@@ -18,7 +18,11 @@ class OpenAIProvider(Provider):
     """
 
     def __init__(self, cfg: Config):
-        self.client = AsyncOpenAI(api_key=cfg.api_key, base_url=cfg.api_base_url)
+        # REL-012/013：限制 timeout + 降低 max_retries（默认 timeout 600s 过长）
+        self.client = AsyncOpenAI(
+            api_key=cfg.api_key, base_url=cfg.api_base_url,
+            timeout=120.0, max_retries=2,
+        )
         self.model = cfg.model
         self.model_name = cfg.model
         self.extra_body: dict[str, Any] | None = None
@@ -34,7 +38,10 @@ class OpenAIProvider(Provider):
         reasoning_effort: str | None = None,
     ) -> OpenAIProvider:
         instance = object.__new__(cls)
-        instance.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        instance.client = AsyncOpenAI(
+            api_key=api_key, base_url=base_url,
+            timeout=120.0, max_retries=2,
+        )
         instance.model = model
         instance.model_name = model
         instance.extra_body = extra_body

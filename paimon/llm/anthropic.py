@@ -14,9 +14,13 @@ class AnthropicProvider(Provider):
     def __init__(self, cfg: Config):
         from anthropic import AsyncAnthropic
 
+        # REL-012/013：限制 timeout + 降低 max_retries
+        # 旧: max_retries=10 + 默认 timeout 600s → 单次失败可阻塞 chat-loop 半小时
+        # 新: timeout 120s（read）+ max_retries=2，配合调用方层面 backoff 处理临时故障
         kwargs: dict[str, Any] = {
             "api_key": cfg.api_key,
-            "max_retries": 10,
+            "max_retries": 2,
+            "timeout": 120.0,
         }
         if cfg.api_base_url:
             kwargs["base_url"] = cfg.api_base_url
@@ -33,7 +37,9 @@ class AnthropicProvider(Provider):
         from anthropic import AsyncAnthropic
 
         instance = object.__new__(cls)
-        kwargs: dict[str, Any] = {"api_key": api_key, "max_retries": 10}
+        kwargs: dict[str, Any] = {
+            "api_key": api_key, "max_retries": 2, "timeout": 120.0,
+        }
         if base_url:
             kwargs["base_url"] = base_url
         instance.client = AsyncAnthropic(**kwargs)
@@ -81,14 +87,25 @@ class AnthropicProvider(Provider):
                     if content:
                         blocks.append({"type": "text", "text": content})
                     for tc in tool_calls:
+                        # REL-016：tool args 可能是上一轮 OpenAI 输出的残缺 JSON，
+                        # 切换到 Anthropic 时直接 json.loads 会让整 tool-loop 崩
+                        try:
+                            tc_input = json.loads(
+                                tc["function"]["arguments"] or "{}"
+                            )
+                        except (json.JSONDecodeError, ValueError) as e:
+                            logger.warning(
+                                "[神之心·anthropic] tool_use 参数 JSON 解析失败 "
+                                "tool={} err={} → 用空 dict 占位",
+                                tc["function"].get("name"), e,
+                            )
+                            tc_input = {}
                         blocks.append(
                             {
                                 "type": "tool_use",
                                 "id": tc["id"],
                                 "name": tc["function"]["name"],
-                                "input": json.loads(
-                                    tc["function"]["arguments"] or "{}"
-                                ),
+                                "input": tc_input,
                             }
                         )
                     result.append({"role": "assistant", "content": blocks})

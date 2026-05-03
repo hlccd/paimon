@@ -138,10 +138,12 @@ class _ReviewMixin:
                 task_id, "水神", usage, purpose=f"lightweight·{stage}",
             )
         except Exception as e:
-            logger.error("[水神·{}·轻量] LLM 调用失败: {} → 保守 pass", stage, e)
+            # ROB-001 修：水神是质量门槛，LLM 失败若 fail-open pass，等于 LLM 故障时
+            # 所有 spec 自动放行——与"质量终审官"职责相反。改保守 revise（让生执继续完善）
+            logger.error("[水神·{}·轻量] LLM 调用失败: {} → 保守 revise", stage, e)
             return ReviewVerdict(
-                level=LEVEL_PASS, issues=[],
-                summary=f"{stage}(轻量): LLM 调用失败，保守 pass",
+                level=LEVEL_REVISE, issues=[],
+                summary=f"{stage}(轻量): LLM 调用失败，保守 revise（让生执补全后再审）",
             )
 
         # 解析 JSON（容错剥 fence）

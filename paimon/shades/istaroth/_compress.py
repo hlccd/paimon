@@ -233,12 +233,19 @@ async def _build_memory_block(
                 "[时执·压缩] 记忆生成第 {}/3 次尝试失败: {}",
                 attempt, e,
             )
+            # REL-013：retry 加指数 backoff（防 LLM 限流瞬时失败立即重试再失败）
+            if attempt < 3:
+                import asyncio as _asyncio
+                await _asyncio.sleep(min(2 ** attempt, 10))
             continue
 
         summary = _strip_code_fence(raw)
         if not summary:
             last_error = "模型输出为空"
             logger.warning("[时执·压缩] 记忆生成第 {}/3 次结果为空", attempt)
+            if attempt < 3:
+                import asyncio as _asyncio
+                await _asyncio.sleep(min(2 ** attempt, 10))
             continue
         await model._record_primogem(
             session_id, "时执", usage, purpose="上下文压缩",

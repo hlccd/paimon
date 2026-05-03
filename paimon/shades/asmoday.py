@@ -206,9 +206,12 @@ async def _run_one(
         except Exception as e:
             last_err = e
             if attempt < max_attempts:
+                # REL-013：retry 加指数 backoff（2s → 4s → 8s 上限 30s）
+                # 旧版无 backoff，瞬时失败如限流 429 立刻再次重试通常仍失败
+                backoff = min(2 ** attempt, 30)
                 logger.warning(
-                    "[空执] 子任务 {} 第 {}/{} 次失败，重试: {}",
-                    sub.id, attempt, max_attempts, e,
+                    "[空执] 子任务 {} 第 {}/{} 次失败，{}s 后重试: {}",
+                    sub.id, attempt, max_attempts, backoff, e,
                 )
                 await irminsul.audit_append(
                     event_type="subtask_retry",
@@ -216,9 +219,14 @@ async def _run_one(
                         "subtask_id": sub.id,
                         "attempt": attempt,
                         "error": str(e)[:400],
+                        "backoff_seconds": backoff,
                     },
                     task_id=task.id, session_id=task.session_id, actor="空执",
                 )
+                try:
+                    await asyncio.sleep(backoff)
+                except asyncio.CancelledError:
+                    raise
 
     # 重试用尽
     assert last_err is not None
