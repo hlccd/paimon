@@ -119,9 +119,24 @@ class SubscriptionRepo:
             rows = await cur.fetchall()
         return [self._row_to_sub(r) for r in rows]
 
+    # 列名白名单：拒绝未知 key 进入 SQL（防 SEC-001 SQL 注入面）
+    # 与 Subscription 字段对齐；id/created_at 不允许通过 update 改
+    _UPDATE_ALLOWED = frozenset({
+        "user_id", "query", "channel_name", "chat_id",
+        "schedule_cron", "max_items", "engine", "enabled",
+        "linked_task_id", "last_run_at", "last_error",
+        "updated_at", "binding_kind", "binding_id",
+    })
+
     async def update(self, sub_id: str, actor: str, **fields: Any) -> bool:
         if not fields:
             return False
+        unknown = set(fields) - self._UPDATE_ALLOWED
+        if unknown:
+            raise ValueError(
+                f"SubscriptionRepo.update 不允许字段 {sorted(unknown)}; "
+                f"允许 {sorted(self._UPDATE_ALLOWED)}"
+            )
         fields["updated_at"] = time.time()
         if "enabled" in fields:
             fields["enabled"] = 1 if fields["enabled"] else 0

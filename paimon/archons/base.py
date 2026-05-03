@@ -170,7 +170,9 @@ class Archon(abc.ABC):
 
     @staticmethod
     def _project_root() -> str:
-        return str(Path(__file__).resolve().parent.parent.parent)
+        """返回项目根的相对引用，避免绝对路径（含 user home / 盘符）进入 LLM system prompt。
+        archon 工具调用以 cwd=项目根 工作，"." 即指向项目根目录。"""
+        return "."
 
     @staticmethod
     async def _load_feedback_memories_block(

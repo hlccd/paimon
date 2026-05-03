@@ -1,7 +1,7 @@
 # 自进化体系
 
 > 隶属：[神圣规划](aimon.md)
-> 相关：[世界树](foundation/irminsul.md) · [时执](shades/istaroth.md) · [草神](archons/nahida.md) · [冰神](archons/tsar.md) · [三月](foundation/march.md) · [权限与契约](permissions.md) · [迁移方案](migration.md) · [待办项](todo.md)
+> 相关：[世界树](foundation/irminsul.md) · [时执](shades/istaroth.md) · [草神](archons/nahida.md) · [冰神](archons/tsaritsa.md) · [三月](foundation/march.md) · [权限与契约](permissions.md) · [迁移方案](migration.md) · [待办项](todo.md)
 
 **定位**：在现有神圣规划之上，以"**跨会话经验积累 → 行为自我调整**"为目标，沿既有组件加钩子，不新增一轨。
 

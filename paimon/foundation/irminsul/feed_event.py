@@ -116,6 +116,17 @@ class FeedEventRepo:
             row = await cur.fetchone()
         return self._row_to_event(row) if row else None
 
+    # 列名白名单：拒绝未知 key 进入 SQL（防 SEC-001 SQL 注入面）
+    # 入参支持的逻辑名 entities/timeline/sources 在转换后变成 _json 列
+    _UPDATE_ALLOWED = frozenset({
+        "subscription_id", "title", "summary",
+        "entities_json", "timeline_json", "sources_json",
+        "severity", "sentiment_score", "sentiment_label",
+        "item_count", "first_seen_at", "last_seen_at",
+        "last_pushed_at", "last_severity", "pushed_count",
+        "updated_at",
+    })
+
     async def update(
         self, event_id: str, *, actor: str,
         item_count_inc: int = 0,
@@ -145,6 +156,14 @@ class FeedEventRepo:
             elif key == "sources":
                 fields["sources_json"] = json.dumps(val, ensure_ascii=False)
                 fields.pop("sources")
+
+        # 白名单校验：列名转换完后再 check（防 SEC-001 SQL 注入面）
+        unknown = set(fields) - self._UPDATE_ALLOWED
+        if unknown:
+            raise ValueError(
+                f"FeedEventRepo.update 不允许字段 {sorted(unknown)}; "
+                f"允许 {sorted(self._UPDATE_ALLOWED)}"
+            )
 
         for k, v in fields.items():
             sets.append(f"{k} = ?")

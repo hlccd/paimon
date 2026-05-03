@@ -77,7 +77,7 @@ channel.ask_user 向用户询问（附失败原因）：
 
 魔女会失败原因仅通过 `escalation_reason` 一次性注入四影 `task.description`，由四影后续流程自行处置。
 
-> 冰神新 skill 上线也复用此通道（插件路径，非天使失败路径），详见 [冰神](../archons/tsar.md) 与 [权限与契约](../permissions.md)。
+> 冰神新 skill 上线也复用此通道（插件路径，非天使失败路径），详见 [冰神](../archons/tsaritsa.md) 与 [权限与契约](../permissions.md)。
 
 ---
 
@@ -110,7 +110,7 @@ channel.ask_user 向用户询问（附失败原因）：
 
 ## 工具层（不升级为天使）
 
-`fairy/tools/builtin/` 里的原子工具保留在工具层，被各天使 / 七神按需调用（例：`exec*`、`web_search`、`web_fetch`、`dispatch`、`send_file`、`schedule`、`knowledge_manage`、`tool_refresh` 等）。
+`paimon/tools/builtin/` 里的原子工具保留在工具层，被各天使 / 七神按需调用（例：`exec*`、`web_search`、`web_fetch`、`dispatch`、`send_file`、`schedule`、`knowledge_manage`、`tool_refresh` 等）。
 
 **归属注意**（跨模块调用约束）：
 - `schedule` 工具的**注册 / 触发**由三月女神独占；其他模块若要定时，通过三月注册任务，不直接调 `schedule`

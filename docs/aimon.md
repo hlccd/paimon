@@ -52,7 +52,7 @@
       - [**草神·纳西妲**](archons/nahida.md)：智慧·文书 → 推理、意图、知识整合、文书起草、Prompt 调优、个人偏好管理（✅ 知识 / 偏好面板）
       - [**水神·芙宁娜**](archons/furina.md)：戏剧·评审 → 游戏 + 成品评审（✅ 游戏面板）
       - [**火神·玛薇卡**](archons/mavuika.md)：战争·冲锋 → shell/code 执行、重型工具、技术性重试
-      - [**冰神·冰之女皇**](archons/tsar.md)：反抗·联合 → skill 生态全管（发现 + 写世界树 + AI 自举 + **装载时按 allowed_tools 派生 sensitivity**）（✅ 插件面板，含**授权管理**）
+      - [**冰神·冰之女皇**](archons/tsaritsa.md)：反抗·联合 → skill 生态全管（发现 + 写世界树 + AI 自举 + **装载时按 allowed_tools 派生 sensitivity**）（✅ 插件面板，含**授权管理**）
   - **全局支撑层**
     - **存储层（唯一）**
       - [**世界树**](foundation/irminsul.md)：全系统**唯一存储层**，承载 9 个数据域（授权 / skill 生态 / 知识 / 记忆 / 活跃任务 / token / 审计归档 / 理财 / 会话）。其他所有模块的落盘都经世界树，不自建库。

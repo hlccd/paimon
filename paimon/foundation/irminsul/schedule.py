@@ -87,9 +87,26 @@ class ScheduleRepo:
             rows = await cur.fetchall()
         return [self._row_to_task(r) for r in rows]
 
+    # 列名白名单：拒绝未知 key 进入 SQL（防 SEC-001 SQL 注入面）
+    # 与 ScheduledTask 字段对齐；id/created_at 不允许通过 update 改
+    _UPDATE_ALLOWED = frozenset({
+        "chat_id", "channel_name", "task_prompt",
+        "trigger_type", "trigger_value", "enabled",
+        "next_run_at", "last_run_at", "last_error",
+        "consecutive_failures", "updated_at",
+        "task_type", "source_entity_id",
+    })
+
     async def update(self, task_id: str, actor: str, **fields: Any) -> bool:
         if not fields:
             return False
+        # 白名单校验：拒绝未知列名（包含可能的 SQL 注入向量）
+        unknown = set(fields) - self._UPDATE_ALLOWED
+        if unknown:
+            raise ValueError(
+                f"ScheduleRepo.update 不允许字段 {sorted(unknown)}; "
+                f"允许 {sorted(self._UPDATE_ALLOWED)}"
+            )
         fields["updated_at"] = time.time()
 
         if "trigger_value" in fields and isinstance(fields["trigger_value"], dict):

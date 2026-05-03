@@ -89,6 +89,17 @@ class SelfcheckRepo:
         )
         return run.id
 
+    # 列名白名单：拒绝未知 key 进入 SQL（防 SEC-001 SQL 注入面）
+    # 入参支持的逻辑名 quick_summary/progress 在转换后变成 _json 列；
+    # 校验是基于"转换后实际进 SQL 的列名"
+    _UPDATE_ALLOWED = frozenset({
+        "kind", "triggered_at", "triggered_by", "status",
+        "duration_seconds", "check_args", "error",
+        "p0_count", "p1_count", "p2_count", "p3_count",
+        "findings_total",
+        "quick_summary_json", "progress_json",
+    })
+
     async def update(
         self, run_id: str, *, actor: str, **fields,
     ) -> bool:
@@ -101,6 +112,13 @@ class SelfcheckRepo:
         if "progress" in fields:
             fields["progress_json"] = json.dumps(
                 fields.pop("progress"), ensure_ascii=False,
+            )
+
+        unknown = set(fields) - self._UPDATE_ALLOWED
+        if unknown:
+            raise ValueError(
+                f"SelfcheckRepo.update 不允许字段 {sorted(unknown)}; "
+                f"允许 {sorted(self._UPDATE_ALLOWED)}"
             )
 
         cols = ", ".join(f"{k} = ?" for k in fields.keys())

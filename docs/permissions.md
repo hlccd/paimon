@@ -1,7 +1,7 @@
 # 权限与契约体系（跨模块协作机制）
 
 > 隶属：[神圣规划](aimon.md)
-> 相关：[派蒙](paimon/paimon.md) · [死执](shades/jonova.md) · [世界树](foundation/irminsul.md) · [冰神](archons/tsar.md) · [草神](archons/nahida.md)
+> 相关：[派蒙](paimon/paimon.md) · [死执](shades/jonova.md) · [世界树](foundation/irminsul.md) · [冰神](archons/tsaritsa.md) · [草神](archons/nahida.md)
 
 跨越派蒙 / 四影 / 七神 / 世界树的统一权限机制，保证天使体系和四影体系都有安全防线。
 

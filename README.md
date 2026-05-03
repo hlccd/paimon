@@ -38,7 +38,7 @@
       - [**草神·纳西妲**](docs/archons/nahida.md)：智慧·文书 → 推理、意图、知识整合、文书起草、Prompt 调优、个人偏好管理（✅ 知识 / 偏好面板）
       - [**水神·芙宁娜**](docs/archons/furina.md)：戏剧·评审 → 游戏 + 成品评审（✅ 游戏面板）
       - [**火神·玛薇卡**](docs/archons/mavuika.md)：战争·冲锋 → shell/code 执行、重型工具、技术性重试
-      - [**冰神·冰之女皇**](docs/archons/tsar.md)：反抗·联合 → skill 生态全管（发现 + 写世界树 + AI 自举）（✅ 插件面板）
+      - [**冰神·冰之女皇**](docs/archons/tsaritsa.md)：反抗·联合 → skill 生态全管（发现 + 写世界树 + AI 自举）（✅ 插件面板）
   - **全局支撑层**
     - [**三月女神**](docs/foundation/march.md)：守护进程、任务观测（✅ 观测面板）、定时调度、推送响铃（定时 + 事件）
     - [**地脉**](docs/foundation/leyline.md)：全局事件总线（所有模块间事件流转）
@@ -118,7 +118,7 @@ QQ_OWNER_IDS=qq1,qq2
 ### 3. 启动
 
 ```bash
-python main.py
+python -m paimon
 # 或安装后使用命令
 paimon
 ```
