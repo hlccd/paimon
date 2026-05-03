@@ -55,10 +55,18 @@ async def feed_subs_list_api(channel, request: web.Request) -> web.Response:
     # 业务实体衍生订阅（mihoyo_game / 未来 stock_watch 等）由各自 archon 面板管理
     subs = await irminsul.subscription_list_by_binding("manual")
     venti = channel.state.venti
+    # PERF-002：N 个订阅并发拉 item_count + event_count，N=20 时旧版 40 次串行 await
+    # → 改 gather 后总耗时 ≈ 单次 query（<100ms 而非 4-8s）
+    import asyncio as _asyncio
+    counts = await _asyncio.gather(
+        *[irminsul.feed_items_count(sub_id=s.id) for s in subs],
+        *[irminsul.feed_event_count(sub_id=s.id) for s in subs],
+    )
+    n = len(subs)
+    item_counts = counts[:n]
+    event_counts = counts[n:]
     out = []
-    for s in subs:
-        item_count = await irminsul.feed_items_count(sub_id=s.id)
-        event_count = await irminsul.feed_event_count(sub_id=s.id)
+    for i, s in enumerate(subs):
         out.append({
             "id": s.id,
             "query": s.query,
@@ -71,8 +79,8 @@ async def feed_subs_list_api(channel, request: web.Request) -> web.Response:
             "last_run_at": s.last_run_at,
             "last_error": s.last_error,
             "created_at": s.created_at,
-            "item_count": item_count,
-            "event_count": event_count,
+            "item_count": item_counts[i],
+            "event_count": event_counts[i],
             "running": bool(venti and venti.is_running(s.id)),
         })
     return web.json_response({"subs": out})

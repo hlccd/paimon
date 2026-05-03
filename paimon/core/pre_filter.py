@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
@@ -45,6 +46,13 @@ _BLOCK_PATTERNS: list[tuple[re.Pattern, str]] = [
     # 注意：>\s*/dev/...  `>` 不是 word char，`\b>` 会匹配失败
     (re.compile(r">\s*/dev/(sd[a-z]|nvme|hd|vd)[0-9a-z]*" + _END), "重定向到块设备"),
     (re.compile(r"\b(chmod|chown)\s+-[rR]+\s+[^\s]+\s+/" + _END), "递归修改 / 权限"),
+    # ROB-001 加固：远程脚本管道直跑（社工攻击载体）+ chmod 777 顶层
+    (re.compile(r"\bcurl\s+[^|]+\|\s*(sh|bash|zsh|ash)\b"), "curl|sh 远程脚本直跑"),
+    (re.compile(r"\bwget\s+(-[a-zA-Z]+\s+)*[^|]+\|\s*(sh|bash|zsh)\b"), "wget|sh 远程脚本直跑"),
+    (re.compile(r"\bchmod\s+777\s+/" + _END), "chmod 777 /"),
+    # Windows: format C: / del /q /s C:\
+    (re.compile(r"\bformat\s+[A-Z]:" + _END, re.IGNORECASE), "format 系统盘"),
+    (re.compile(r"\bdel\s+(/[a-zA-Z]\s+){1,3}[A-Z]:\\\s*\*?", re.IGNORECASE), "del 系统盘"),
 ]
 
 
@@ -77,13 +85,17 @@ def pre_filter(text: str) -> FilterHit:
       - `block`：调用方应立即拒绝，不进入后续流程
       - `warn`：调用方应记 audit，但仍正常处理
       - `pass`：无命中
+
+    ROB-001：先做 NFKC 归一化再匹配。否则全角空格 / 同形 unicode（如全角 ｒｍ）
+    可绕过 ASCII 正则。NFKC 把全角字母数字、兼容字符折叠回 ASCII 等价形态。
     """
     if not text:
         return FilterHit("pass", "", "", "")
+    norm = unicodedata.normalize("NFKC", text)
     for pat, reason in _BLOCK_PATTERNS:
-        if pat.search(text):
+        if pat.search(norm):
             return FilterHit("block", "shell_danger", reason, pat.pattern)
     for pat, reason in _WARN_PATTERNS:
-        if pat.search(text):
+        if pat.search(norm):
             return FilterHit("warn", "prompt_injection", reason, pat.pattern)
     return FilterHit("pass", "", "", "")
