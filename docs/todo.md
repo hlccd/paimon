@@ -2,9 +2,26 @@
 
 > 隶属：[神圣规划](aimon.md)
 >
-> 只记录**尚未实现 / 待完善**的事项。已完成项请查 git log / 归档文档。更新时间：2026-04-29
+> 只记录**尚未实现 / 待完善**的事项。已完成项请查 git log / 归档文档。更新时间：2026-04-29 / 2026-05-03（加 §0）
 
 每一条都已对照源码核过一遍；"部分实装"一栏列出哪些已做、哪些没做、哪些是主动舍弃的设计决策。
+
+## 0. ⚠️ 最高优
+
+- [ ] **体量控制** —— 项目体量已超出工程化工具链阈值，触发多重连锁失效（2026-05-03 标记）
+  - **触发**：跑 `/check` 项目体检「深入」档位（min 5 迭代 × 每迭代 5 轮 × 5 视角 ≈ 几百轮 Agent 调用）按 methodology 严格走 token/时长爆炸 → AI 被迫降级单轮 discovery + 多 Agent 委派覆盖；finding 仅单轮 candidate，**主观判断（架构/重复/严重度档位）共识缺失**
+  - **现状体量**：paimon/ 283 .py / 47889 行 + docs/ 26 .md + skills/ 9 SKILL；典型超大单文件 archons/zhongli/scorer/_score.py 单函数 280 行；webui channel.py 459 行残留 60-220 行注释段未清
+  - **连锁失效**：
+    - **审查工具失效**：`/check` 严格多轮跑不动；冰神 deep self-check 已暂缓（参见 §1「三月·自检 Deep 暂缓」）也是同根原因——LLM 在数百轮迭代上不稳定
+    - **文档同步成本爆炸**：拆子包后 docs/{progress,todo,migration}.md / archons/venti.md / foundation/{march,irminsul}.md 多处单文件路径 404（MNT-005）；progress.md 大量 hardcode `paimon/.../xxx.py:line` 任何子包拆分大批失效
+    - **模板放大**：8 archon execute ~140 行复制 + 3 channel auth/chunking + 17 webui/api 子模块重复 auth check + 4 pipeline mixin import paste copy —— 体量越大改一处要改 N 处
+  - **方向**（具体阈值/手段待讨论）：
+    - 单文件硬约束 ≤500 行（部分已落实，新代码继续守；超限走拆子包）
+    - 抽公共 base mixin（archon execute / channel auth / webui api auth check / pipeline mixin import）减绝对行数 + 减少改一处要改 N 处
+    - docs 路径引用从「具体 .py + 行号」改「目录 + 接口名/锚点」降低同步成本
+    - CI/pre-commit 检查文件行数 + 重复模式预警（同 ≥3 文件相似行触发）
+    - 评估「冰神 deep / 死执 review / 草神 hygiene」等多轮 LLM 工作流的轮数上限——体量决定 max_rounds 不能照搬 methodology
+  - **关联**：今日 `.check/report.md` §3「跨子审查根因聚合」列 13 类放大效应；附录「代码体量观察」（本文件 §附 115-119 行）列表已陈旧（zhongli/venti 已拆但附录未更新——这本身就是体量管控失效的证据）
 
 ## 1. 职能层面
 
