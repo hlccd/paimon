@@ -120,7 +120,13 @@ async def stop_session_task(session_id: str) -> bool:
         task = state.session_tasks.get(session_id)
         if not task or task.done():
             return False
+        # 防自我 cancel + await 死锁：SSE handler 自身被 connection 断
+        # 触发 CancelledError 进 except 后调 stop_session_task，注册的就是
+        # current_task（_entry_task）。await task 会死锁。仅 cancel 不 await。
+        cur = asyncio.current_task()
         task.cancel()
+        if task is cur:
+            return True
     try:
         await task
     except asyncio.CancelledError:

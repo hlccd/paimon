@@ -181,6 +181,15 @@ CHAT_HTML_BODY_2 = """
                     waitingSessions.delete(reqSession);
                     if (currentSession === reqSession) updateStatus('就绪');
                 }
+                // 流被服务端中断（/stop 取消四影 → SSE 直接关，没发 done 事件）
+                // → typing 占位永远转圈。done handler 的清理逻辑这里也补一份。
+                if (typingMsg && !fullResponse) {
+                    const contentEl = typingMsg.querySelector('.message-content');
+                    if (contentEl && contentEl.querySelector('.typing-indicator')) {
+                        typingMsg.remove();
+                        typingMsg = null;
+                    }
+                }
 
             } catch (err) {
                 console.error('发送消息失败:', err);

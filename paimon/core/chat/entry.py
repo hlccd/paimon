@@ -190,12 +190,34 @@ async def enter_shades_pipeline_background(
         reply=reply_for_notice,
     )
 
-    # 前台：入口审 + plan + 批量授权（SSE 必须活跃）
-    prep = await pipeline.prepare(
-        text, session_id=session.id, escalation_reason=escalation_reason,
-    )
+    # 注册当前协程（实际是 SSE handler task）到 state.session_tasks，让 /stop 能在
+    # prepare 阶段就 cancel —— prepare 含 jonova review + naberius plan 多次 LLM 调用，
+    # 几十秒级别。如果只在 execute 阶段注册（旧实现），用户在 prepare 期间发 /stop
+    # 就找不到任务回复"当前没有正在生成的回复"。execute 创建后会切换为 execute_task。
+    _stop_lock = state.session_task_locks.setdefault(session.id, asyncio.Lock())
+    _entry_task = asyncio.current_task()
+    if _entry_task is not None:
+        async with _stop_lock:
+            state.session_tasks[session.id] = _entry_task
+
+    try:
+        # 前台：入口审 + plan + 批量授权（SSE 必须活跃）
+        prep = await pipeline.prepare(
+            text, session_id=session.id, escalation_reason=escalation_reason,
+        )
+    except BaseException:
+        # prepare 抛出（含 /stop 触发的 CancelledError）→ 兜底清理后透传
+        if _entry_task is not None:
+            async with _stop_lock:
+                if state.session_tasks.get(session.id) is _entry_task:
+                    del state.session_tasks[session.id]
+        raise
     if not prep.ok:
         # 准备阶段失败（死执拒/授权全拒/异常）→ 回一段字给外层做正文送达 + persist
+        if _entry_task is not None:
+            async with _stop_lock:
+                if state.session_tasks.get(session.id) is _entry_task:
+                    del state.session_tasks[session.id]
         return prep.msg
 
     task_id = prep.task.id
@@ -232,6 +254,13 @@ async def enter_shades_pipeline_background(
             pipeline.execute(prep.task, plan, session_id=session.id)
         )
 
+        # 切换注册：从 _entry_task 切到 execute_task
+        # —— prepare 已结束，execute 才是真正的工作单元；/stop 直接 cancel execute_task
+        # 而非 SSE handler，让 shield 不再阻挡（shield 只保护内部 task 不被 awaiter
+        # cancel 传播；inner task 自身被 cancel 时仍会抛 CancelledError）
+        async with _stop_lock:
+            state.session_tasks[session.id] = execute_task
+
         async def _finalize_after_disconnect() -> None:
             """SSE 断开时的后台收尾：等 execute 归档 + 推 📨 summary + 补 persist assistant。
 
@@ -256,21 +285,37 @@ async def enter_shades_pipeline_background(
 
         final_result = ""
         try:
-            final_result = await asyncio.shield(execute_task)
-        except asyncio.CancelledError:
-            logger.info(
-                "[派蒙·四影] SSE 断开 task={}，execute 继续后台完成", task_id[:8],
-            )
-            bg(_finalize_after_disconnect(), label=f"shades·finalize·{task_id[:8]}")
-            raise
-        except Exception as e:
-            logger.exception("[派蒙·四影] execute 异常 task={}: {}", task_id, e)
-            final_result = f"💥 任务异常：{e}"
+            try:
+                final_result = await asyncio.shield(execute_task)
+            except asyncio.CancelledError:
+                # 区分两种 CancelledError 来源：
+                #   1) execute_task 自身被取消（/stop 命令调 stop_session_task）→ 已无 inner 任务
+                #      可继续，不再 bg finalize；CancelledError 透传到上层让 SSE 收尾
+                #   2) 外层被取消（SSE 断 / shield 的 awaiter 被 cancel）→ inner 仍在跑，
+                #      bg finalize 接管"等 execute 完成 + 推 summary + 补 persist assistant"
+                if execute_task.done():
+                    logger.info(
+                        "[派蒙·四影] task={} 被显式取消（/stop）", task_id[:8],
+                    )
+                else:
+                    logger.info(
+                        "[派蒙·四影] SSE 断开 task={}，execute 继续后台完成",
+                        task_id[:8],
+                    )
+                    bg(_finalize_after_disconnect(), label=f"shades·finalize·{task_id[:8]}")
+                raise
+            except Exception as e:
+                logger.exception("[派蒙·四影] execute 异常 task={}: {}", task_id, e)
+                final_result = f"💥 任务异常：{e}"
 
-        await _push_summary()
-        # final 作为正文返回 —— 外层 reply.send(final) 会触发 SSE data.type=message，
-        # 前端 fullResponse += final + marked.parse 把 typing 气泡替换为正文气泡。
-        return (final_result or "(无产物)")[:5000]
+            await _push_summary()
+            # final 作为正文返回 —— 外层 reply.send(final) 会触发 SSE data.type=message，
+            # 前端 fullResponse += final + marked.parse 把 typing 气泡替换为正文气泡。
+            return (final_result or "(无产物)")[:5000]
+        finally:
+            async with _stop_lock:
+                if state.session_tasks.get(session.id) is execute_task:
+                    del state.session_tasks[session.id]
 
     # 批次渠道（QQ）：后台跑，final 在 _bg 里通过 reply.send + flush 送达 + persist assistant。
     async def _bg() -> None:
@@ -296,4 +341,9 @@ async def enter_shades_pipeline_background(
 
     bg(_bg(), label=f"shades·qq_bg·{task_id[:8]}")
     # QQ 路径 return 空串，外层不再 reply.send 正文 hint（信息已在 🚀 milestone 里）。
+    # 入口 _entry_task 注册收尾：QQ 分支由 bg 接管 execute，prepare 已结束 → 解绑
+    if _entry_task is not None:
+        async with _stop_lock:
+            if state.session_tasks.get(session.id) is _entry_task:
+                del state.session_tasks[session.id]
     return ""
