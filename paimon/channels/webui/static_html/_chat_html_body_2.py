@@ -24,10 +24,14 @@ CHAT_HTML_BODY_2 = """
             const message = input.value.trim();
             // 锁定本次请求归属的 session：发起后用户切走，DOM 操作仍要落到这个 session 的 pane
             const reqSession = currentSession;
+            // /stop /cancel 类"中断当前任务"命令必须能在 streaming 期间发送
+            // 否则旧任务卡住时 user 没法取消（前端 silent reject 让 user 觉得"无法发送"）
+            const isStopCmd = /^\\/(stop|cancel)\\b/i.test(message);
             // per-session 状态：当前 session 在 streaming 且无挂起权限询问 → 拒绝；
             // 其他 session 在 streaming 不影响当前 session 发送。
+            // 例外：stop 类命令要绕过此 lock。
             if (!message ||
-                (waitingSessions.has(reqSession) && !pendingAuthzAskSessions.has(reqSession))) {
+                (waitingSessions.has(reqSession) && !pendingAuthzAskSessions.has(reqSession) && !isStopCmd)) {
                 return;
             }
 
