@@ -292,7 +292,8 @@ GAME_SCRIPT_2 = """            var heroCount = {};
                     return '<span class="gpool '+(p===pool?'active':'')+'" onclick="gameSelectPool(\\''+esc(k)+'\\',\\''+p+'\\')">'+labels[p]+'</span>';
                 }).join('') + '</div>';
 
-            var r = await fetch('/api/game/gacha/stats?game='+a.game+'&uid='+encodeURIComponent(a.uid)+'&gacha_type='+pool);
+            var fetcher = (typeof _fetchT === 'function') ? _fetchT : fetch;
+            var r = await fetcher('/api/game/gacha/stats?game='+a.game+'&uid='+encodeURIComponent(a.uid)+'&gacha_type='+pool, 10000);
             var d = await r.json();
             var s = d.stats || {total:0};
             var syncBtn = _gachaSyncBtn(a);

@@ -102,6 +102,14 @@ _SYSTEM_PROMPT = """\
 class ZhongliArchon(_ScanMixin, _SkillMixin, _WatchMixin, _DigestMixin, Archon):
     """岩神·摩拉克斯：契约与财富——红利股扫描 + 评分 + 推送 archon。"""
 
+    # 最近一次扫描错误的展示窗口（超过此时间的旧错误不再返给前端）
+    # e037ba1 拆子包时漏定义此属性，但 get_last_error() 引用它 → wealth_running_api 崩
+    _LAST_ERROR_WINDOW_SECONDS = 3600  # 1 小时
+
+    # 用户关注股首次建底拉取多少年的历史日 K（_watch.py:100 引用）
+    # 同一拆子包漏迁移问题：常量定义遗失，调到首次添加股票路径就 AttributeError
+    _USER_WATCH_INIT_YEARS = 5
+
     def __init__(self):
         self._scan_lock = asyncio.Lock()
         # 当前扫描进度（供 /api/wealth/running 暴露给前端状态条）。

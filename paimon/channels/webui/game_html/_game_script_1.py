@@ -357,7 +357,10 @@ GAME_SCRIPT_1 = """
         async function _ensureChars(a, k){
             if(_charsCache[k]) return _charsCache[k];
             try{
-                var r = await fetch('/api/game/characters?game='+a.game+'&uid='+encodeURIComponent(a.uid));
+                // 用 _fetchT 加 10s 超时，否则 fetch 卡住时整个面板永卡"加载中"
+                // _fetchT 在下方定义；此处函数提升后引用安全（async 函数体内运行时已解析）
+                var fetcher = (typeof _fetchT === 'function') ? _fetchT : fetch;
+                var r = await fetcher('/api/game/characters?game='+a.game+'&uid='+encodeURIComponent(a.uid), 10000);
                 var d = await r.json();
                 var chars = d.characters || [];
                 var byId = {};
@@ -439,14 +442,33 @@ GAME_SCRIPT_1 = """
             var slot = document.getElementById('abyss-'+k);
             if(!slot) return;
             if(defs.length === 0){ slot.innerHTML = '<div class="abyss-empty">—</div>'; return; }
+            try { await _fillAbyssCore(a, k, defs, slot); }
+            catch(err) {
+                // 任何 JS 错误都会让 slot 永卡"加载中..."；这里兜底显示具体错误
+                console.error('[战绩] _fillAbyss 异常', a.game, a.uid, err);
+                slot.innerHTML = '<div class="abyss-empty">加载失败：' + esc(String(err && err.message || err)) + '</div>';
+            }
+        }
+
+        // fetch + 10s 超时；防浏览器旧标签页 hold 着死 connection 让 await 永卡
+        function _fetchT(url, timeoutMs){
+            timeoutMs = timeoutMs || 10000;
+            var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            var t = setTimeout(function(){ if(ctrl) ctrl.abort(); }, timeoutMs);
+            var p = fetch(url, ctrl ? {signal: ctrl.signal} : {});
+            return p.finally(function(){ clearTimeout(t); });
+        }
+
+        async function _fillAbyssCore(a, k, defs, slot){
             // 同时拉 abyss_latest（每副本 1 个）+ characters（队伍补 name/cons/weapon）
             var charsP = _ensureChars(a, k);
             var resultsP = Promise.all(defs.map(function(def){
-                return fetch('/api/game/abyss_latest?game='+a.game+'&uid='+encodeURIComponent(a.uid)+'&type='+def.type)
+                return _fetchT('/api/game/abyss_latest?game='+a.game+'&uid='+encodeURIComponent(a.uid)+'&type='+def.type, 10000)
                     .then(function(r){return r.json();})
                     .catch(function(){return {abyss:null};});
             }));
             var results = await resultsP;
             var charsCache = await charsP;
-            var charsById = charsCache.byId;
-            // 主力角色聚合：跨副本统计 avatar 出现次数 → top chips"""
+            var charsById = (charsCache && charsCache.byId) || {};
+            // 主力角色聚合：跨副本统计 avatar 出现次数 → top chips
+"""
