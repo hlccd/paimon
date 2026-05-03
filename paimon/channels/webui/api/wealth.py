@@ -149,8 +149,19 @@ async def wealth_stock_api(channel, request: web.Request) -> web.Response:
 async def wealth_trigger_api(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
-    if not channel.state.zhongli or not channel.state.irminsul or not channel.state.march:
-        return web.json_response({"ok": False, "error": "岩神/世界树/三月未就绪"}, status=500)
+    # USB-001：拆分 "三个未就绪" 让 user 知道具体哪个有问题怎么修
+    missing = []
+    if not channel.state.zhongli:
+        missing.append("岩神（理财服务，启动时配置 LLM 后才会就绪）")
+    if not channel.state.irminsul:
+        missing.append("世界树（持久化层，检查 .paimon/irminsul.db 写权限）")
+    if not channel.state.march:
+        missing.append("三月（调度器，启动失败请看 paimon 日志）")
+    if missing:
+        return web.json_response(
+            {"ok": False, "error": "未就绪：" + " / ".join(missing)},
+            status=500,
+        )
     try:
         data = await request.json()
         mode = (data.get("mode") or "").strip()

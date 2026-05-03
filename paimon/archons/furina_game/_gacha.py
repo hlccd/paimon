@@ -58,11 +58,16 @@ class _GachaMixin:
                 "device_id": acc.device_id or None,
             })
             if not ak.get("ok"):
+                # USB-001：retcode 数字 → 中文行动建议；与 _account._RETCODE_HINT 复用
+                from ._account import _RETCODE_HINT
+                rc = ak.get('retcode')
+                msg = ak.get('msg', '')
+                hint = _RETCODE_HINT.get(rc) or f"换 authkey 失败（retcode={rc} {msg}），请重新扫码绑定"
                 logger.warning(
                     "[水神·游戏] 抽卡同步换 authkey 失败 {}/{}  retcode={} msg={}",
-                    game, uid, ak.get('retcode'), ak.get('msg'),
+                    game, uid, rc, msg,
                 )
-                return {"ok": False, "msg": f"换 authkey 失败 retcode={ak.get('retcode')} {ak.get('msg', '')}"}
+                return {"ok": False, "msg": hint}
             authkey = ak["authkey"]
 
         pools = self._GACHA_POOLS_BY_GAME.get(game) or []

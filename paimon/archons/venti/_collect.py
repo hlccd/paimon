@@ -391,8 +391,14 @@ class _CollectMixin:
         rc = proc.returncode or 0
         if rc != 0:
             err_txt = (err_b or b"").decode("utf-8", "ignore").strip()
+            # USB-001：rc 数字 → 中文行动建议
             # rc=3 = 所有引擎都挂；rc=2 = 参数错
-            raise RuntimeError(f"web-search 退出码 {rc}: {err_txt[:200]}")
+            hint_map = {
+                2: "搜索参数错误（query/limit/engine 配置异常）",
+                3: "全部搜索引擎暂时不可用（网络/反爬/限流），请稍后重试",
+            }
+            hint = hint_map.get(rc, f"搜索失败（退出码 {rc}）")
+            raise RuntimeError(f"{hint}：{err_txt[:200]}")
 
         out_txt = (out_b or b"").decode("utf-8", "ignore").strip()
         if not out_txt:

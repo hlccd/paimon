@@ -18,6 +18,19 @@ if TYPE_CHECKING:
     from paimon.foundation.march import MarchService
 
 
+# USB-001 修：mihoyo retcode → user 看得懂的行动建议
+# 目标：user 看到错误就知道下一步做什么（重扫码 / 换网络 / 等）
+_RETCODE_HINT: dict[int, str] = {
+    1034: "米游社风控（设备陌生），请稍后重试或在 mys 手机端登录后再来",
+    10001: "Cookie/Stoken 已失效，请重新扫码绑定",
+    10035: "米游社风控（陌生设备），请稍后或换网络重试；多次失败请重新扫码",
+    -100: "Cookie/Stoken 已失效，请重新扫码绑定",
+    -101: "Cookie/Stoken 已失效，请重新扫码绑定",
+    -111: "米游社风控（行为异常），请稍后再试",
+    1008: "账号未绑定该游戏 UID",
+}
+
+
 class _AccountMixin:
     async def qr_create(self) -> dict[str, Any]:
         """创建扫码登录 QR。前端拿 url 显示二维码让用户扫。
@@ -79,11 +92,14 @@ class _AccountMixin:
             "fp": probe_fp["fp"], "device_id": probe_fp["device_id"],
         })
         if games.get("retcode") not in (0, None):
-            # 风控/Cookie 失败：仍把 mys_id 这一层信息返回给用户，但绑定失败
+            # USB-001：retcode 数字对 user 无意义，映射成行动建议
+            rc = games.get("retcode")
+            msg = games.get("message", "")
+            hint = _RETCODE_HINT.get(rc) or f"米游社接口异常（retcode={rc} {msg}），稍后重试或重新扫码"
             logger.warning("[水神·游戏] 获取游戏列表失败: {}", games)
             return {
                 "stat": "Confirmed", "mys_id": mys_id, "bound": [],
-                "error": f"拉玩家卡片失败 retcode={games.get('retcode')}: {games.get('message','')}",
+                "error": hint,
             }
         game_list = (games.get("data") or {}).get("list") or []
 
