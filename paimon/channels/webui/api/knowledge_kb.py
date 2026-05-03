@@ -166,6 +166,10 @@ async def knowledge_kb_delete_api(channel, request: web.Request) -> web.Response
         token = request.cookies.get("paimon_token")
         if not token or token not in channel.valid_tokens:
             return web.json_response({"error": "Unauthorized"}, status=401)
+    # USB-007 破坏性操作 server-side 确认
+    from paimon.channels.webui.api import check_confirm, confirm_required_response
+    if not check_confirm(request):
+        return confirm_required_response()
 
     try:
         data = await request.json()

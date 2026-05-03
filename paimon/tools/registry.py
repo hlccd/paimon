@@ -52,11 +52,41 @@ class ToolRegistry:
         logger.info("[天使·工具] 已加载: {}", list(self._tools.keys()))
 
     def _load_external(self, path: Path) -> None:
+        # SEC-002 路径白名单：path 必须是 tools_dir 的直系子文件（不允许 ..）
+        # exec_module 等价于跑任意 .py 代码，目录可写即 RCE；强制限定加载源
+        try:
+            tools_dir = self.tools_dir.resolve()
+            real_path = path.resolve()
+            if real_path.parent != tools_dir:
+                logger.error(
+                    "[天使·工具] 拒绝加载外部工具（不在 tools_dir 直系子文件）: {}",
+                    real_path,
+                )
+                return
+            if real_path.suffix != ".py":
+                logger.error("[天使·工具] 拒绝非 .py 文件: {}", real_path)
+                return
+        except (OSError, ValueError) as e:
+            logger.error("[天使·工具] 路径校验失败 {}: {}", path, e)
+            return
+
         spec = importlib.util.spec_from_file_location(path.stem, path)
         if not spec or not spec.loader:
             return
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
+
+        # 校验外部 module 必填字段（防 ExternalTool 字段缺失/恶意类型）
+        required = ("name", "description", "parameters")
+        missing = [k for k in required if not hasattr(mod, k)]
+        if missing:
+            logger.error(
+                "[天使·工具] 外部工具缺字段 {} 拒绝加载: {}", missing, path,
+            )
+            return
+        if not isinstance(mod.name, str) or not mod.name:
+            logger.error("[天使·工具] 外部工具 name 非合法字符串: {}", path)
+            return
 
         self._tools[mod.name] = ExternalTool(
             name=mod.name,

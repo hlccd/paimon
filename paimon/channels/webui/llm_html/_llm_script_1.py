@@ -275,7 +275,7 @@ LLM_SCRIPT_1 = """
             var name = p ? p.name : id;
             if(!confirm('确定删除 profile「'+name+'」？不可恢复。')) return;
             try {
-                var r = await fetch('/api/llm/'+encodeURIComponent(id)+'/delete', {method:'POST'});
+                var r = await fetch('/api/llm/'+encodeURIComponent(id)+'/delete', {method:'POST', headers:{'X-Confirm':'yes'}});
                 var d = await r.json();
                 if(d.ok) loadProfiles();
                 else alert('删除失败: '+(d.error || 'unknown'));

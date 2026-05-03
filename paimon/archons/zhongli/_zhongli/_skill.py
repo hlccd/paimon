@@ -54,7 +54,9 @@ class _SkillMixin:
         skill_tag = args[0] if args else "skill"
         logger.info("[岩神·skill/{}] 启动子进程 args={}", skill_tag, args)
         start_ts = time.time()
-        env = {**os.environ, "PAIMON_SKILL_RUNTIME": "1", "PYTHONIOENCODING": "utf-8"}
+        # SEC-014 env 白名单透传（与 furina_game 复用同一 helper）
+        from paimon.archons.furina_game.service import _safe_env
+        env = _safe_env({"PAIMON_SKILL_RUNTIME": "1", "PYTHONIOENCODING": "utf-8"})
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,

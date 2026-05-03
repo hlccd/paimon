@@ -106,7 +106,7 @@ CHAT_HTML_BODY_2 = """
                                         lastThinkingEl = null;
                                     }
                                     fullResponse += (data.content || '');
-                                    typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
+                                    typingMsg.querySelector('.message-content').innerHTML = window.safeMd(fullResponse);
                                     if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'notice') {
                                     // 中间状态提示（ack/milestone/tool/thinking/done_recap）
@@ -141,7 +141,7 @@ CHAT_HTML_BODY_2 = """
                                         fullResponse = '';
                                         lastThinkingEl = null;
                                     }
-                                    typingMsg.querySelector('.message-content').innerHTML = marked.parse(q);
+                                    typingMsg.querySelector('.message-content').innerHTML = window.safeMd(q);
                                     pendingAuthzAskSessions.add(reqSession);
                                     // 用户答复后的下一条 message 仍需新起气泡（同意后的派蒙回复独立）
                                     needNewBubble = true;
@@ -164,7 +164,7 @@ CHAT_HTML_BODY_2 = """
                                     if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'error') {
                                     fullResponse += '\\n\\n> ' + (data.content || '未知错误');
-                                    typingMsg.querySelector('.message-content').innerHTML = marked.parse(fullResponse);
+                                    typingMsg.querySelector('.message-content').innerHTML = window.safeMd(fullResponse);
                                     waitingSessions.delete(reqSession);
                                     if (currentSession === reqSession) updateStatus('就绪');
                                 }
@@ -203,7 +203,7 @@ CHAT_HTML_BODY_2 = """
                 + '<span class="message-sender">' + sender + '</span>'
                 + '<span class="message-time">' + time + '</span>'
                 + '</div>'
-                + '<div class="message-content">' + (role === 'user' ? content : marked.parse(content)) + '</div>';
+                + '<div class="message-content">' + (role === 'user' ? content : window.safeMd(content)) + '</div>';
 
             container.appendChild(msgDiv);
             // 仅当目标 session 是当前显示的才 scroll（否则 scroll 当前 session 的内容会让用户困惑）

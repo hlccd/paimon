@@ -82,6 +82,10 @@ async def wealth_user_watch_add_api(channel, request: web.Request) -> web.Respon
 async def wealth_user_watch_remove_api(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    # USB-007 破坏性操作 server-side 确认（防 CSRF + 误删）
+    from paimon.channels.webui.api import check_confirm, confirm_required_response
+    if not check_confirm(request):
+        return confirm_required_response()
     irminsul = channel.state.irminsul
     if not irminsul:
         return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)

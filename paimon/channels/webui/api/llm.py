@@ -78,6 +78,10 @@ async def llm_update_api(channel, request: web.Request) -> web.Response:
 async def llm_delete_api(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+    # USB-007 破坏性操作 server-side 确认
+    from paimon.channels.webui.api import check_confirm, confirm_required_response
+    if not check_confirm(request):
+        return confirm_required_response()
     irminsul = channel.state.irminsul
     if not irminsul:
         return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
@@ -228,6 +232,10 @@ async def llm_route_set_api(channel, request: web.Request) -> web.Response:
 async def llm_route_delete_api(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+    # USB-007 破坏性操作 server-side 确认
+    from paimon.channels.webui.api import check_confirm, confirm_required_response
+    if not check_confirm(request):
+        return confirm_required_response()
     if not channel.state.model_router:
         return web.json_response(
             {"ok": False, "error": "路由器未就绪"}, status=500,

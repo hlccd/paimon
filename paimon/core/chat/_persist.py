@@ -37,13 +37,21 @@ async def _persist_turn(
         return
     msgs = sess.messages
 
+    # REL-009 加固：用 strip() 比较抹平尾部空格/换行差异
+    # （旧实现严格相等，stream 处理偶发尾换行差异会让 case 1 不命中触发重复 append）
+    user_text_n = (user_text or "").strip()
+    reply_text_n = (reply_text or "").strip()
+
+    def _eq(a: str | None, b: str) -> bool:
+        return (a or "").strip() == b
+
     # case 1: 完整一对已存
     if (
         len(msgs) >= 2
         and msgs[-2].get("role") == "user"
-        and (msgs[-2].get("content") or "") == user_text
+        and _eq(msgs[-2].get("content"), user_text_n)
         and msgs[-1].get("role") == "assistant"
-        and (msgs[-1].get("content") or "") == reply_text
+        and _eq(msgs[-1].get("content"), reply_text_n)
     ):
         return
 
@@ -51,14 +59,14 @@ async def _persist_turn(
     if (
         msgs
         and msgs[-1].get("role") == "user"
-        and (msgs[-1].get("content") or "") == user_text
+        and _eq(msgs[-1].get("content"), user_text_n)
     ):
         if reply_text:
             sess.messages.append({"role": "assistant", "content": reply_text})
             try:
                 await state.session_mgr.save_session_async(sess)
             except Exception as e:
-                logger.debug("[派蒙·落盘] save 失败: {}", e)
+                logger.warning("[派蒙·落盘] save 失败 (case 2): {}", e)
         return
 
     # case 3: 常规 append
@@ -68,7 +76,8 @@ async def _persist_turn(
     try:
         await state.session_mgr.save_session_async(sess)
     except Exception as e:
-        logger.debug("[派蒙·落盘] save 失败: {}", e)
+        # REL-005 升级：原 debug 静默 → warning，落盘失败需 user 可观测
+        logger.warning("[派蒙·落盘] save 失败 (case 3): {}", e)
 
 
 def _persist_shades_turn(

@@ -371,7 +371,8 @@ WEALTH_SCRIPT_2 = """            var el=document.getElementById('recEl');
             if(!confirm('确定删除 ' + code + ' 的关注吗？（价格历史也会清掉）')) return;
             try{
                 var r = await fetch('/api/wealth/user_watch/remove', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json', 'X-Confirm':'yes'},
                     body: JSON.stringify({code: code}),
                 });
                 var d = await r.json();

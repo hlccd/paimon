@@ -20,16 +20,23 @@ if TYPE_CHECKING:
 
 class _AccountMixin:
     async def qr_create(self) -> dict[str, Any]:
-        """创建扫码登录 QR。前端拿 url 显示二维码让用户扫。"""
+        """创建扫码登录 QR。前端拿 url 显示二维码让用户扫。
+
+        REL-005 加锁：多 user 同时扫码时 dict 写竞争；GC 改为后台任务（service 启）。
+        """
         r = await self._run_skill("qr-create")
-        self._pending_qr[r["ticket"]] = {
-            "device": r["device"], "started_at": time.time(),
-        }
-        # 过期清理（超 10 分钟的 pending）
-        self._pending_qr = {
-            k: v for k, v in self._pending_qr.items()
-            if time.time() - v["started_at"] < 600
-        }
+        # 触发后台 GC 任务（首次扫码时启动）
+        self._ensure_qr_gc()
+        async with self._pending_qr_lock:
+            self._pending_qr[r["ticket"]] = {
+                "device": r["device"], "started_at": time.time(),
+            }
+            # 即时清理一次（防长期未跑 GC 时旧 ticket 堆积）
+            now = time.time()
+            self._pending_qr = {
+                k: v for k, v in self._pending_qr.items()
+                if now - v["started_at"] < 600
+            }
         return r
 
     async def qr_poll(self, app_id: str, ticket: str, device: str) -> dict[str, Any]:

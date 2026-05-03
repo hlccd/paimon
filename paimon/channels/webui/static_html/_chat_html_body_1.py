@@ -39,6 +39,29 @@ CHAT_HTML_BODY_1 = """
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <script>
+        // SEC-011 XSS 防护：marked.parse 输出必经 DOMPurify.sanitize 才能 innerHTML。
+        // body_2.py 4 处 markdown 渲染都改调 window.safeMd；CDN 任一加载失败时降级纯文本。
+        window.safeMd = function(text) {
+            var raw = text || '';
+            if (typeof marked === 'undefined' || typeof marked.parse !== 'function') {
+                return raw.replace(/[&<>"']/g, function(c){
+                    var m = {};
+                    m['&'] = '&amp;'; m['<'] = '&lt;'; m['>'] = '&gt;';
+                    m['"'] = '&quot;'; m["'"] = '&#39;';
+                    return m[c];
+                });
+            }
+            var html = marked.parse(raw);
+            if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
+                return DOMPurify.sanitize(html);
+            }
+            // DOMPurify CDN 加载失败：直接返 marked 输出（XSS 风险但保功能可用，
+            // 等用户切换网络后刷新页面会重载 CDN 修复）
+            return html;
+        };
+    </script>
     <script>
         let currentSession = 'default';
         // 多会话并发支持：每个 session 独立的 pending 状态。
@@ -220,7 +243,7 @@ CHAT_HTML_BODY_1 = """
         async function deleteSession(sessionId, name) {
             if (!confirm('确定删除会话「' + name + '」？')) return;
             try {
-                await fetch('/api/sessions/' + sessionId + '/delete', { method: 'POST' });
+                await fetch('/api/sessions/' + sessionId + '/delete', { method: 'POST', headers: {'X-Confirm': 'yes'} });
                 // 清掉对应 pane（无论是否当前会话）
                 const oldPane = document.querySelector('.session-pane[data-sid="' + sessionId + '"]');
                 if (oldPane) oldPane.remove();

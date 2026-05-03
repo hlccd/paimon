@@ -39,10 +39,18 @@ def _handler_name(handler: Handler) -> str:
 
 
 class Leyline:
+    # REL-008 防内存爆炸：Queue 加 maxsize；满时丢最旧并 warning
+    # 10000 在事件吞吐 50/s 时可缓冲 200s，handler 异常导致积压时给运维反应时间
+    _MAX_QUEUE = 10000
+    # handler 单次处理超时；超过即 cancel 防止阻塞主循环
+    _HANDLER_TIMEOUT = 30.0
+
     def __init__(self):
-        self._queue: asyncio.Queue[Event] = asyncio.Queue()
+        self._queue: asyncio.Queue[Event] = asyncio.Queue(maxsize=self._MAX_QUEUE)
         self._handlers: dict[str, list[Handler]] = defaultdict(list)
         self._running = False
+        # 队列满 warning 节流：避免 handler 卡死时疯狂打日志
+        self._last_overflow_warn_ts: float = 0.0
 
     def subscribe(self, topic: str, handler: Handler) -> None:
         if handler not in self._handlers[topic]:
@@ -56,7 +64,24 @@ class Leyline:
 
     async def publish(self, topic: str, payload: dict, source: str = "") -> None:
         event = Event(topic=topic, payload=payload, source=source)
-        self._queue.put_nowait(event)
+        try:
+            self._queue.put_nowait(event)
+        except asyncio.QueueFull:
+            # REL-008 队列满：丢最旧 + warning（带节流，最多 10s 一次）
+            try:
+                dropped = self._queue.get_nowait()
+                self._queue.task_done()
+                self._queue.put_nowait(event)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                return  # 极端罕见，放弃本事件
+            now = time.time()
+            if now - self._last_overflow_warn_ts > 10:
+                self._last_overflow_warn_ts = now
+                logger.warning(
+                    "[地脉] 队列满（maxsize={}），丢弃最旧事件 dropped_topic={} "
+                    "new_topic={} source={}（handler 可能卡死，请排查）",
+                    self._MAX_QUEUE, dropped.topic, topic, source,
+                )
 
     async def start(self) -> None:
         self._running = True
@@ -75,22 +100,46 @@ class Leyline:
 
                 for handler in list(handlers):
                     try:
-                        await handler(event)
+                        # REL-005 handler 超时保护：阻塞型 handler 不会卡死整个总线
+                        await asyncio.wait_for(handler(event), timeout=self._HANDLER_TIMEOUT)
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            "[地脉] handler 超时 ({}s) topic={} handler={}",
+                            self._HANDLER_TIMEOUT, event.topic, _handler_name(handler),
+                        )
+                        if event.topic != "error.log":
+                            try:
+                                self._queue.put_nowait(Event(
+                                    topic="error.log",
+                                    payload={
+                                        "origin_topic": event.topic,
+                                        "handler": _handler_name(handler),
+                                        "error": f"timeout >{self._HANDLER_TIMEOUT}s",
+                                    },
+                                    source="地脉",
+                                ))
+                            except asyncio.QueueFull:
+                                pass
                     except Exception as e:
                         logger.error(
                             "[地脉] handler 异常 topic={} handler={}: {}",
                             event.topic, _handler_name(handler), e,
                         )
                         if event.topic != "error.log":
-                            await self.publish(
-                                "error.log",
-                                {
-                                    "origin_topic": event.topic,
-                                    "handler": _handler_name(handler),
-                                    "error": str(e),
-                                },
-                                source="地脉",
-                            )
+                            # 直接 put_nowait（不 await self.publish）避免再次进入
+                            # 满队列丢最旧的逻辑造成日志风暴
+                            try:
+                                self._queue.put_nowait(Event(
+                                    topic="error.log",
+                                    payload={
+                                        "origin_topic": event.topic,
+                                        "handler": _handler_name(handler),
+                                        "error": str(e),
+                                    },
+                                    source="地脉",
+                                ))
+                            except asyncio.QueueFull:
+                                pass
         except asyncio.CancelledError:
             pass
         finally:

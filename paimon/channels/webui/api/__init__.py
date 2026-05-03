@@ -10,6 +10,26 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
+
+def check_confirm(request: web.Request) -> bool:
+    """USB-007 破坏性操作 server-side 确认：
+    要求请求带 `X-Confirm: yes` header 才允许执行。
+    防 CSRF（第三方页面 POST 不带 header） + 防误删（前端必须显式确认）。
+    """
+    return (request.headers.get("X-Confirm") or "").strip().lower() in (
+        "yes", "1", "true",
+    )
+
+
+def confirm_required_response() -> web.Response:
+    return web.json_response(
+        {
+            "ok": False,
+            "error": "破坏性操作需 X-Confirm: yes header（前端 confirm 后再发）",
+        },
+        status=400,
+    )
+
 from . import (
     authz,
     feed,

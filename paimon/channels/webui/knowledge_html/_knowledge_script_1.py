@@ -118,7 +118,7 @@ KNOWLEDGE_SCRIPT_1 = """
             try{
                 var r = await fetch('/api/knowledge/memory/delete', {
                     method: 'POST',
-                    headers: {'Content-Type':'application/json'},
+                    headers: {'Content-Type':'application/json', 'X-Confirm':'yes'},
                     body: JSON.stringify({id: id}),
                 });
                 var d = await r.json();

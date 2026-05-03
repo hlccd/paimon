@@ -382,7 +382,8 @@ LLM_SCRIPT_2 = """                // 未接入路由：selector 灰显 + ⚠ 标
         window.restoreInherit = async function(key){
             try {
                 var r = await fetch('/api/llm/routes/delete', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json', 'X-Confirm':'yes'},
                     body: JSON.stringify({route_key: key}),
                 });
                 var d = await r.json();

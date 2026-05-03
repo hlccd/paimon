@@ -70,7 +70,7 @@ KNOWLEDGE_SCRIPT_2 = """                }
             try{
                 var r = await fetch('/api/knowledge/kb/delete', {
                     method: 'POST',
-                    headers: {'Content-Type':'application/json'},
+                    headers: {'Content-Type':'application/json', 'X-Confirm':'yes'},
                     body: JSON.stringify({category: cat, topic: topic}),
                 });
                 var d = await r.json();

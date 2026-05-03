@@ -118,6 +118,11 @@ async def delete_session(channel, request: web.Request) -> web.Response:
         if not token or token not in channel.valid_tokens:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
+    # USB-007 破坏性操作 server-side 确认（防 CSRF）
+    from paimon.channels.webui.api import check_confirm, confirm_required_response
+    if not check_confirm(request):
+        return confirm_required_response()
+
     session_id = request.match_info["session_id"]
     # 推送收件箱不允许删除（docs/aimon.md §2.6：派蒙独占出口的固定接收点）
     if session_id == PUSH_SESSION_ID:
