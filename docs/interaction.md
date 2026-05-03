@@ -4,7 +4,7 @@
 >
 > 本文档从**用户视角**描述派蒙与用户的交互时间线：在三条路径（闲聊 / 天使 / 四影）下，用户在 WebUI 和 QQ 分别会看到哪些消息、以什么样的节奏送达。
 >
-> 实施方案、改动清单、里程碑见 [interaction-feedback.md](interaction-feedback.md)。
+> 实施情况见 [progress.md](progress.md)。
 
 ---
 
@@ -294,4 +294,4 @@ xx 股票近期...
 
 ---
 
-> 本文档描述交互**方式**（用户看到什么），不描述实现细节。实施见 [interaction-feedback.md](interaction-feedback.md)。
+> 本文档描述交互**方式**（用户看到什么），不描述实现细节。实施情况见 [progress.md](progress.md)。

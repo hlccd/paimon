@@ -16,9 +16,9 @@
   - **世界树**：缓存预热
 - **推送响铃**（两种触发方式）：
   - **定时响铃**：三月按预设时间触发 → 通知对应数据收集者整理内容 → 把整理好的内容交给派蒙
-    - 实装：[`MarchService._fire_task`](../../paimon/foundation/march.py)（`_poll` 扫 `scheduled_tasks` 域）
+    - 实装：[`MarchService._fire_task`](../../paimon/foundation/march/)（`_poll` 扫 `scheduled_tasks` 域）
   - **事件响铃**：接收数据收集者的响铃请求（感知到重要数据） → 把整理好的内容交给派蒙
-    - 实装：[`MarchService.ring_event`](../../paimon/foundation/march.py)（复用地脉 `march.ring` 订阅路径，派蒙侧零改动）
+    - 实装：[`MarchService.ring_event`](../../paimon/foundation/march/)（复用地脉 `march.ring` 订阅路径，派蒙侧零改动）
     - 接入：`await state.march.ring_event(channel_name=..., chat_id=..., source="风神", message="...")`；`message` / `prompt` 至少一个非空
     - 限流：同 `(source, channel, chat_id)` 三元组 60s 内最多 10 次，超限返 False + warning log
     - audit：每次成功推送记 `event_type="march_ring_event"`；限流拒绝不记
@@ -29,7 +29,7 @@
   - **运行时诊断（Quick）** — ✅ 可用：`/selfcheck` 斜杠命令触发；秒级纯代码
     探针 9 组件（irminsul / leyline / gnosis / march / session_mgr / skill_registry /
     authz_cache / channels / paimon_home），整体状态派生（ok / degraded / critical）。
-    实装：[`paimon/foundation/selfcheck.py`](../../paimon/foundation/selfcheck.py) `SelfCheckService.run_quick`
+    实装：[`paimon/foundation/selfcheck/`](../../paimon/foundation/selfcheck/) `SelfCheckService.run_quick`
   - **核心代码体检（Deep）** — ⏸ 暂缓：底层实装完整但默认隐藏入口。
     当前 mimo-v2-omni 对 check skill 的 N+M+K 多轮迭代执行不充分（~30s 就
     返回简短 finding 停止），跑不出可靠体检结果。
@@ -109,6 +109,6 @@ class ScheduledTask:
 
 ## 代码位置
 
-- `paimon/foundation/march.py` — MarchService
+- `paimon/foundation/march/` — MarchService
 - `paimon/foundation/irminsul/schedule.py` — ScheduleRepo + ScheduledTask
 - `paimon/tools/builtin/schedule.py` — ScheduleTool

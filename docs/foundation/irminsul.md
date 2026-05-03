@@ -12,7 +12,7 @@
 ## 核心能力
 
 - **统一落盘枢纽**：全系统所有需要持久化的数据由世界树承载（SQLite 主库 + 文件系统）
-- **领域 API 收口**：按 9 个数据域（见下表）提供语义化读写接口，不暴露底层存储细节
+- **领域 API 收口**：按 12 个数据域（见下表）提供语义化读写接口，不暴露底层存储细节
 - **路径安全闸门**：文件类域（知识库、记忆 body）内部强制 `resolve()` 校验，调用方只传语义化参数（category / topic / memory_id），不传路径字符串
 - **写入日志**：所有写 / 删记 INFO 级日志，凸显"世界树记录 XX 做了 XX"的主语关系（见下方日志约定）
 - **只存不推**：不做事件广播、不订阅地脉，不对外提供 subscribe / watch 接口
@@ -178,7 +178,7 @@ paimon/foundation/irminsul/
     └── memory/{type}/{subject}/{id}.md       # 记忆正文（SQL 索引 + 文件 body）
 ```
 
-### 3. SQLite Schema（10 张表）
+### 3. SQLite Schema（按域分组的核心表 — 实际表数随域演化，以 `paimon/foundation/irminsul/_db/_schema.sql` 为准）
 
 ```sql
 -- ============ 域 1: 授权记录 ============
@@ -433,7 +433,7 @@ async def token_aggregate(
 
 ### 9. 启动集成
 
-`paimon/bootstrap.py` 的 `create_app` 改为 **async `initialize_app`**，流程：
+`paimon/bootstrap/` 的 `create_app` 改为 **async `initialize_app`**，流程：
 
 ```python
 state.cfg = cfg
@@ -452,7 +452,7 @@ state.primogem = Primogem(state.irminsul)
 # ... gnosis / channels 等保持不变
 ```
 
-对应 `main.py` 入口改为 `asyncio.run(initialize_app(cfg))` 后再 run channels。
+对应 `paimon/__main__.py` 入口（`python -m paimon`）改为 `asyncio.run(initialize_app(cfg))` 后再 run channels。
 
 ### 10. 模块间调用模式示例
 

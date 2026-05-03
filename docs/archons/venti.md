@@ -41,7 +41,7 @@
 
 ### 数据模型
 
-- 世界树域 11.5 [feed_events 表](../../paimon/foundation/irminsul/_db.py)：事件主体；FK→subscriptions(id)，删订阅时级联清
+- 世界树域 11.5 [feed_events 表](../../paimon/foundation/irminsul/_db/)：事件主体；FK→subscriptions(id)，删订阅时级联清
 - feed_items 加列：event_id / sentiment_score / sentiment_label
 
 ### 浅池 LLM 调用 3 处
@@ -76,10 +76,10 @@ GET  /sentiment                         面板 HTML
 
 ### 关键文件
 
-- [paimon/archons/venti_event.py](../../paimon/archons/venti_event.py) `EventClusterer`
-- [paimon/archons/venti.py](../../paimon/archons/venti.py) `_dispatch_p0_alerts` / `_compose_event_digest`
+- [paimon/archons/venti_event/](../../paimon/archons/venti_event/) `EventClusterer`
+- [paimon/archons/venti/](../../paimon/archons/venti/) `_dispatch_p0_alerts` / `_compose_event_digest`
 - [paimon/foundation/irminsul/feed_event.py](../../paimon/foundation/irminsul/feed_event.py) `FeedEventRepo`
-- [paimon/channels/webui/sentiment_html.py](../../paimon/channels/webui/sentiment_html.py) 看板
+- [paimon/channels/webui/sentiment_html/](../../paimon/channels/webui/sentiment_html/) 看板
 
 ### 关键 config
 

@@ -21,14 +21,14 @@
 
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
-| 统一入口网关 | **已实现** | `paimon/core/chat.py` |
+| 统一入口网关 | **已实现** | `paimon/core/chat/` |
 | 频道轻认证 | **已实现** | 各 `channel.py` + `middleware.py` |
 | 会话管理 | **已实现** | `paimon/session.py` (数据走世界树) |
-| 指令系统 | **已实现** | `paimon/core/commands.py` |
+| 指令系统 | **已实现** | `paimon/core/commands/` |
 | 人格包装 | **已实现** | `templates/paimon.t` |
 | 意图粗分类 | **已实现** | `paimon/core/intent.py` (chat/skill/complex) + 规则引擎前置 + LLM 兜底 + skill 二次校验 |
-| 复杂任务路由 | **已实现** | `paimon/core/chat.py` → `run_shades_pipeline()` |
-| `/task` 强制指令 | **已实现** | `paimon/core/commands.py` |
+| 复杂任务路由 | **已实现** | `paimon/core/chat/` → `run_shades_pipeline()` |
+| `/task` 强制指令 | **已实现** | `paimon/core/commands/` |
 | 轻量安全过滤 | **已实现** | `paimon/core/pre_filter.py` (两档：shell_danger=block / prompt_injection=warn 放行；写 audit `input_filtered`) |
 | 权限查询/授权 | **已实现** | `paimon/core/authz/` + `Channel.ask_user` + 世界树 authz 域 |
 
@@ -50,16 +50,16 @@
 |----------|------|----------|
 | Skill 解析器 (SKILL.md YAML) | **已实现** | `paimon/angels/parser.py` |
 | Skill 注册表 | **已实现** | `paimon/angels/registry.py` |
-| 天使调度器 (tool calling loop) | **已实现** | `paimon/llm/model.py` + `paimon/core/commands.py` |
+| 天使调度器 (tool calling loop) | **已实现** | `paimon/llm/model.py` + `paimon/core/commands/` |
 | 工具系统 (exec/schedule/video_process/audio_process) | **已实现** | `paimon/tools/` + `tools/` |
-| 天使超时保护 (单 tool 30s / 总 3min) | **已实现** | `paimon/core/chat.py` + `paimon/config.py` |
+| 天使超时保护 (单 tool 30s / 总 3min) | **已实现** | `paimon/core/chat/` + `paimon/config.py` |
 | 魔女会桥 (失败→四影) | **已实现** | `paimon/angels/nicole.py` |
 | 现有 skills 迁移: bili/xhs/check | **已实现** | `skills/` |
 | 现有 skills 迁移: web/dividend | **未开始** | — |
 
 ---
 
-## 四、四影 (Track 2 骨架) — `paimon/shades/pipeline.py`
+## 四、四影 (Track 2 骨架) — `paimon/shades/pipeline/`
 
 固定调用链：死执 → 生执 → 空执 → 七神 → 时执
 
@@ -75,7 +75,7 @@
 
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
-| DAG 任务分解（deps/多轮） | **已实现** | `paimon/shades/naberius.py` + `_plan.Plan`；`plan(round=N)` 支持 round≥2 修订 + preserved 节点跳过 re-INSERT；**写代码任务自动三阶段 6 节点 DAG**（`_is_code_task` / `_build_code_pipeline_dag` / `_revise_code_pipeline` 专用 revise） |
+| DAG 任务分解（deps/多轮） | **已实现** | `paimon/shades/naberius/` + `_plan.Plan`；`plan(round=N)` 支持 round≥2 修订 + preserved 节点跳过 re-INSERT；**写代码任务自动三阶段 6 节点 DAG**（`_is_code_task` / `_build_code_pipeline_dag` / `_revise_code_pipeline` 专用 revise） |
 | 管线时序（前台授权+后台执行） | **已实现** | `ShadesPipeline.prepare()`（入口审 + round-1 plan + 批量授权，SSE 活跃时同步跑）+ `execute(task, plan)`（后台 dispatch/revise/归档）；`enter_shades_pipeline_background` 按此拼装，授权弹窗在原气泡弹出，进度/最终产物推📨 推送（非写代码任务也推 `final`） |
 | 依赖环检测 | **已实现** | `_plan.detect_cycle` DFS 三色；第一轮降级线性+审计，第二轮再出环硬失败 |
 | 多轮迭代控制 | **已实现** | `SHADES_MAX_ROUNDS=3`；pipeline 按 verdict 回炉 + 水神结构化三级裁决；失败节点改派引导 |
@@ -94,7 +94,7 @@
 
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
-| 上下文压缩 | **已实现** | `paimon/shades/istaroth.py` (时执接管 + 4 项改进：阈值公式 / tool pair 补齐 / Prompt 升级 / 熔断) |
+| 上下文压缩 | **已实现** | `paimon/shades/istaroth/` (时执接管 + 4 项改进：阈值公式 / tool pair 补齐 / Prompt 升级 / 熔断) |
 | 任务归档 + 审计 | **已实现** | `istaroth.archive` 含 `failure_reason` + `rounds`；成功 / 失败 / 拒绝路径都归档 |
 | 会话超时管理 | **已实现** | `paimon/shades/_lifecycle.sweep_sessions`：无活动 6h + 无 channel 绑定 → archived；archived 超 90d → 物理删除；`SessionManager.invalidate_removed` 同步内存 |
 | 归档分层 (热/冷/过期) | **已实现** | `sweep_tasks`：cold 30d → archived，archived 60d → 级联删除（子任务/流转/进度）；`task_running_timeout_hours=1` 卡死任务保护对齐 docs |
@@ -108,9 +108,9 @@
 |------|----------|------|----------|
 | 草神 · Nahida | 推理、知识整合、文书起草、产品方案 | **已实现**（含 spec 阶段调 requirement-spec skill）| `paimon/archons/nahida.py`（+ `write_spec` / `[STAGE:spec]` 分派）|
 | 雷神 · Raiden | 代码生成、自检 | **已实现**（含 design+code 分阶段 + 自检三件套 py_compile/ruff/pytest）| `paimon/archons/raiden.py`（+ `write_design` / `write_code` / `self_check` / `[STAGE:]` 分派）|
-| 水神 · Furina | 评审、游戏信息 | **已实现**（含三阶段 review 调 check skill 非交互参数模式）| `paimon/archons/furina.py`（+ `review_spec` / `review_design` / `review_code` / `[STAGE:]` 分派）|
+| 水神 · Furina | 评审、游戏信息 | **已实现**（含三阶段 review 调 check skill 非交互参数模式）| `paimon/archons/furina/`（+ `review_spec` / `review_design` / `review_code` / `[STAGE:]` 分派）|
 | 火神 · Mavuika | Shell/代码执行、部署 | **已实现** (MVP) | `paimon/archons/mavuika.py` |
-| 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP + 话题订阅 + L1 事件级舆情) | `paimon/archons/venti.py` `collect_subscription` + `paimon/archons/venti_event.py` `EventClusterer` + `paimon/tools/builtin/subscribe.py` |
+| 风神 · Venti | 新闻采集、舆情分析 | **已实现** (MVP + 话题订阅 + L1 事件级舆情) | `paimon/archons/venti/` `collect_subscription` + `paimon/archons/venti_event/` `EventClusterer` + `paimon/tools/builtin/subscribe.py` |
 | 岩神 · Zhongli | 理财、红利股 | **已实现** (含红利股追踪闭环) | `paimon/archons/zhongli/` (scorer 纯函数 + zhongli.py 业务编排) + `paimon/tools/builtin/dividend.py` |
 | 冰神 · Tsaritsa | Skill 生态管理 | **已实现** (MVP) | `paimon/archons/tsaritsa.py` |
 
@@ -169,16 +169,16 @@
 | 规划职责 | 状态 | 实现位置 |
 |----------|------|----------|
 | 守护进程 (崩溃重启) | **已实现** | `main.py` entry() |
-| 定时调度 (cron/interval/once) | **已实现** | `paimon/foundation/march.py` (按分钟 :00 对齐轮询) |
+| 定时调度 (cron/interval/once) | **已实现** | `paimon/foundation/march/` (按分钟 :00 对齐轮询) |
 | 推送响铃 (定时触发) | **已实现** | 走地脉 march.ring → 派蒙投递 |
 | 推送响铃 (事件触发) | **已实现** | `MarchService.ring_event`（含 60s/10 条限流 + audit `march_ring_event`；派蒙侧 zero-change 复用 march.ring 订阅） |
-| 任务观测面板 | **已实现** | `paimon/channels/webui/tasks_html.py`（过滤订阅 `[FEED_COLLECT]` 任务归信息流面板）|
+| 任务观测面板 | **已实现** | `paimon/channels/webui/tasks_html/`（过滤订阅 `[FEED_COLLECT]` 任务归信息流面板）|
 | 订阅触发分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[FEED_COLLECT] <sub_id>` 前缀 → 直接调风神 `collect_subscription`，不走 LLM |
 | 信息流面板 | **已实现** | `paimon/channels/webui/feed_html.py`（订阅增删改 + feed_items 列表 + 按订阅/时间筛选 + 手动 run） |
 | 红利股采集分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[DIVIDEND_SCAN] <mode>` 前缀 → 岩神 `collect_dividend(mode)` |
-| 理财面板 | **已实现** | `paimon/channels/webui/wealth_html.py`（推荐/排行/变化 3 tab + Chart.js 折线 + 触发扫描按钮） |
+| 理财面板 | **已实现** | `paimon/channels/webui/wealth_html/`（推荐/排行/变化 3 tab + Chart.js 折线 + 触发扫描按钮） |
 | WebUI 推送通知 | **已实现** | `send_text` / `send_file` 落推送会话 + PushHub 扇出 SSE；QQ 因 API 限制关闭 |
-| 自检系统（Quick + Deep）| **已实现** | `paimon/foundation/selfcheck.py` `SelfCheckService`：Quick 9 组件探针秒级 + Deep 复用 Furina 模式调 check skill；全局单例锁防并发；产物快照到世界树域 12；配套 `/selfcheck` 命令 + `/selfcheck` 面板（[selfcheck_html.py](../paimon/channels/webui/selfcheck_html.py)） |
+| 自检系统（Quick + Deep）| **已实现** | `paimon/foundation/selfcheck/` `SelfCheckService`：Quick 9 组件探针秒级 + Deep 复用 Furina 模式调 check skill；全局单例锁防并发；产物快照到世界树域 12；配套 `/selfcheck` 命令 + `/selfcheck` 面板（[selfcheck_html.py](../paimon/channels/webui/selfcheck_html/)） |
 | 自检：cron 分派 | **已实现** | `bootstrap._on_march_ring` 检测 `[SELFCHECK_DEEP] <args>` → 调 `SelfCheckService.run_deep(triggered_by="cron")`，不走 LLM |
 | 自检：静态契约 / 离线冒烟档 | **未开始** | 留下一轮；对齐 docs 设计的三档中剩余两档 |
 
