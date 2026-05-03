@@ -72,12 +72,15 @@ class AuditRepo:
         params.append(limit)
         async with self._db.execute(sql, tuple(params)) as cur:
             rows = await cur.fetchall()
-        return [
-            AuditEntry(
+        # REL-016：单条 payload JSON 损坏不应阻断整 list 链路（旧版裸 loads 一坏全挂）
+        result = []
+        for r in rows:
+            try:
+                payload = json.loads(r[5]) if r[5] else {}
+            except (json.JSONDecodeError, TypeError):
+                payload = {"_corrupt": True, "_raw_preview": (r[5] or "")[:100]}
+            result.append(AuditEntry(
                 id=r[0], task_id=r[1], session_id=r[2], event_type=r[3],
-                actor=r[4],
-                payload=json.loads(r[5]) if r[5] else {},
-                created_at=r[6],
-            )
-            for r in rows
-        ]
+                actor=r[4], payload=payload, created_at=r[6],
+            ))
+        return result

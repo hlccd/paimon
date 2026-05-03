@@ -289,14 +289,18 @@ class TaskRepo:
             (task_id,),
         ) as cur:
             rows = await cur.fetchall()
-        return [
-            FlowEntry(
+        # REL-016：单条 flow payload JSON 损坏不阻断 list
+        result = []
+        for r in rows:
+            try:
+                payload = json.loads(r[5]) if r[5] else {}
+            except (json.JSONDecodeError, TypeError):
+                payload = {"_corrupt": True, "_raw_preview": (r[5] or "")[:100]}
+            result.append(FlowEntry(
                 id=r[0], task_id=r[1], from_agent=r[2], to_agent=r[3],
-                action=r[4], payload=json.loads(r[5]) if r[5] else {},
-                created_at=r[6],
-            )
-            for r in rows
-        ]
+                action=r[4], payload=payload, created_at=r[6],
+            ))
+        return result
 
     # ---------- progress_log ----------
     async def progress_append(
@@ -463,11 +467,11 @@ def _row_to_subtask(row) -> Subtask:
     compensate = row[13] if len(row) > 13 else ""
     try:
         deps = json.loads(deps_raw) if deps_raw else []
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         deps = []
     try:
         sensitive_ops = json.loads(sops_raw) if sops_raw else []
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         sensitive_ops = []
     return Subtask(
         id=row[0], task_id=row[1], parent_id=row[2], assignee=row[3],

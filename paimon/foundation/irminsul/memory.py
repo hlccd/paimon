@@ -228,8 +228,13 @@ class MemoryRepo:
 
 
 def _row_to_meta(row) -> MemoryMeta:
+    # REL-016：tags JSON 损坏不阻断 memory_list 链路
+    try:
+        tags = json.loads(row[4]) if row[4] else []
+    except (json.JSONDecodeError, TypeError):
+        tags = []
     return MemoryMeta(
         id=row[0], mem_type=row[1], subject=row[2], title=row[3],
-        tags=json.loads(row[4]) if row[4] else [],
+        tags=tags,
         source=row[5], created_at=row[6], updated_at=row[7], ttl=row[8],
     )

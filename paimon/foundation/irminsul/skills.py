@@ -125,12 +125,20 @@ class SkillRepo:
 
 
 def _row_to_skill(row) -> SkillDecl:
+    # REL-016：单条 JSON 损坏不阻断 list 链路；坏数据降级空容器并在日志可观察
+    def _safe_json(raw, default):
+        if not raw:
+            return default
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return default
     return SkillDecl(
         name=row[0], source=row[1], origin=row[2], sensitivity=row[3],
         description=row[4], triggers=row[5],
-        allowed_tools=json.loads(row[6]) if row[6] else [],
-        sensitive_tools=json.loads(row[7]) if row[7] else [],
-        manifest_json=json.loads(row[8]) if row[8] else {},
+        allowed_tools=_safe_json(row[6], []),
+        sensitive_tools=_safe_json(row[7], []),
+        manifest_json=_safe_json(row[8], {}),
         orphaned=bool(row[9]),
         installed_at=row[10], updated_at=row[11],
     )

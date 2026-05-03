@@ -117,10 +117,20 @@ class SessionRepo:
             row = await cur.fetchone()
         if not row:
             return None
+        # REL-016：messages/session_memory JSON 损坏不该让 get 直接 raise；
+        # 旧版裸 loads 让单坏会话阻断 SessionManager 加载
+        try:
+            messages = json.loads(row[3]) if row[3] else []
+        except (json.JSONDecodeError, TypeError):
+            messages = []
+        try:
+            session_memory = json.loads(row[4]) if row[4] else []
+        except (json.JSONDecodeError, TypeError):
+            session_memory = []
         return SessionRecord(
             id=row[0], name=row[1], channel_key=row[2],
-            messages=json.loads(row[3]) if row[3] else [],
-            session_memory=json.loads(row[4]) if row[4] else [],
+            messages=messages,
+            session_memory=session_memory,
             last_context_tokens=row[5], last_context_ratio=row[6],
             last_compressed_at=row[7], compressed_rounds=row[8],
             response_status=row[9],
