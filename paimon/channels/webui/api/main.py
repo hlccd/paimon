@@ -124,6 +124,12 @@ async def chat(channel, request: web.Request) -> web.StreamResponse:
             last_activity_ts = time.time()
             if kind != "thinking":
                 thinking_count = 0
+            # 持久化 milestone / ack —— 切会话再切回来重渲染时还能保留为小字 hint
+            # （否则 SSE 临时帧丢失，user 看到的"之前小字 hint"切回来直接消失）
+            # tool / thinking 不持久化（动态进度，下次刷新无意义；且 thinking
+            # watchdog 每 25s 一条会污染历史）
+            if msg_type == "notice" and kind in ("milestone", "ack"):
+                _persist_notice_to_session(text, kind)
         except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
             connection_closed = True
             logger.info("[派蒙·WebUI] SSE连接断开 session={}", session_id[:8])
@@ -131,6 +137,29 @@ async def chat(channel, request: web.Request) -> web.StreamResponse:
         except Exception as e:
             logger.error("[派蒙·WebUI] SSE发送失败: {}", e)
             raise
+
+    def _persist_notice_to_session(text: str, kind: str) -> None:
+        """把 milestone/ack notice append 到当前 session.messages 仅 in-memory。
+
+        落盘异步触发（不阻塞 reply）；LLM 调 _build_runtime_messages 时 filter 掉
+        非标准 role，不会被喂给模型；前端 /api/sessions/{id}/messages 把这些条目
+        一起返回，切会话再切回来重渲染时按 .notice div 展示。
+        """
+        from paimon.state import state as _state
+        from paimon.foundation.bg import bg as _bg
+        if not _state.session_mgr:
+            return
+        sess = _state.session_mgr.get_current(f"{channel.name}:{chat_id}")
+        if not sess:
+            return
+        sess.messages.append({
+            "role": "notice", "content": text, "kind": kind,
+        })
+        try:
+            _bg(_state.session_mgr.save_session_async(sess),
+                label=f"session·notice·{sess.id[:8]}")
+        except Exception as e:
+            logger.debug("[派蒙·WebUI·notice 持久化] 落盘失败: {}", e)
 
     async def _watchdog() -> None:
         """每秒扫描，静默超 25s 且未达上限就推一条 thinking。"""

@@ -66,24 +66,32 @@ async def get_session_messages(channel, request: web.Request) -> web.Response:
     #       忽略 pre-tool narration；避免刷新页面时看到 "pre-tool 文字 + post-tool 文字"
     #       两条 assistant 气泡（LLM 在 tool-loop 里边做边说导致的视觉重复）
     #     * 只有 content → 正常文字气泡
+    # - notice 消息（milestone/ack 持久化）：附带 kind 让前端按 .notice 小字渲染
     # - tool 消息隐藏（内部机制）
     messages = []
     for msg in session.messages:
         role = msg.get("role", "")
-        if role not in ("user", "assistant"):
-            continue
         content = msg.get("content") or ""   # None / 缺失都归一化为空字符串
-        if role == "assistant" and msg.get("tool_calls"):
-            tool_names = []
-            for tc in msg["tool_calls"]:
-                fn = tc.get("function") or {}
-                n = fn.get("name") or "(未知工具)"
-                tool_names.append(n)
-            placeholder = f"_🔧 调用工具：{', '.join(tool_names)}_"
-            messages.append({"role": role, "content": placeholder})
-            continue
-        if content.strip():
-            messages.append({"role": role, "content": content})
+        if role == "user":
+            if content.strip():
+                messages.append({"role": role, "content": content})
+        elif role == "assistant":
+            if msg.get("tool_calls"):
+                tool_names = []
+                for tc in msg["tool_calls"]:
+                    fn = tc.get("function") or {}
+                    n = fn.get("name") or "(未知工具)"
+                    tool_names.append(n)
+                placeholder = f"_🔧 调用工具：{', '.join(tool_names)}_"
+                messages.append({"role": role, "content": placeholder})
+            elif content.strip():
+                messages.append({"role": role, "content": content})
+        elif role == "notice":
+            if content.strip():
+                messages.append({
+                    "role": role, "content": content,
+                    "kind": msg.get("kind", "milestone"),
+                })
 
     return web.json_response({
         "session_id": session_id,

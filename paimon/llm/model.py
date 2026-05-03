@@ -178,7 +178,10 @@ class Model:
                 msg["reasoning_content"] = ""
 
     def _build_runtime_messages(self, session: Session) -> list[dict[str, Any]]:
-        msgs = list(session.messages)
+        # filter 非 LLM 标准 role：notice 等扩展条目仅用于前端展示，不喂给 LLM
+        # （OpenAI/Anthropic 都不认 role='notice'，直接 400 / 静默扔掉）
+        _LLM_ROLES = {"system", "user", "assistant", "tool"}
+        msgs = [m for m in session.messages if m.get("role") in _LLM_ROLES]
         self._normalize_reasoning_passthrough(msgs)
         memory_prompt = self._build_memory_prompt(session)
         if not memory_prompt:

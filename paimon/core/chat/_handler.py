@@ -198,7 +198,10 @@ async def handle_chat(
             pass
 
         if (interrupted or angel_failed) and buf:
-            last = session.messages[-1] if session.messages else {}
+            # 跳过 notice 等扩展 role 的尾部条目，只看最后一条 LLM 标准 role
+            from ._persist import _meaningful_tail
+            tail = _meaningful_tail(session.messages, 1)
+            last = tail[-1] if tail else {}
             if last.get("role") != "assistant":
                 session.messages.append({"role": "assistant", "content": buf})
 

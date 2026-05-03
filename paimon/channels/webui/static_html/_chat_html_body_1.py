@@ -183,7 +183,16 @@ CHAT_HTML_BODY_1 = """
                 if (!isStreaming) {
                     pane.innerHTML = '';
                     (data.messages || []).forEach(function(m) {
-                        appendMessage(m.role, m.content, sessionId);
+                        if (m.role === 'notice') {
+                            // 切回来时把持久化的 milestone/ack 渲染为小字 hint
+                            // —— 不走 appendMessage 创建气泡
+                            const noticeEl = document.createElement('div');
+                            noticeEl.className = 'notice';
+                            noticeEl.textContent = m.content;
+                            pane.appendChild(noticeEl);
+                        } else {
+                            appendMessage(m.role, m.content, sessionId);
+                        }
                     });
                 }
             } catch (e) {

@@ -11,6 +11,22 @@ from paimon.session import Session
 from paimon.state import state
 
 
+# session.messages 里的 LLM 标准角色集合；其他 role（如 'notice'）是扩展条目，
+# 持久化展示用，不进 LLM 上下文 + 也不参与 _persist_turn 的 case 检查。
+_LLM_ROLES = frozenset({"system", "user", "assistant", "tool"})
+
+
+def _meaningful_tail(msgs: list[dict], k: int) -> list[dict]:
+    """从尾部取最后 k 条 LLM 标准 role 的消息（跳过 notice 等扩展 role）。"""
+    out: list[dict] = []
+    for m in reversed(msgs):
+        if m.get("role") in _LLM_ROLES:
+            out.append(m)
+            if len(out) >= k:
+                break
+    return list(reversed(out))
+
+
 async def _persist_turn(
     channel_key: str, user_text: str, reply_text: str,
 ) -> None:
@@ -45,21 +61,24 @@ async def _persist_turn(
     def _eq(a: str | None, b: str) -> bool:
         return (a or "").strip() == b
 
+    # 取最后两条 LLM 标准 role 消息做 case 检查 —— 中间夹的 notice 不影响判断
+    tail = _meaningful_tail(msgs, 2)
+
     # case 1: 完整一对已存
     if (
-        len(msgs) >= 2
-        and msgs[-2].get("role") == "user"
-        and _eq(msgs[-2].get("content"), user_text_n)
-        and msgs[-1].get("role") == "assistant"
-        and _eq(msgs[-1].get("content"), reply_text_n)
+        len(tail) == 2
+        and tail[0].get("role") == "user"
+        and _eq(tail[0].get("content"), user_text_n)
+        and tail[1].get("role") == "assistant"
+        and _eq(tail[1].get("content"), reply_text_n)
     ):
         return
 
     # case 2: user 已存但缺 assistant（入口占位 + 任务完成后补）
     if (
-        msgs
-        and msgs[-1].get("role") == "user"
-        and _eq(msgs[-1].get("content"), user_text_n)
+        tail
+        and tail[-1].get("role") == "user"
+        and _eq(tail[-1].get("content"), user_text_n)
     ):
         if reply_text:
             sess.messages.append({"role": "assistant", "content": reply_text})
@@ -91,11 +110,13 @@ def _persist_shades_turn(
     幂等：若最后一条已是当前 user_text（说明魔女会路径的 model.chat 已 append 过），
     就不重复 append user；assistant 则按需追加。
     """
-    if not session.messages:
+    # 取最后一条 LLM 标准 role 消息做 last 检查（跳过 notice 等扩展条目）
+    tail = _meaningful_tail(session.messages, 1)
+    if not tail:
         # 极端情况：新会话还没被 handle_chat 处理过（纯 complex 直送）
         session.messages.append({"role": "user", "content": user_text})
     else:
-        last = session.messages[-1]
+        last = tail[-1]
         last_role = last.get("role")
         last_content = last.get("content") or ""
         # 情况 A：最后一条就是当前用户消息 → 不重复 append user
