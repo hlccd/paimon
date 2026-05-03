@@ -136,12 +136,18 @@ async def extract_experience(
         if not isinstance(tags, list):
             tags = []
         # subject 策略：user/feedback/reference → default；project → 当前项目名
+        # SEC-002 修：旧版 os.getcwd() 决定 subject，user 从不同目录启动 paimon
+        # （venv vs conda vs IDE）会让同一项目的记忆碎片化到多个 subject。
+        # 改用 paimon_home 父目录名（≈ 项目根目录名），稳定不依赖 cwd
         subject = "default"
         if mem_type == "project":
             try:
-                import os, re as _re_istaroth
-                raw_subject = os.path.basename(os.getcwd()) or "current"
-                # 防御：只保留安全字符；异常值降级到 current
+                from paimon.config import config as _cfg
+                from pathlib import Path as _Path
+                import re as _re_istaroth
+                home = _Path(_cfg.paimon_home).expanduser().resolve()
+                # paimon_home 一般是 <project>/.paimon → 父目录名 = 项目名
+                raw_subject = home.parent.name or "current"
                 if (".." in raw_subject or "/" in raw_subject or "\\" in raw_subject
                         or not _re_istaroth.match(r"^[\w\u4e00-\u9fff\-]+$", raw_subject)):
                     subject = "current"

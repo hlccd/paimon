@@ -149,8 +149,9 @@ async def handle_chat(
     session.response_status = "generating"
     try:
         session_mgr.save_session(session)
-    except Exception:
-        pass
+    except Exception as e:
+        # OBS-002：旧版 except: pass 静默吞，落盘失败 user 完全不可知
+        logger.warning("[派蒙·会话] generating 状态保存失败: {}", e)
 
     try:
         async for text in model.chat(
@@ -216,8 +217,9 @@ async def handle_chat(
             logger.info("[派蒙·对话] [{}] 回复 ({} | {}):\n{}", session.id[:8], t, cs, buf)
         try:
             session_mgr.save_session(session)
-        except Exception:
-            pass
+        except Exception as e:
+            # OBS-002：旧版静默吞，回复完成态保存失败 user 不可知（下次进会话状态错乱）
+            logger.warning("[派蒙·会话] 回复完成态保存失败: {}", e)
 
     if angel_failed:
         # 魔女会路径：跳过压缩/标题生成，把 AngelFailure 抛给 run_session_chat

@@ -147,6 +147,25 @@ class _ExecuteMixin:
             # 走 reply.send + flush，WebUI 前端把 typing 占位替换为正文气泡。
             return final
 
+        except asyncio.CancelledError:
+            # ROB-007：user 取消任务（/stop / 关 SSE / 进程退出）→ 不当作"任务失败"，
+            # 只归档为"已取消"让 task workspace 保留 + audit 留痕；不再阻塞 task 锁
+            logger.info("[四影] 任务被取消 task={} round={}", task.id, round_idx)
+            try:
+                await istaroth.archive(
+                    task, self._irminsul,
+                    failure_reason="user_cancelled",
+                    rounds=round_idx,
+                )
+                await self._irminsul.audit_append(
+                    event_type="shades_cancelled",
+                    payload={"round": round_idx},
+                    task_id=task.id, session_id=task.session_id, actor="四影",
+                )
+            except Exception as _e:
+                logger.warning("[四影] 取消归档失败（已吞）: {}", _e)
+            raise
+
         except Exception as e:
             # 环 3：失败路径 — 先 saga 补偿再归档
             logger.error("[四影] 管线异常 task={}: {}", task.id, e)
