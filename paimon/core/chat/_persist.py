@@ -32,15 +32,19 @@ async def _persist_turn(
 ) -> None:
     """把一回合 (user + assistant) append 到当前绑定会话并落盘。
 
-    三种情形：
-    1. 最后两条已是同 (user, assistant) 对 → 完整去重跳过
-    2. 最后一条已是同 user（入口已先 persist user 占位，现在补 assistant）
+    两种情形：
+    1. 最后一条已是同 user（入口已先 persist user 占位，现在补 assistant）
        → 只 append assistant，避免 user 重复
-    3. 其他 → 常规 append user + assistant（reply_text 空时只 append user）
+    2. 其他 → 常规 append user + assistant（reply_text 空时只 append user）
 
     四影流式路径下：
     - 入口 `_persist_turn(channel_key, text, "")` 立即存 user（让切 tab 回来能看到）
-    - 任务完成后 `_persist_turn(channel_key, text, final)` 走 case 2 补 assistant
+    - 任务完成后 `_persist_turn(channel_key, text, final)` 走 case 1 补 assistant
+
+    历史：曾有 case "user+assistant 完整一对已存 → 全跳过"，本意防御同回合
+    race 重复调用，但 grep 全仓主流路径只调一次 _persist_turn，case 1/case 2
+    已覆盖；旧 case 反而把"用户真正第二次发同命令"误判为 race 跳过落盘 →
+    inline 显示但 session.messages 不记 → 切走切回历史丢失。2026-05 移除。
     """
     if not state.session_mgr or not user_text or not user_text.strip():
         return
@@ -61,20 +65,10 @@ async def _persist_turn(
     def _eq(a: str | None, b: str) -> bool:
         return (a or "").strip() == b
 
-    # 取最后两条 LLM 标准 role 消息做 case 检查 —— 中间夹的 notice 不影响判断
-    tail = _meaningful_tail(msgs, 2)
+    # 取最后一条 LLM 标准 role 消息做 case 检查 —— 中间夹的 notice 不影响判断
+    tail = _meaningful_tail(msgs, 1)
 
-    # case 1: 完整一对已存
-    if (
-        len(tail) == 2
-        and tail[0].get("role") == "user"
-        and _eq(tail[0].get("content"), user_text_n)
-        and tail[1].get("role") == "assistant"
-        and _eq(tail[1].get("content"), reply_text_n)
-    ):
-        return
-
-    # case 2: user 已存但缺 assistant（入口占位 + 任务完成后补）
+    # case 1: user 已存但缺 assistant（入口占位 + 任务完成后补）
     if (
         tail
         and tail[-1].get("role") == "user"
@@ -85,10 +79,10 @@ async def _persist_turn(
             try:
                 await state.session_mgr.save_session_async(sess)
             except Exception as e:
-                logger.warning("[派蒙·落盘] save 失败 (case 2): {}", e)
+                logger.warning("[派蒙·落盘] save 失败 (case 1): {}", e)
         return
 
-    # case 3: 常规 append
+    # case 2: 常规 append
     sess.messages.append({"role": "user", "content": user_text})
     if reply_text:
         sess.messages.append({"role": "assistant", "content": reply_text})
@@ -96,7 +90,7 @@ async def _persist_turn(
         await state.session_mgr.save_session_async(sess)
     except Exception as e:
         # REL-005 升级：原 debug 静默 → warning，落盘失败需 user 可观测
-        logger.warning("[派蒙·落盘] save 失败 (case 3): {}", e)
+        logger.warning("[派蒙·落盘] save 失败 (case 2): {}", e)
 
 
 def _persist_shades_turn(
