@@ -1,16 +1,9 @@
-"""推送归档 API + push 长连接 SSE — 全局红点抽屉数据源。"""
+"""推送归档 API — 全局红点抽屉数据源（push_archive 域只读 + 标已读）。"""
 from __future__ import annotations
-
-import json
-
-import asyncio
 
 from typing import TYPE_CHECKING
 
 from aiohttp import web
-from loguru import logger
-
-from paimon.channels.webui.channel import PUSH_CHAT_ID
 
 if TYPE_CHECKING:
     from paimon.channels.webui.channel import WebUIChannel
@@ -135,71 +128,10 @@ async def push_archive_mark_read_all_api(channel, request: web.Request) -> web.R
     return web.json_response({"ok": True, "marked": n})
 
 
-async def push_stream(channel, request: web.Request) -> web.StreamResponse:
-    """前端长连接 SSE：订阅所有推送消息。每个连接一个独占 queue。"""
-    if channel.require_auth:
-        token = request.cookies.get("paimon_token")
-        if not token or token not in channel.valid_tokens:
-            return web.json_response({"error": "Unauthorized"}, status=401)
-
-    hub = channel.state.push_hub
-    if hub is None:
-        return web.json_response({"error": "PushHub 未初始化"}, status=500)
-
-    response = web.StreamResponse(
-        status=200, reason="OK",
-        headers={
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # 禁用 nginx 代理缓冲
-        },
-    )
-    await response.prepare(request)
-
-    queue = await hub.register(PUSH_CHAT_ID)
-    # 首帧：告诉前端连接已建立
-    try:
-        await response.write(b': connected\n\n')
-    except Exception:
-        await hub.unregister(PUSH_CHAT_ID, queue)
-        return response
-
-    try:
-        while True:
-            try:
-                payload = await asyncio.wait_for(queue.get(), timeout=25.0)
-            except asyncio.TimeoutError:
-                # 心跳：防止中间代理断连
-                try:
-                    await response.write(b': ping\n\n')
-                except (ConnectionResetError, ConnectionError):
-                    break
-                continue
-
-            try:
-                data = json.dumps(payload, ensure_ascii=False)
-                await response.write(f"data: {data}\n\n".encode())
-            except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
-                break
-            except Exception as e:
-                logger.warning("[派蒙·WebUI·推送] SSE 写入异常: {}", e)
-                break
-    finally:
-        await hub.unregister(PUSH_CHAT_ID, queue)
-        try:
-            await response.write_eof()
-        except Exception:
-            pass
-
-    return response
-
-
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
-    """注册 push 面板的 6 个路由。"""
+    """注册 push_archive 面板的 5 个路由（只读列表 + 标已读）。"""
     app.router.add_get("/api/push_archive/unread_count", lambda r, ch=channel: push_archive_unread_api(ch, r))
     app.router.add_get("/api/push_archive/list", lambda r, ch=channel: push_archive_list_api(ch, r))
     app.router.add_get("/api/push_archive/{rec_id}", lambda r, ch=channel: push_archive_detail_api(ch, r))
     app.router.add_post("/api/push_archive/{rec_id}/read", lambda r, ch=channel: push_archive_mark_read_api(ch, r))
     app.router.add_post("/api/push_archive/read_all", lambda r, ch=channel: push_archive_mark_read_all_api(ch, r))
-    app.router.add_get("/api/push", lambda r, ch=channel: push_stream(ch, r))

@@ -87,15 +87,12 @@ CHAT_HTML_BODY_1 = """
                 p.classList.toggle('active', p.dataset.sid === sid);
             });
         }
-        // 推送长连接（/api/push）与未读计数
-        let pushSource = null;
-        let unreadPushCount = 0;
-        const PUSH_SESSION_ID = 'push';
+        // 推送已迁移到顶部红点抽屉（push_archive 表 + /api/push_archive/* 路由），
+        // 不再有 push 会话实体，前端 chat 不再监听 /api/push 长连接。
 
         document.addEventListener('DOMContentLoaded', () => {
             loadSessions();
             setupInput();
-            openPushStream();
             // 启动时同步加载 default 绑定的历史消息，避免 UI 空白但后端有旧上下文
             switchSession('default');
         });
@@ -117,45 +114,28 @@ CHAT_HTML_BODY_1 = """
                 const data = await response.json();
                 const list = document.getElementById('sessionsList');
                 list.innerHTML = '';
-                // 推送会话永远置顶
-                const sessions = (data.sessions || []).slice().sort(function(a, b){
-                    if (a.id === PUSH_SESSION_ID) return -1;
-                    if (b.id === PUSH_SESSION_ID) return 1;
-                    return 0;
-                });
+                const sessions = data.sessions || [];
                 sessions.forEach((s, i) => {
                     const sid = s.id || String(i);
                     const name = s.name || sid;
-                    const isPush = (sid === PUSH_SESSION_ID);
                     const item = document.createElement('div');
                     item.className = 'session-item' + (sid === currentSession ? ' active' : '');
                     item.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
-                    if (isPush) {
-                        item.style.borderLeft = '3px solid var(--gold)';
-                        item.style.background = 'var(--paimon-panel)';
-                    }
 
                     const info = document.createElement('div');
                     info.style.cssText = 'flex:1;min-width:0;cursor:pointer';
                     info.innerHTML = '<div class="session-name"></div><div class="session-time"></div>';
-                    let displayName = name;
-                    if (isPush && unreadPushCount > 0 && sid !== currentSession) {
-                        displayName = name + '  (' + unreadPushCount + ')';
-                    }
-                    info.querySelector('.session-name').textContent = displayName;
-                    info.querySelector('.session-time').textContent = isPush ? '定时任务 & 事件触发' : '最近活动';
+                    info.querySelector('.session-name').textContent = name;
+                    info.querySelector('.session-time').textContent = '最近活动';
                     info.onclick = () => switchSession(sid);
 
                     item.appendChild(info);
-                    // 推送会话不允许删除
-                    if (!isPush) {
-                        const del_btn = document.createElement('span');
-                        del_btn.className = 'session-delete';
-                        del_btn.title = '删除会话';
-                        del_btn.textContent = '\\u00d7';
-                        del_btn.onclick = (e) => { e.stopPropagation(); deleteSession(sid, name); };
-                        item.appendChild(del_btn);
-                    }
+                    const del_btn = document.createElement('span');
+                    del_btn.className = 'session-delete';
+                    del_btn.title = '删除会话';
+                    del_btn.textContent = '\\u00d7';
+                    del_btn.onclick = (e) => { e.stopPropagation(); deleteSession(sid, name); };
+                    item.appendChild(del_btn);
                     list.appendChild(item);
                 });
             } catch (err) {
@@ -165,9 +145,6 @@ CHAT_HTML_BODY_1 = """
 
         async function switchSession(sessionId) {
             currentSession = sessionId;
-            if (sessionId === PUSH_SESSION_ID) {
-                unreadPushCount = 0;
-            }
             // 每个 session 独立 pane：切 session 时仅切显示，不动其他 pane 的 DOM
             const pane = getSessionPane(sessionId);
             showSessionPane(sessionId);
@@ -203,50 +180,9 @@ CHAT_HTML_BODY_1 = """
         function updateInputMode() {
             const input = document.getElementById('messageInput');
             if (!input) return;
-            if (currentSession === PUSH_SESSION_ID) {
-                input.placeholder = '这是推送收件箱，只读。切换到其他会话以对话。';
-                input.disabled = true;
-                input.style.opacity = '0.6';
-            } else {
-                input.placeholder = '输入消息...';
-                input.disabled = false;
-                input.style.opacity = '';
-            }
-        }
-
-        function openPushStream() {
-            if (pushSource) { try { pushSource.close(); } catch(e){} }
-            try {
-                pushSource = new EventSource('/api/push');
-                pushSource.onmessage = (ev) => {
-                    if (!ev.data) return;
-                    try {
-                        const data = JSON.parse(ev.data);
-                        if (data.type === 'push') {
-                            onPushReceived(data);
-                        }
-                    } catch(e) { /* 忽略非法帧 */ }
-                };
-                pushSource.onerror = (err) => {
-                    // EventSource 浏览器会自动重连，不需要手动处理
-                    console.debug('推送连接异常（将自动重连）', err);
-                };
-            } catch(e) {
-                console.error('推送长连接建立失败:', e);
-            }
-        }
-
-        function onPushReceived(data) {
-            const content = data.content || '';
-            if (currentSession === PUSH_SESSION_ID) {
-                // 正在看推送会话 → 直接追加气泡。与切换过来看到的历史保持一致（无额外前缀）
-                appendMessage('assistant', content);
-                scrollToBottom();
-            } else {
-                // 其他会话 → 未读计数 +1，刷新会话列表角标
-                unreadPushCount += 1;
-                loadSessions();
-            }
+            input.placeholder = '输入消息...';
+            input.disabled = false;
+            input.style.opacity = '';
         }
 
         async function deleteSession(sessionId, name) {

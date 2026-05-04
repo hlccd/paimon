@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import time
-import uuid
 import shutil
-from datetime import date
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,17 +11,16 @@ from loguru import logger
 
 from paimon.channels.base import Channel, IncomingMessage
 from paimon.channels.webui._reply import WebUIChannelReply
-from paimon.foundation.bg import bg
 
 if TYPE_CHECKING:
     from paimon.state import RuntimeState
 
 
-# 推送会话（固定收件箱）—— 所有由派蒙推送来的消息都落在这里
-# docs/aimon.md §2.6：推送不干扰正常会话，用户可随时切换过去看历史
-PUSH_SESSION_ID = "push"
-PUSH_SESSION_NAME = "📨 推送"
-PUSH_CHAT_ID = f"webui-{PUSH_SESSION_ID}"  # "webui-push"
+# 推送占位 chat_id：webui 推送统一落 push_archive 表（顶部红点抽屉消费），
+# 不再有"📨 推送"会话实体。chat_id 字段保留作为元信息标识来源，但内容
+# 不投递到任何会话。docs/foundation/march.md §推送归档（2026-04-25 转型；
+# 2026-05 补完最后路径：删除 PUSH_SESSION/_pushes_session_messages/PushHub）。
+PUSH_CHAT_ID = "webui-push"
 
 
 class WebUIChannel(Channel):
@@ -44,19 +40,14 @@ class WebUIChannel(Channel):
         # chat_id -> 当前活跃 SSE reply 回调（供 ask_user 推送询问用）
         self._active_replies: dict[str, object] = {}
 
-        # 推送静态文件根目录（send_file 落在这里）
+        # 推送文件下载根目录（send_file 拷贝到这里，push_archive 嵌 markdown 下载链接）
         self._pushes_root: Path = state.cfg.paimon_home / "webui_pushes"
         self._pushes_root.mkdir(parents=True, exist_ok=True)
-
-        # PushHub 挂到 state（供 send_text / send_file 与 /api/push 共享）
-        if state.push_hub is None:
-            from paimon.channels.webui.push_hub import PushHub
-            state.push_hub = PushHub()
 
         self._setup_routes()
 
     def _setup_routes(self):
-        # 推送文件静态目录
+        # 推送文件静态目录（send_file 产出的下载链接由此响应）
         self.app.router.add_static(
             "/static/pushes/", path=str(self._pushes_root), show_index=False,
         )
@@ -79,74 +70,51 @@ class WebUIChannel(Channel):
         return bool(token and token in self.valid_tokens)
 
     async def send_text(self, chat_id: str, text: str) -> None:
-        """派蒙侧推送入口。忽略外部 chat_id，统一落到固定"📨 推送"会话。
+        """派蒙侧推送入口：静默归档到 push_archive 表 + 通过 leyline 通知前端红点。
 
-        行为：
-          1) 用 smart_chunk 按 1500 字 + markdown 友好边界拆分（避免单气泡过长）
-          2) 每个 chunk 作为独立 assistant 消息追加到推送会话（落世界树）
-          3) 每个 chunk 独立扇出到所有在线的 /api/push 客户端（前端渲染成多气泡）
-        规则对齐 docs/aimon.md §2.6：推送不干扰正常会话。
+        架构：webui 不像 QQ/TG 能主动推 IM 消息，所有"派蒙→用户"的推送统一落
+        push_archive 表，WebUI 顶部红点抽屉消费。chat_id 仅作元信息标识来源。
+        与 march.ring_event 的差异：本路径**不限流**（webui 自身路径调用，已可信），
+        ring_event 是给 archon 主动推送用的需要限流防刷屏。
         """
         if not text or not text.strip():
             return
-
-        session_mgr = self.state.session_mgr
-        if not session_mgr:
-            logger.warning("[派蒙·WebUI·推送] 会话管理器未就绪，丢弃推送")
+        if not self.state.irminsul:
+            logger.warning("[派蒙·WebUI·推送] irminsul 未就绪，丢弃推送")
             return
 
-        # 保底确保推送会话存在（启动时已建，这里幂等兜底）
-        await self._ensure_push_session()
-
-        from paimon.channels._chunk import smart_chunk
-        chunks = smart_chunk(text, max_len=1500)
-        if not chunks:
+        try:
+            rec_id = await self.state.irminsul.push_archive_create(
+                source="派蒙",
+                actor="派蒙",
+                message_md=text,
+                channel_name=self.name,
+                chat_id=chat_id,
+                level="silent",
+                extra={},
+            )
+        except Exception as e:
+            logger.error("[派蒙·WebUI·推送] 归档失败: {}", e)
             return
 
-        push_session = session_mgr.sessions.get(PUSH_SESSION_ID)
-        total_delivered = 0
-        for chunk in chunks:
-            if push_session is not None:
-                ts = time.time()
-                push_session.messages.append({
-                    "role": "assistant",
-                    "content": chunk,
-                    "_push_ts": ts,
-                    "_push_source": chat_id,
-                })
-                push_session.updated_at = ts
-
-            payload = {
-                "type": "push",
-                "content": chunk,
-                "ts": time.time(),
-                "source": chat_id,
-            }
-            if self.state.push_hub:
-                total_delivered += await self.state.push_hub.publish(
-                    PUSH_CHAT_ID, payload,
-                )
-
-        # 整批 chunk 写完后落一次盘（减少 IO）
-        if push_session is not None:
+        # 通知前端红点更新（前端 SSE 订阅 push.archived 或轮询）
+        if self.state.leyline:
             try:
-                await session_mgr.save_session_async(push_session)
+                await self.state.leyline.publish(
+                    "push.archived",
+                    {"id": rec_id, "actor": "派蒙", "source": "派蒙", "level": "silent"},
+                    source="WebUI·send_text",
+                )
             except Exception as e:
-                logger.warning("[派蒙·WebUI·推送] 会话落盘失败: {}", e)
+                logger.debug("[派蒙·WebUI·推送] leyline publish 失败（不影响归档）: {}", e)
 
-        if total_delivered == 0:
-            logger.info(
-                "[派蒙·WebUI·推送] 无在线监听者，已写入推送会话 (chat_id={} 拆分={}段 总长={})",
-                chat_id, len(chunks), len(text),
-            )
-        else:
-            logger.info(
-                "[派蒙·WebUI·推送] 已扇出 {} 路 (源 chat_id={} 拆分={}段 总长={})",
-                total_delivered, chat_id, len(chunks), len(text),
-            )
+        logger.info(
+            "[派蒙·WebUI·推送] 已归档 push_archive id={} (chat_id={} 长度={})",
+            rec_id, chat_id, len(text),
+        )
 
     async def send_file(self, chat_id: str, file_path: Path, caption: str = "") -> None:
-        """推送文件：拷贝到静态目录 + 推送带下载链接的消息。"""
+        """推送文件：拷贝到静态目录 + 通过 send_text 推 markdown 下载链接。"""
         if not file_path.exists() or not file_path.is_file():
             logger.warning("[派蒙·WebUI·推送] 文件不存在: {}", file_path)
             return
@@ -173,29 +141,6 @@ class WebUIChannel(Channel):
 
     async def make_reply(self, msg: IncomingMessage) -> ChannelReply:
         return WebUIChannelReply(msg._reply)
-
-    async def _ensure_push_session(self) -> None:
-        """幂等保障 "📨 推送" 会话存在（ID 固定，首次启动时创建）。"""
-        session_mgr = self.state.session_mgr
-        if not session_mgr:
-            return
-        if PUSH_SESSION_ID in session_mgr.sessions:
-            return
-
-        from paimon.session import Session
-        now = time.time()
-        push_session = Session(
-            id=PUSH_SESSION_ID,
-            name=PUSH_SESSION_NAME,
-            created_at=now,
-            updated_at=now,
-        )
-        session_mgr.sessions[PUSH_SESSION_ID] = push_session
-        try:
-            await session_mgr.save_session_async(push_session)
-            logger.info("[派蒙·WebUI·推送] 推送会话已创建 id={}", PUSH_SESSION_ID)
-        except Exception as e:
-            logger.warning("[派蒙·WebUI·推送] 推送会话落盘失败: {}", e)
 
     async def ask_user(self, chat_id: str, prompt: str, *, timeout: float = 30.0) -> str:
         """权限询问：通过当前活跃 SSE 推问题，挂起等下一条用户消息作答。
@@ -246,9 +191,6 @@ class WebUIChannel(Channel):
         await on_channel_message(msg, self)
 
     async def start(self):
-        # 确保推送会话（📨 收件箱）存在
-        await self._ensure_push_session()
-
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
 

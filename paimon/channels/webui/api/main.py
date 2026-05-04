@@ -15,8 +15,6 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 from loguru import logger
 
-from paimon.channels.webui.channel import PUSH_SESSION_ID, PUSH_CHAT_ID
-
 from paimon.channels.base import IncomingMessage
 
 if TYPE_CHECKING:
@@ -84,12 +82,6 @@ async def chat(channel, request: web.Request) -> web.StreamResponse:
 
     if not user_message:
         return web.json_response({"error": "Empty message"}, status=400)
-
-    # 推送会话是只读收件箱，不允许在里面发消息污染历史
-    if session_id == PUSH_SESSION_ID:
-        return web.json_response(
-            {"error": "推送收件箱是只读的，请在其他会话中对话"}, status=400,
-        )
 
     chat_id = f"webui-{session_id}"
 

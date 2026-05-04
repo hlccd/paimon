@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from paimon.archons.venti import VentiArchon
     from paimon.archons.zhongli import ZhongliArchon
     from paimon.channels.base import Channel
-    from paimon.channels.webui.push_hub import PushHub
     from paimon.config import Config
     from paimon.core.authz import AuthzCache, AuthzDecision
     from paimon.foundation.gnosis import Gnosis
@@ -49,8 +48,6 @@ class RuntimeState:
     authz_decision: AuthzDecision | None = None
     # 挂起中的权限询问 future：channel_key -> Future[str]
     pending_asks: dict[str, asyncio.Future] = field(default_factory=dict)
-    # WebUI 推送扇出器（长连接 SSE 的消息队列管理）
-    push_hub: PushHub | None = None
     # 风神单例（订阅采集入口；bootstrap 初始化）
     venti: "VentiArchon | None" = None
     # 岩神单例（红利股采集入口；bootstrap 初始化）

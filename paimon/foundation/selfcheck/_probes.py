@@ -150,20 +150,14 @@ async def _probe_march(svc: "SelfCheckService") -> dict:
 
 @_timed_probe("session_mgr")
 async def _probe_session_mgr(svc: "SelfCheckService") -> dict:
-    """探会话管理器：活跃会话数 + 绑定数 + 推送会话是否在。"""
+    """探会话管理器：活跃会话数 + 绑定数。"""
     from paimon.state import state
     sm = state.session_mgr
     if not sm:
         return {"status": "critical", "error": "session_mgr 未初始化"}
-    try:
-        from paimon.channels.webui.channel import PUSH_SESSION_ID
-    except Exception:
-        PUSH_SESSION_ID = "push"
-    has_push = PUSH_SESSION_ID in sm.sessions
     return {
         "active_sessions": len(sm.sessions),
         "bindings": len(sm.bindings),
-        "push_session_present": has_push,
     }
 
 

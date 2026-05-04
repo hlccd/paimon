@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 from loguru import logger
 
-from paimon.channels.webui.channel import PUSH_SESSION_ID
-
 if TYPE_CHECKING:
     from paimon.channels.webui.channel import WebUIChannel
 
@@ -132,11 +130,6 @@ async def delete_session(channel, request: web.Request) -> web.Response:
         return confirm_required_response()
 
     session_id = request.match_info["session_id"]
-    # 推送收件箱不允许删除（docs/aimon.md §2.6：派蒙独占出口的固定接收点）
-    if session_id == PUSH_SESSION_ID:
-        return web.json_response(
-            {"error": "推送收件箱不可删除"}, status=400,
-        )
     if not channel.state.session_mgr:
         return web.json_response({"error": "会话管理器未初始化"}, status=500)
 
