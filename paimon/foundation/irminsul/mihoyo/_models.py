@@ -125,18 +125,18 @@ PERMANENT_TOP_TIER: dict[str, set[str]] = {
 }
 
 # UP 池（区分歪/不歪有意义）；常驻/集录/邦布等不区分（is_up=None）
-# GS / SR：mihoyo skill 直接存 api_type 数字（'301' 等）→ 用数字
-# ZZZ：mihoyo skill 存 db_type 英文（'agent'/'wengine' 等，参见 _GACHA_POOLS_BY_GAME）
-#      → 必须用相同字符串否则 is_up_pool 永远 False、is_up 永远 None
+# 三游戏 mihoyo_gacha.gacha_type 列都存 db_type 英文（_gacha.py:129 入库时
+# gacha_type=db_type，参见 furina_game/service.py 的 _GACHA_POOLS_BY_GAME）
+# → 必须用相同字符串否则 is_up_pool 永远 False、is_up 永远 None
 UP_POOLS: dict[str, set[str]] = {
-    "gs": {"301", "302"},
-    "sr": {"11", "12"},
+    "gs":  {"character", "weapon"},
+    "sr":  {"character", "lightcone"},
     "zzz": {"agent", "wengine"},
 }
 
 # 硬保底上限（角色 90 / 武器 80 等）；查不到走 90 默认
 HARD_PITY: dict[str, dict[str, int]] = {
-    "gs":  {"301": 90, "302": 80, "200": 90, "100": 20, "500": 90},
-    "sr":  {"11": 90, "12": 80, "1": 90, "2": 50},
+    "gs":  {"character": 90, "weapon": 80, "permanent": 90, "chronicled": 90},
+    "sr":  {"character": 90, "lightcone": 80, "permanent": 90},
     "zzz": {"agent": 90, "wengine": 80, "permanent": 90, "bangboo": 90},
 }

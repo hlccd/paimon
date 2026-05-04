@@ -77,19 +77,18 @@ GAME_SCRIPT_1 = """
             ],
         };
         // pool key 必须跟 mihoyo_gacha 表的 gacha_type 列实际存值一致
-        // GS / SR：mihoyo skill 直接存 api_type 数字（'301' 等）→ 前端用数字
-        // ZZZ：mihoyo skill 存 db_type 英文（'agent' 等，参见 _GACHA_POOLS_BY_GAME 元组的 db_type）
-        // → 前端必须用相同字符串否则 stats API 查 0 条
+        // 三游戏都存 db_type 英文（_gacha.py:129 入库时 gacha_type=db_type，
+        // 参见 furina_game/service.py 的 _GACHA_POOLS_BY_GAME 元组第一个元素）
+        // → 前端必须用相同字符串否则 stats API 查 0 条（hotfix2/3 已为 ZZZ 修过同款 bug）
         var POOL_LABELS_BY_GAME = {
-            'gs':  {'301':'角色','302':'武器','200':'常驻','500':'集录'},
-            'sr':  {'11':'角色','12':'光锥','1':'常驻','2':'新手'},
+            'gs':  {'character':'角色','weapon':'武器','permanent':'常驻','chronicled':'集录'},
+            'sr':  {'character':'角色','lightcone':'光锥','permanent':'常驻'},
             'zzz': {'agent':'独家','wengine':'音擎','permanent':'常驻','bangboo':'邦布'},
         };
-        // 单独维护顺序：JS 对纯数字字符串 key 会按数值升序排，Object.keys 拿不到插入顺序
-        // → 渲染必须用这个数组而不是 Object.keys(POOL_LABELS_BY_GAME[a.game])
+        // 显式数组保证 UP 池靠前、常驻/集录/邦布殿后；不依赖 Object.keys 顺序
         var POOL_ORDER_BY_GAME = {
-            'gs':  ['301', '302', '200', '500'],
-            'sr':  ['11', '12', '1', '2'],
+            'gs':  ['character', 'weapon', 'permanent', 'chronicled'],
+            'sr':  ['character', 'lightcone', 'permanent'],
             'zzz': ['agent', 'wengine', 'permanent', 'bangboo'],
         };
 
