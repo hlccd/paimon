@@ -113,5 +113,18 @@ async def shutdown_pending(timeout: float = 10.0) -> None:
         )
         for t in still_pending:
             t.cancel()
-        # 等 cancel 真正生效（CancelledError 传播完）
-        await asyncio.gather(*still_pending, return_exceptions=True)
+        # 等 cancel 真正生效（CancelledError 传播完）；若 task 内部
+        # subprocess.communicate / 不响应 cancel 的同步 I/O 卡住，二次 timeout
+        # 强行放弃 await——否则 shutdown_pending 永远不返回、整个进程 Ctrl+C
+        # 也僵死。子进程会在父进程 exit 时被 OS 回收。
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*still_pending, return_exceptions=True),
+                timeout=3.0,
+            )
+        except asyncio.TimeoutError:
+            unresponsive = sum(1 for t in still_pending if not t.done())
+            logger.warning(
+                "[bg·shutdown] {} 个任务 cancel 后仍不响应，放弃等待"
+                "（进程退出 OS 回收子进程）", unresponsive,
+            )
