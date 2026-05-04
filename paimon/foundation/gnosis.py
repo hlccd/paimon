@@ -85,7 +85,7 @@ class Gnosis:
 
     def register(self, name: str, provider: Provider) -> None:
         self._providers[name] = ProviderHealth(name=name, provider=provider)
-        logger.info("[神之心·注册] Provider '{}' (model={})", name, provider.model_name)
+        logger.debug("[神之心·注册] Provider '{}' (model={})", name, provider.model_name)
 
     def setup_pools(self) -> None:
         cfg = self._cfg

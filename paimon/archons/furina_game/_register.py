@@ -129,9 +129,6 @@ async def ensure_mihoyo_subscriptions(
 ) -> None:
     """绑定米哈游账号时调用：给该 (game, uid) ensure 一条游戏资讯订阅 +
     挂 mihoyo_game_collect ScheduledTask。幂等：已存在则更新 query/cron 不重建。
-
-    迁移逻辑：旧版本用 task_type='feed_collect'（归风神段），新版本用
-    'mihoyo_game_collect'（归水神段）。检测到旧 task_type 自动删除重建。
     """
     binding_id = f"{game}:{uid}"
     sub = await irminsul.subscription_ensure_for(
@@ -143,35 +140,18 @@ async def ensure_mihoyo_subscriptions(
         actor="水神",
     )
 
-    # 检查现有 task 类型；旧版 feed_collect 需要删掉重建为 mihoyo_game_collect
+    # task 被手动删除时自动恢复：linked_task_id 还在但 schedule_get 取不到 → 清空触发重建
     if sub.linked_task_id:
         try:
             existing_task = await irminsul.schedule_get(sub.linked_task_id)
         except Exception:
             existing_task = None
-        if existing_task and existing_task.task_type != "mihoyo_game_collect":
-            logger.info(
-                "[水神·游戏订阅·迁移] sub={} task_type={} → mihoyo_game_collect",
-                sub.id, existing_task.task_type,
-            )
-            try:
-                await march.delete_task(sub.linked_task_id)
-            except Exception as e:
-                logger.warning(
-                    "[水神·游戏订阅·迁移] 删旧 task 失败 sub={}: {}", sub.id, e,
-                )
-            await irminsul.subscription_update(
-                sub.id, actor="水神", linked_task_id="",
-            )
-            sub.linked_task_id = ""
-        elif not existing_task:
-            # task 找不到（可能被手动删了）→ 清空 linked_task_id 触发重建
+        if not existing_task:
             await irminsul.subscription_update(
                 sub.id, actor="水神", linked_task_id="",
             )
             sub.linked_task_id = ""
 
-    # 没 task 就建（无论是首次还是迁移后）
     if not sub.linked_task_id:
         try:
             task_id = await march.create_task(
@@ -191,7 +171,7 @@ async def ensure_mihoyo_subscriptions(
                 "[水神·游戏订阅] 挂 task 失败 binding={}: {}", binding_id, e,
             )
     else:
-        logger.info(
+        logger.debug(
             "[水神·游戏订阅] ensure 命中已有订阅 binding={} sub={} (幂等)",
             binding_id, sub.id,
         )

@@ -64,7 +64,7 @@ class SkillRepo:
             ),
         )
         await self._db.commit()
-        logger.info(
+        logger.debug(
             "[世界树] {}·Skill 声明  {} ({}, sensitivity={})",
             actor, decl.name, decl.source, decl.sensitivity,
         )

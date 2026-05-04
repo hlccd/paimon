@@ -7,14 +7,12 @@
 - 整个消息链作为 messages_json TEXT 存在一列里
 - session_memory（压缩块 list[str]）也存 JSON 数组
 - channel_key 表达"此会话当前绑定哪个 channel"；同一 channel 活跃会话集中最多一条
-- 含 migrate_from_json：旧 paimon_home/sessions/*.json + state.json 导入
 """
 from __future__ import annotations
 
 import json
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import aiosqlite
 from loguru import logger
@@ -301,81 +299,3 @@ class SessionRepo:
                 (channel_key,),
             )
         await self._db.commit()
-
-    async def migrate_from_json(self, legacy_dir: Path) -> int:
-        """把 legacy_dir (paimon_home/sessions/) 下 *.json 导入 session_records 表。
-        读 legacy_dir.parent/state.json 拿 bindings（channel_key）。
-        完成后把 legacy_dir 改名 sessions.migrated。幂等。
-        """
-        if not legacy_dir.exists() or not legacy_dir.is_dir():
-            return 0
-
-        json_files = list(legacy_dir.glob("*.json"))
-        if not json_files:
-            try:
-                legacy_dir.rename(legacy_dir.parent / "sessions.migrated")
-            except Exception:
-                pass
-            return 0
-
-        # 解析 bindings
-        bindings: dict[str, str] = {}
-        state_path = legacy_dir.parent / "state.json"
-        if state_path.exists():
-            try:
-                state_data = json.loads(state_path.read_text(encoding="utf-8"))
-                bindings = state_data.get("bindings", {}) or {}
-            except Exception as e:
-                logger.warning("[世界树] 会话迁移  解析 state.json 失败: {}", e)
-
-        sid_to_channel: dict[str, str] = {sid: ch for ch, sid in bindings.items()}
-
-        imported = 0
-        for jf in json_files:
-            try:
-                data = json.loads(jf.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning("[世界树] 会话迁移  跳过损坏文件 {}: {}", jf.name, e)
-                continue
-
-            sid = data.get("id", jf.stem)
-            channel_key = sid_to_channel.get(sid, "")
-            now = time.time()
-            try:
-                await self._db.execute(
-                    "INSERT OR IGNORE INTO session_records "
-                    "(id, name, channel_key, messages_json, session_memory_json, "
-                    " last_context_tokens, last_context_ratio, last_compressed_at, compressed_rounds, "
-                    " response_status, created_at, updated_at, archived_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-                    (
-                        sid,
-                        data.get("name", f"s-{sid[:8]}"),
-                        channel_key,
-                        json.dumps(data.get("messages", []) or [], ensure_ascii=False),
-                        json.dumps(data.get("session_memory", []) or [], ensure_ascii=False),
-                        int(data.get("last_context_tokens", 0)),
-                        float(data.get("last_context_ratio", 0.0)),
-                        float(data.get("last_compressed_at", 0.0)),
-                        int(data.get("compressed_rounds", 0)),
-                        data.get("response_status", "idle"),
-                        float(data.get("created_at", now)),
-                        float(data.get("updated_at", now)),
-                    ),
-                )
-                imported += 1
-            except Exception as e:
-                logger.warning("[世界树] 会话迁移  写入失败 {}: {}", jf.name, e)
-
-        await self._db.commit()
-
-        try:
-            legacy_dir.rename(legacy_dir.parent / "sessions.migrated")
-            logger.info(
-                "[世界树] 会话迁移  导入 {} 条，{} 改名为 sessions.migrated",
-                imported, legacy_dir.name,
-            )
-        except Exception as e:
-            logger.warning("[世界树] 会话迁移  改名失败: {}", e)
-
-        return imported

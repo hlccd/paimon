@@ -74,7 +74,7 @@ class MarchService:
                         task.id, actor="三月·重对齐", next_run_at=new_next,
                     )
                     fixed += 1
-                    logger.info(
+                    logger.debug(
                         "[三月] cron 重对齐 task={} expr='{}' "
                         "old_next={} new_next={} ({})",
                         task.id, expr,

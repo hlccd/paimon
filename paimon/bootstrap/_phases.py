@@ -12,10 +12,7 @@ from paimon.state import state
 
 
 async def _ensure_startup_subscriptions() -> None:
-    """启动时给所有米哈游账号 + 关注股 ensure 资讯订阅（含 task_type 迁移）。"""
-    # 启动时给所有米哈游账号 ensure 游戏资讯订阅（幂等：已存在仅触发迁移逻辑）
-    # ensure_mihoyo_subscriptions 内含 task_type 迁移：feed_collect → mihoyo_game_collect
-    # 不能 if existing: continue 跳过，否则迁移代码永远跑不到
+    """启动时给所有米哈游账号 + 关注股 ensure 资讯订阅（幂等；task 被手动删时自动恢复）。"""
     try:
         from paimon.archons.furina_game import (
             ensure_mihoyo_subscriptions as _furina_ensure_sub,
@@ -29,14 +26,10 @@ async def _ensure_startup_subscriptions() -> None:
                 chat_id=PUSH_CHAT_ID, channel_name="webui",
             )
         if accs:
-            logger.info(
-                "[水神·游戏订阅·启动 ensure] 处理 {} 个账号（含 task_type 迁移）",
-                len(accs),
-            )
+            logger.info("[水神·游戏订阅·启动 ensure] 处理 {} 个账号", len(accs))
     except Exception as e:
         logger.warning("[水神·游戏订阅·启动 ensure] 失败（不阻塞启动）: {}", e)
 
-    # 启动时给所有关注股 ensure 资讯订阅（同水神模式：幂等 + 防御性 task_type 迁移）
     try:
         from paimon.archons.zhongli.zhongli import (
             ensure_stock_subscriptions as _zhongli_ensure_sub,
@@ -50,10 +43,7 @@ async def _ensure_startup_subscriptions() -> None:
                 chat_id=PUSH_CHAT_ID, channel_name="webui",
             )
         if entries:
-            logger.info(
-                "[岩神·关注股订阅·启动 ensure] 处理 {} 个股（含 task_type 迁移）",
-                len(entries),
-            )
+            logger.info("[岩神·关注股订阅·启动 ensure] 处理 {} 个股", len(entries))
     except Exception as e:
         logger.warning("[岩神·关注股订阅·启动 ensure] 失败（不阻塞启动）: {}", e)
 
@@ -72,7 +62,7 @@ async def _ensure_dividend_cron(cfg: Config) -> None:
             restore_disabled=False,   # 尊重用户的 /dividend off
         )
         if ok:
-            logger.info("[岩神·启动] {}（可用 DIVIDEND_AUTO_ENABLE=false 关闭）", msg)
+            logger.info("[岩神·启动] {}", msg)
         else:
             logger.warning("[岩神·启动] 自动启用失败: {}", msg)
     except Exception as e:

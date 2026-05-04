@@ -182,28 +182,13 @@ async def ensure_stock_subscriptions(
         actor="岩神",
     )
 
-    # 检查现有 task 类型；旧版若用别的 task_type 自动迁移
+    # task 被手动删除时自动恢复：linked_task_id 还在但 schedule_get 取不到 → 清空触发重建
     if sub.linked_task_id:
         try:
             existing_task = await irminsul.schedule_get(sub.linked_task_id)
         except Exception:
             existing_task = None
-        if existing_task and existing_task.task_type != "stock_watch_collect":
-            logger.info(
-                "[岩神·关注股订阅·迁移] sub={} task_type={} → stock_watch_collect",
-                sub.id, existing_task.task_type,
-            )
-            try:
-                await march.delete_task(sub.linked_task_id)
-            except Exception as e:
-                logger.warning(
-                    "[岩神·关注股订阅·迁移] 删旧 task 失败 sub={}: {}", sub.id, e,
-                )
-            await irminsul.subscription_update(
-                sub.id, actor="岩神", linked_task_id="",
-            )
-            sub.linked_task_id = ""
-        elif not existing_task:
+        if not existing_task:
             await irminsul.subscription_update(
                 sub.id, actor="岩神", linked_task_id="",
             )
@@ -228,7 +213,7 @@ async def ensure_stock_subscriptions(
                 "[岩神·关注股订阅] 挂 task 失败 stock={}: {}", stock_code, e,
             )
     else:
-        logger.info(
+        logger.debug(
             "[岩神·关注股订阅] ensure 命中已有订阅 stock={} sub={} (幂等)",
             stock_code, sub.id,
         )

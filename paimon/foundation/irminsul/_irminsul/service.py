@@ -109,13 +109,6 @@ class Irminsul(
 
         logger.info("[世界树] 初始化完成  db={}", self._db_path)
 
-        # 会话迁移（幂等）
-        legacy_sessions = self._home / "sessions"
-        if legacy_sessions.exists():
-            imported = await self._session.migrate_from_json(legacy_sessions)
-            if imported > 0:
-                logger.info("[世界树] 会话迁移  共导入 {} 条", imported)
-
     async def close(self) -> None:
         """关 DB 连接（重启 / 测试用）。"""
         if self._db:

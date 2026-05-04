@@ -67,7 +67,7 @@ def register(meta: SubscriptionTypeMeta) -> None:
             "[subscription_types] 重复注册 {}，覆盖旧版本", meta.binding_kind,
         )
     _REGISTRY[meta.binding_kind] = meta
-    logger.info(
+    logger.debug(
         "[subscription_types] 注册 {} → {} (面板={})",
         meta.binding_kind, meta.display_label, meta.manager_panel,
     )

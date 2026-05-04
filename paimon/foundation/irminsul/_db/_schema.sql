@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS task_subtasks (
     result TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
+    deps TEXT NOT NULL DEFAULT '[]',
+    round INTEGER NOT NULL DEFAULT 1,
+    sensitive_ops TEXT NOT NULL DEFAULT '[]',
+    verdict_status TEXT NOT NULL DEFAULT '',
+    compensate TEXT NOT NULL DEFAULT '',
     FOREIGN KEY (task_id) REFERENCES task_edicts(id)
 );
 CREATE INDEX IF NOT EXISTS idx_subtask_task ON task_subtasks(task_id);
@@ -353,7 +358,9 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     last_error TEXT NOT NULL DEFAULT '',
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
+    updated_at REAL NOT NULL,
+    task_type TEXT NOT NULL DEFAULT 'user',
+    source_entity_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sched_enabled ON scheduled_tasks(enabled);
 CREATE INDEX IF NOT EXISTS idx_sched_next ON scheduled_tasks(next_run_at);
@@ -373,7 +380,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     last_run_at    REAL NOT NULL DEFAULT 0,
     last_error     TEXT NOT NULL DEFAULT '',
     created_at     REAL NOT NULL,
-    updated_at     REAL NOT NULL
+    updated_at     REAL NOT NULL,
+    binding_kind   TEXT NOT NULL DEFAULT 'manual',
+    binding_id     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sub_enabled ON subscriptions(enabled);
 CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
@@ -388,6 +397,9 @@ CREATE TABLE IF NOT EXISTS feed_items (
     captured_at     REAL NOT NULL,
     pushed_at       REAL,
     digest_id       TEXT NOT NULL DEFAULT '',
+    event_id        TEXT NOT NULL DEFAULT '',
+    sentiment_score REAL NOT NULL DEFAULT 0.0,
+    sentiment_label TEXT NOT NULL DEFAULT '',
     UNIQUE(subscription_id, url),
     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
 );
@@ -462,7 +474,8 @@ CREATE TABLE IF NOT EXISTS selfcheck_runs (
     p2_count           INTEGER NOT NULL DEFAULT 0,
     p3_count           INTEGER NOT NULL DEFAULT 0,
     findings_total     INTEGER NOT NULL DEFAULT 0,
-    quick_summary_json TEXT NOT NULL DEFAULT '{}'        -- quick 专用：overall + component 快照
+    quick_summary_json TEXT NOT NULL DEFAULT '{}',       -- quick 专用：overall + component 快照
+    progress_json      TEXT NOT NULL DEFAULT '{}'        -- deep 专用：watcher 轮询 .check/state.json 后存此列
 );
 CREATE INDEX IF NOT EXISTS idx_selfcheck_kind ON selfcheck_runs(kind);
 CREATE INDEX IF NOT EXISTS idx_selfcheck_time ON selfcheck_runs(triggered_at DESC);

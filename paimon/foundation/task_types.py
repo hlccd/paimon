@@ -80,7 +80,7 @@ def register(meta: TaskTypeMeta) -> None:
     if meta.task_type in _REGISTRY:
         logger.warning("[task_types] 重复注册 {}，覆盖旧版本", meta.task_type)
     _REGISTRY[meta.task_type] = meta
-    logger.info(
+    logger.debug(
         "[task_types] 注册 {} → {} (面板={})",
         meta.task_type, meta.display_label, meta.manager_panel,
     )

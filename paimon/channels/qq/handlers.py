@@ -53,7 +53,7 @@ def _patch_capture_card_fields() -> None:
 
         setattr(ConnectionState, evt, _wrap(orig, evt))
     ConnectionState._paimon_card_patched = True
-    logger.info("[派蒙·QQ频道] 卡片捕获已挂载（ark_data / embeds 按 msg_id 缓存）")
+    logger.debug("[派蒙·QQ频道] 卡片捕获已挂载（ark_data / embeds 按 msg_id 缓存）")
 
 
 _patch_capture_card_fields()

@@ -93,7 +93,10 @@ class ModelRouter:
     async def load(self) -> None:
         rows = await self._irminsul.llm_route_list_all()
         self._routes = {r.route_key: r.profile_id for r in rows}
-        logger.info("[神之心·路由] 加载完成 routes={}", len(self._routes))
+        if self._routes:
+            logger.info("[神之心·路由] 加载完成 routes={}", len(self._routes))
+        else:
+            logger.debug("[神之心·路由] 加载完成 routes=0（无自定义路由，全部用默认 profile）")
 
     async def reload(self) -> None:
         await self.load()
