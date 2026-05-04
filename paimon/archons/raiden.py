@@ -73,27 +73,42 @@ class RaidenArchon(Archon):
             return result
 
         if subtask.description.startswith("[STAGE:code]"):
-            from paimon.archons.nahida import _extract_prior_issues
             from paimon.foundation.task_workspace import create_workspace
             workspace = create_workspace(task.id)
             spec_path = workspace / "spec.md"
             design_path = workspace / "design.md"
-            from paimon.archons.nahida import _extract_issues_from_description
-            prior_issues = (
-                _extract_issues_from_description(subtask.description)
-                or _extract_prior_issues(prior_results)
-            )
-            code_result = await self.write_code(
-                spec_path=spec_path, design_path=design_path,
-                workspace=workspace, model=model, prior_issues=prior_issues,
-            )
-            files = code_result.get("files", [])
-            sc = code_result.get("self_check", {})
-            ok = sc.get("ok", False)
-            result = (
-                f"code 已产出: {len(files)} 个文件到 {workspace}/code/\n"
-                f"自检: {'✅ 全过' if ok else '⚠️ 未通过'} (详见 self-check.log)"
-            )
+
+            # spec.md / design.md 都存在 → complex DAG，调 code-implementation skill
+            # 否则（simple/trivial DAG 没 spec/design 节点）→ skill 拿不到 spec/design
+            # 会兜圈 15 轮 LLM 强制收尾产 0 文件；走 LLM 直写绕开
+            if spec_path.exists() and design_path.exists():
+                from paimon.archons.nahida import (
+                    _extract_issues_from_description, _extract_prior_issues,
+                )
+                prior_issues = (
+                    _extract_issues_from_description(subtask.description)
+                    or _extract_prior_issues(prior_results)
+                )
+                code_result = await self.write_code(
+                    spec_path=spec_path, design_path=design_path,
+                    workspace=workspace, model=model, prior_issues=prior_issues,
+                )
+                files = code_result.get("files", [])
+                sc = code_result.get("self_check", {})
+                ok = sc.get("ok", False)
+                result = (
+                    f"code 已产出: {len(files)} 个文件到 {workspace}/code/\n"
+                    f"自检: {'✅ 全过' if ok else '⚠️ 未通过'} (详见 self-check.log)"
+                )
+            else:
+                # simple/trivial 路径：不调 skill，LLM 直接写到 workspace/code/
+                logger.info(
+                    "[雷神·code] simple/trivial 路径（spec/design 不存在），LLM 直写到 {}",
+                    workspace / "code",
+                )
+                result = await self._write_code_simple(
+                    task, subtask, workspace, model, irminsul, prior_results,
+                )
             await irminsul.progress_append(
                 task_id=task.id, agent="雷神", progress_pct=100,
                 message=result[:200], subtask_id=subtask.id, actor="雷神",
@@ -128,6 +143,62 @@ class RaidenArchon(Archon):
         )
         logger.info("[雷神] 子任务完成, 结果长度={}", len(result))
         return result
+
+    # ============ 四影管线 code 简易路径（simple/trivial DAG 无 spec/design）============
+
+    async def _write_code_simple(
+        self, task: TaskEdict, subtask: Subtask, workspace: Path,
+        model: Model, irminsul: Irminsul,
+        prior_results: list[str] | None,
+    ) -> str:
+        """simple/trivial DAG 的 code 节点：不调 code-implementation skill，
+        直接 LLM + file_ops/exec 工具产出到 workspace/code/，跑同款 self_check。
+        """
+        from paimon.archons.base import FINAL_OUTPUT_RULE
+
+        code_dir = workspace / "code"
+        code_dir.mkdir(parents=True, exist_ok=True)
+
+        system = _SYSTEM_PROMPT.format(project_root=self._project_root())
+        system += (
+            f"\n\n## 当前任务\n{task.title}\n"
+            f"\n## 你的子任务\n{subtask.description[:500]}\n"
+            f"\n## 输出目录（必须）\n"
+            f"代码必须用 file_ops write 写到 {code_dir}/\n"
+            f"路径规则: {code_dir}/<相对路径> = 宿主项目对应文件\n"
+            f"写完后用 exec 跑 py_compile/ruff/pytest 自检（错了继续修）\n"
+        )
+        if prior_results:
+            system += "\n## 前序子任务结果\n"
+            for i, pr in enumerate(prior_results, 1):
+                system += f"\n### 子任务 {i}\n{pr[:2000]}\n"
+        system += await self._load_feedback_memories_block(irminsul)
+        system += FINAL_OUTPUT_RULE
+
+        temp_session = Session(id=f"raiden-{task.id[:8]}", name="雷神·code(简易)")
+        temp_session.messages.append({"role": "system", "content": system})
+
+        tools, executor = self._setup_tools(temp_session)
+        async for _ in model.chat(
+            temp_session, subtask.description,
+            tools=tools, tool_executor=executor,
+            component="雷神", purpose="代码生成(简易)",
+        ):
+            pass
+
+        check_result = await self.self_check(workspace)
+
+        from paimon.foundation.task_workspace import list_workspace_files
+        files = [
+            str(p.relative_to(code_dir))
+            for p in list_workspace_files(workspace.name)
+        ]
+
+        ok = check_result.get("ok", False)
+        return (
+            f"code 已产出: {len(files)} 个文件到 {workspace}/code/\n"
+            f"自检: {'✅ 全过' if ok else '⚠️ 未通过'} (详见 self-check.log)"
+        )
 
     # ============ 四影管线 design 阶段入口 ============
 

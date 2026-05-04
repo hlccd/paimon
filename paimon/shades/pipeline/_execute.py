@@ -37,7 +37,8 @@ class _ExecuteMixin:
         通常让复审默认放行，除非 LLM 引入新类型敏感节点）。
         """
         self.last_task_id = task.id
-        max_rounds = max(1, int(getattr(config, "shades_max_rounds", 3)))
+        # 至少 2 轮：round 1 出 revise 必须有 round 2 修订机会，否则 review 系统等于摆设
+        max_rounds = max(2, int(getattr(config, "shades_max_rounds", 3)))
         plan: Plan | None = initial_plan
         verdict: ReviewVerdict | None = None
         last_results: dict[str, str] = {}
