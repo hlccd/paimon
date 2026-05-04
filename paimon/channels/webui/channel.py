@@ -27,9 +27,6 @@ PUSH_SESSION_NAME = "📨 推送"
 PUSH_CHAT_ID = f"webui-{PUSH_SESSION_ID}"  # "webui-push"
 
 
-        # CancelledError 故意不捕获：让上游正常的 task cancel 语义能传播
-
-
 class WebUIChannel(Channel):
     name = "webui"
 
@@ -59,186 +56,27 @@ class WebUIChannel(Channel):
         self._setup_routes()
 
     def _setup_routes(self):
-        # 四影任务可见性（docs/interaction.md §四 WebUI tab）
-        # 草神·世界树面板（3 tab：记忆 / 知识库 / 文书归档）
-        # 神之心·LLM Profile 管理（M1：只做存储 + 面板，不接路由）
-        # M2：路由表
-        # 风神·信息流面板
-        # 风神·舆情看板（L1 事件级，docs/archons/venti.md §L1）
-        # 岩神·理财面板
-        # 岩神·关注股资讯订阅（隐式订阅，关注股生命周期带）
-        # 水神·游戏
-        # 水神·游戏资讯订阅（隐式订阅，账号生命周期带）
-        # 三月·自检面板
-        # 推送归档（替代主动聊天推送 / 全局红点抽屉数据源）
-        # 推送长连接
         # 推送文件静态目录
         self.app.router.add_static(
             "/static/pushes/", path=str(self._pushes_root), show_index=False,
         )
 
-        # 业务面板路由（按 api/ 子包分发）
+        # 业务面板路由（草神/神之心/风神/岩神/水神/三月各面板及 / · /dashboard ·
+        # /api/auth · /api/chat 等核心路由都委托给 api/ 子包统一注册）
         from paimon.channels.webui.api import register_all_routes
         register_all_routes(self.app, self)
-
-
-
-
-
-
-
-
-
-    # ---------- 草神·知识库（world tree knowledge 域）----------
-
-
-
-
-
-
-    # ---------- 草神·文书归档（读 .paimon/workspace/<task_id>/ 产物）----------
-
-
-
-
-
-    # ---------- 神之心 · LLM Profile 管理 ----------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # ---------- 风神 · 信息流面板 ----------
-
 
     def _get_login_html(self) -> str:
         """委托到 _login_html 模块（保留 wrapper 让 api/ 子模块调用不变）。"""
         from paimon.channels.webui._login_html import get_login_html
         return get_login_html()
+
     def _check_auth(self, request: web.Request) -> bool:
         """统一 auth 闸：True=已登录 / False=未登录。仅内部使用。"""
         if not self.require_auth:
             return True
         token = request.cookies.get("paimon_token")
         return bool(token and token in self.valid_tokens)
-
-
-
-
-
-
-
-
-
-    # ---------- 风神 · 舆情看板（L1 事件级） ----------
-
-
-
-
-
-
-
-    # ---------- 推送归档（替代主动聊天推送）----------
-
-
-
-
-
-
-    # ---------- 岩神 · 理财面板 ----------
-
-
-
-
-
-
-
-
-
-
-
-    # ---------- 用户关注股（user_watchlist）----------
-
-
-
-
-
-
-
-
-    # ==================== 水神·游戏面板（米哈游） ====================
-
-
-
-
-
-
-
-    # ===== 水神·游戏资讯订阅 API =====
-
-
-
-
-    # ===== 岩神·关注股资讯订阅 API（同水神 game_subscriptions_*_api 模式）=====
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # ==================== 三月·自检面板 ====================
-
-
-
-
-
-
-
-
-
-
-
-
-    # ==================== /三月·自检面板 ====================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     async def send_text(self, chat_id: str, text: str) -> None:
         """派蒙侧推送入口。忽略外部 chat_id，统一落到固定"📨 推送"会话。
@@ -358,7 +196,6 @@ class WebUIChannel(Channel):
             logger.info("[派蒙·WebUI·推送] 推送会话已创建 id={}", PUSH_SESSION_ID)
         except Exception as e:
             logger.warning("[派蒙·WebUI·推送] 推送会话落盘失败: {}", e)
-
 
     async def ask_user(self, chat_id: str, prompt: str, *, timeout: float = 30.0) -> str:
         """权限询问：通过当前活跃 SSE 推问题，挂起等下一条用户消息作答。
