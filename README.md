@@ -141,7 +141,6 @@ git clone git@github.com:hlccd/paimon.git
 cd paimon
 pip install -e .                                          # Python ≥ 3.10
 cp .env.example .env && vim .env                          # 填 LLM_PROVIDER / API key / WEBUI_ACCESS_CODE 等
-chmod +x scripts/run_with_watchdog.sh
 nohup ./scripts/run_with_watchdog.sh 80 > paimon.log 2>&1 &
 
 # 验证
@@ -156,7 +155,6 @@ ssh 到云端
 cd paimon
 pkill -f 'paimon'                                         # 杀掉旧的 nohup paimon
 git pull                                                  # 拉新代码（含 scripts/run_with_watchdog.sh）
-chmod +x scripts/run_with_watchdog.sh
 nohup ./scripts/run_with_watchdog.sh 80 > paimon.log 2>&1 &
 ```
 
