@@ -156,16 +156,20 @@ GLOBAL_PUSH_BELL_SCRIPT = r"""
 
 
 def navigation_html(active: str = "chat") -> str:
+    # 11 个 tab 命名风格统一：emoji + 2 字中文。
+    # 「世界树」改「知识」修概念错位（世界树 = 底层存储 irminsul，不是用户面板）；
+    # 「仪表盘」改「总览」更贴近用户视角；「信息流」改「订阅」更贴近用户操作语义。
+    # 右侧推送红点用 📨（信封），跟左侧 🔔（订阅）emoji 不冲突。
     items = [
-        ("chat", "/", "对话"),
-        ("dashboard", "/dashboard", "仪表盘"),
-        ("tasks", "/tasks", "任务"),
-        ("feed", "/feed", "信息流"),
-        ("sentiment", "/sentiment", "🌬️ 舆情"),
-        ("wealth", "/wealth", "理财"),
+        ("chat", "/", "💬 对话"),
+        ("dashboard", "/dashboard", "📊 总览"),
+        ("tasks", "/tasks", "📋 任务"),
+        ("feed", "/feed", "🔔 订阅"),
+        ("sentiment", "/sentiment", "🌪️ 舆情"),
+        ("wealth", "/wealth", "💰 理财"),
         ("game", "/game", "🎮 游戏"),
-        ("knowledge", "/knowledge", "世界树"),
-        ("plugins", "/plugins", "插件"),
+        ("knowledge", "/knowledge", "📚 知识"),
+        ("plugins", "/plugins", "🔌 插件"),
         ("selfcheck", "/selfcheck", "🩺 自检"),
         ("llm", "/llm", "🧠 模型"),
     ]
