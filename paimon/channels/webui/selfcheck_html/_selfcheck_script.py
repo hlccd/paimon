@@ -575,17 +575,76 @@ SELFCHECK_SCRIPT = """
             }
         });
 
+        // ========== 回退警示条（watchdog 触发回退后展示，用户点「我知道了」清掉）==========
+
+        async function loadRollbackStatus(){
+            var el = document.getElementById('rollbackWarning');
+            try{
+                var r = await fetch('/api/selfcheck/upgrade/rollback_status');
+                var d = await r.json();
+                if(!d || !d.has_rollback){ el.style.display = 'none'; return; }
+                var d2 = new Date((d.ts||0)*1000);
+                var pad = function(n){return n.toString().padStart(2,'0');};
+                var when = (d2.getMonth()+1)+'-'+d2.getDate()+' '+pad(d2.getHours())+':'+pad(d2.getMinutes());
+                var before = (d.before||'').substring(0,8) || '?';
+                var after = (d.after||'').substring(0,8) || '?';
+                var isManual = d.kind === 'NEEDS_MANUAL';
+                var title, meta;
+                if(isManual){
+                    el.classList.add('needs-manual');
+                    title = '🚨 watchdog 回退失败 — 需要人工介入';
+                    meta = 'HEAD 已等于 last_good_commit (<code>'+before+'</code>)，回退无效。'
+                        + '可能 last_good 本身有问题。请 ssh 上去 <code>git log</code> 选更早稳定 commit 手动 reset。'
+                        + '<br>失败次数: '+d.fail_count+' · 时间: '+when;
+                }else{
+                    el.classList.remove('needs-manual');
+                    title = '⚠ watchdog 已自动回退';
+                    meta = '从 <code>'+before+'</code> 回退到 <code>'+after+'</code>（last_good_commit）'
+                        + '<br>失败次数: '+d.fail_count+' · 触发时间: '+when;
+                }
+                el.innerHTML = '<div class="rb-content">'
+                    + '<div class="rb-title">'+title+'</div>'
+                    + '<div class="rb-meta">'+meta+'</div>'
+                    + '</div>'
+                    + '<div class="rb-actions">'
+                    + '<button class="btn" onclick="ackRollback()">我知道了</button>'
+                    + '</div>';
+                el.style.display = '';
+            }catch(e){
+                el.style.display = 'none';
+            }
+        }
+
+        window.ackRollback = async function(){
+            try{
+                var r = await fetch('/api/selfcheck/upgrade/rollback_ack', { method: 'POST' });
+                var d = await r.json();
+                if(d.ok){
+                    document.getElementById('rollbackWarning').style.display = 'none';
+                    showToast('✅ 警示条已消除', 'success');
+                }else{
+                    showToast('❌ 操作失败：'+(d.error||'未知'), 'error');
+                }
+            }catch(e){
+                showToast('❌ 请求失败', 'error');
+            }
+        };
+
         // 初始化
         loadLatestQuick();
         loadRuns('deep');
         loadUpgradeStatus();
+        loadRollbackStatus();
         // 30s 自动刷新当前 tab
         setInterval(function(){
             loadLatestQuick();
             loadRuns(currentTab);
         },30000);
-        // 5 分钟刷一次升级状态（避免频繁 git fetch 打扰）
-        setInterval(loadUpgradeStatus, 300000);
+        // 5 分钟刷一次升级状态 + 回退警示（避免频繁 git fetch 打扰）
+        setInterval(function(){
+            loadUpgradeStatus();
+            loadRollbackStatus();
+        }, 300000);
     })();
     </script>
 """

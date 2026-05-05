@@ -147,6 +147,28 @@ SELFCHECK_CSS = """
     .comp-latency { font-size: 11px; color: var(--text-muted); }
     .comp-details { margin-top: 6px; font-size: 12px; color: var(--text-secondary); white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
 
+    /* 回退警示条（watchdog 自动回退后显示） */
+    .rollback-warning {
+        padding: 14px 16px; margin-bottom: 12px; border-radius: 8px;
+        background: rgba(255, 80, 80, 0.10);
+        border: 1px solid var(--status-error);
+        border-left: 4px solid var(--status-error);
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: 12px;
+    }
+    .rollback-warning.needs-manual { background: rgba(255, 80, 80, 0.18); }
+    .rollback-warning .rb-content { flex: 1; }
+    .rollback-warning .rb-title {
+        font-weight: 600; color: var(--status-error); font-size: 14px;
+        margin-bottom: 6px;
+    }
+    .rollback-warning .rb-meta { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+    .rollback-warning .rb-meta code {
+        font-family: monospace; background: var(--paimon-panel-light);
+        padding: 1px 6px; border-radius: 3px; color: var(--gold);
+    }
+    .rollback-warning .rb-actions { flex-shrink: 0; }
+
     /* 自动升级区 */
     .upgrade-bar { display: flex; justify-content: space-between; align-items: center;
         padding: 10px 14px; margin-bottom: 12px; border-radius: 8px;

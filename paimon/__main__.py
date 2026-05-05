@@ -37,6 +37,79 @@ def _install_signal_handlers() -> None:
         pass
 
 
+async def _check_rollback_on_startup(delay: float = 30.0) -> None:
+    """启动后 delay 秒（确保 push_archive 通道就绪）检查 watchdog 是否刚做了回退。
+
+    检测 .paimon/last_rollback：watchdog 触发回退时写 5 行（ts/before/after/fail/kind）。
+    若末尾已有 "notified" 行 → 已通知过，跳过；否则 push_archive 推一条警告 + 追加标记。
+    用户从顶部红点抽屉看到 → 知晓发生了什么；webui /selfcheck 警示条独立展示（点「我知道了」清文件）。
+
+    自挑刺 #3：避免用户毫无察觉地"为什么我点了升级现在 HEAD 不一样"——必须可见。
+    """
+    import asyncio as _aio
+    from paimon.state import state
+    try:
+        await _aio.sleep(delay)
+        rb_file = config.paimon_home / "last_rollback"
+        if not rb_file.exists():
+            return
+        try:
+            lines = rb_file.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            return
+        if len(lines) < 5:
+            return
+        # 已通知过
+        if any(line.strip() == "notified" for line in lines[5:]):
+            return
+
+        ts_str, before, after, fail_str, kind = (
+            lines[0].strip(), lines[1].strip(), lines[2].strip(),
+            lines[3].strip(), lines[4].strip(),
+        )
+
+        if not state.irminsul:
+            return
+
+        if kind == "ROLLED_BACK":
+            msg = (
+                f"⚠ **watchdog 已自动回退**\n\n"
+                f"- 失败计数：{fail_str}（达阈值触发回退）\n"
+                f"- 回退前 HEAD：`{before[:8] if before else '?'}`\n"
+                f"- 当前 HEAD：`{after[:8] if after else '?'}`（last_good_commit）\n\n"
+                f"前往 [/selfcheck](/selfcheck) 查看详情 + 「我知道了」消除警示条"
+            )
+        elif kind == "NEEDS_MANUAL":
+            msg = (
+                f"🚨 **watchdog 回退失败 — 需要人工介入**\n\n"
+                f"HEAD 已等于 last_good_commit (`{before[:8] if before else '?'}`)，"
+                f"回退无效。可能 last_good 本身就 broken。\n\n"
+                f"请 ssh 上去 `git log` 选一个更早的稳定 commit 手动 reset，"
+                f"或检查最近改动是否有外部依赖问题（依赖未装、配置缺失等）。"
+            )
+        else:
+            return
+
+        try:
+            await state.irminsul.push_archive_create(
+                source="watchdog",
+                actor="watchdog",
+                message_md=msg,
+                channel_name="webui",
+                level="critical" if kind == "NEEDS_MANUAL" else "warning",
+                extra={"kind": kind, "before": before, "after": after, "fail": fail_str, "ts": ts_str},
+            )
+            # 追加 notified 标记防重复推送
+            with rb_file.open("a", encoding="utf-8") as f:
+                f.write("notified\n")
+        except Exception as e:
+            print(f"[三月·守护] push_archive 通知 watchdog 回退失败: {e}", file=sys.stderr)
+    except _aio.CancelledError:
+        return
+    except Exception as e:
+        print(f"[三月·守护] _check_rollback_on_startup 异常（不影响主流程）: {e}", file=sys.stderr)
+
+
 async def _write_last_good_commit_after(delay: float = 60.0) -> None:
     """启动稳定 delay 秒后写 .paimon/last_good_commit。供 watchdog 自动回退用：
     broken commit 启动失败时（如 import error），这个写入永远不会触发，
@@ -135,6 +208,12 @@ async def main() -> int:
             _write_last_good_commit_after(60.0), name="last_good_commit_writer",
         )
         tasks.append(last_good_writer)
+
+        # 启动 30s 后检查 watchdog 是否刚回退过 → 通过 push_archive 通知用户
+        rollback_checker = asyncio.create_task(
+            _check_rollback_on_startup(30.0), name="rollback_startup_checker",
+        )
+        tasks.append(rollback_checker)
 
         await asyncio.gather(*tasks)
     except SystemExit as e:

@@ -267,6 +267,16 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
         )
 
     async with _upgrade_lock:
+        # #A1 自挑刺：dirty tree 检查 — 工作区有未提交修改时拉取会失败 / 冲突 / 数据丢失
+        rc, dirty_out, _ = _run_git(["status", "--porcelain"])
+        if rc == 0 and dirty_out.strip():
+            return web.json_response({
+                "ok": False,
+                "error": "工作区有未提交的修改，拒绝升级（防止冲突 / 丢失）：\n"
+                         + dirty_out.strip()[:500]
+                         + "\n\n请 ssh 上去 `git stash` 或 `git checkout -- .` 后重试",
+            }, status=400)
+
         # 再次 fetch + 看是否真的落后（防 stale check）
         rc, _, err = _run_git(["fetch", "origin"])
         if rc != 0:
@@ -277,6 +287,20 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
         behind = int(behind_out.strip() or 0) if rc == 0 else 0
         if behind == 0:
             return web.json_response({"ok": False, "error": "已是最新版本，无需升级"}, status=400)
+
+        # #A 主改进：pull 之前写 last_good_commit（用 pull 前的 HEAD 作为回退点）
+        # 关键：paimon 主流程 60s 后才写 last_good_commit，但升级路径必须在 pull 之前写——
+        # 否则 pull 到 broken commit、watchdog 累 3 次回退时，last_good 可能还是更早或不存在
+        from paimon.config import config as _cfg
+        rc, head_before, _ = _run_git(["rev-parse", "HEAD"])
+        if rc == 0 and head_before.strip():
+            try:
+                target = _cfg.paimon_home / "last_good_commit"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(head_before.strip() + "\n", encoding="utf-8")
+                logger.info("[升级] 已记录 pull 前 HEAD={} 作为回退点", head_before.strip()[:7])
+            except Exception as e:
+                logger.warning("[升级] 写 last_good_commit 失败（不阻塞升级）: {}", e)
 
         # 语法预检（升级前防 broken commit；只对 paimon/ 包扫）
         import subprocess as _sp, sys as _sys
@@ -349,8 +373,52 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
         })
 
 
+async def upgrade_rollback_status_api(channel, request: web.Request) -> web.Response:
+    """读 .paimon/last_rollback（watchdog 触发回退时写入）→ 返回 JSON 给前端展示警示条。
+
+    文件格式（5 行；paimon 启动通知后会附加第 6 行 "notified" 标记）：
+      <ts>\n<before_hash>\n<after_hash>\n<fail_count>\n<kind>\n[notified\n]
+    kind: ROLLED_BACK（成功回退）/ NEEDS_MANUAL（HEAD 已等于 last_good，无法再回退）
+    """
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    from paimon.config import config as _cfg
+    f = _cfg.paimon_home / "last_rollback"
+    if not f.exists():
+        return web.json_response({"has_rollback": False})
+    try:
+        lines = f.read_text(encoding="utf-8").splitlines()
+        if len(lines) < 5:
+            return web.json_response({"has_rollback": False, "warning": "last_rollback 格式不完整"})
+        return web.json_response({
+            "has_rollback": True,
+            "ts": int(lines[0].strip() or 0),
+            "before": lines[1].strip(),
+            "after": lines[2].strip(),
+            "fail_count": int(lines[3].strip() or 0),
+            "kind": lines[4].strip(),
+        })
+    except Exception as e:
+        logger.warning("[升级] 读 last_rollback 失败: {}", e)
+        return web.json_response({"has_rollback": False, "error": str(e)})
+
+
+async def upgrade_rollback_ack_api(channel, request: web.Request) -> web.Response:
+    """用户点「我知道了」→ 删除 .paimon/last_rollback 让警示条消失。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    from paimon.config import config as _cfg
+    f = _cfg.paimon_home / "last_rollback"
+    try:
+        if f.exists():
+            f.unlink()
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
-    """注册 selfcheck 面板的 12 个路由（10 自检 + 2 升级）。"""
+    """注册 selfcheck 面板的 14 个路由（10 自检 + 4 升级）。"""
     app.router.add_get("/selfcheck", lambda r, ch=channel: selfcheck_page(ch, r))
     app.router.add_get("/api/selfcheck/quick/latest", lambda r, ch=channel: selfcheck_quick_latest_api(ch, r))
     app.router.add_post("/api/selfcheck/quick/run", lambda r, ch=channel: selfcheck_quick_run_api(ch, r))
@@ -363,3 +431,5 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_post("/api/selfcheck/deep/run", lambda r, ch=channel: selfcheck_deep_run_api(ch, r))
     app.router.add_get("/api/selfcheck/upgrade/check", lambda r, ch=channel: upgrade_check_api(ch, r))
     app.router.add_post("/api/selfcheck/upgrade/trigger", lambda r, ch=channel: upgrade_trigger_api(ch, r))
+    app.router.add_get("/api/selfcheck/upgrade/rollback_status", lambda r, ch=channel: upgrade_rollback_status_api(ch, r))
+    app.router.add_post("/api/selfcheck/upgrade/rollback_ack", lambda r, ch=channel: upgrade_rollback_ack_api(ch, r))

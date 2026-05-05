@@ -35,6 +35,9 @@ SELFCHECK_BODY = """
             </div>
         </div>
 
+        <!-- 回退警示条：watchdog 自动回退过的话 / 需人工介入时显示 -->
+        <div class="rollback-warning" id="rollbackWarning" style="display:none"></div>
+
         <!-- 自动升级区：检查远程 git 是否落后 + 一键 pull+重启（依赖 watchdog 脚本拉起） -->
         <div class="upgrade-bar" id="upgradeBar">
             <div class="upgrade-info">
