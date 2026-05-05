@@ -213,6 +213,8 @@ async def upgrade_check_api(channel, request: web.Request) -> web.Response:
     if rc != 0:
         return web.json_response({"ok": False, "error": "git rev-parse HEAD 失败"}, status=500)
     head_short_rc, head_short, _ = _run_git(["rev-parse", "--short", "HEAD"])
+    head_subject_rc, head_subject_out, _ = _run_git(["log", "-1", "--pretty=%s"])
+    head_subject = head_subject_out.strip() if head_subject_rc == 0 else ""
 
     # 落后 commit 数
     rc, count_out, _ = _run_git(["rev-list", "--count", "HEAD..origin/main"])
@@ -234,6 +236,7 @@ async def upgrade_check_api(channel, request: web.Request) -> web.Response:
         "ok": True,
         "head": head_out.strip(),
         "head_short": head_short.strip() if head_short_rc == 0 else head_out.strip()[:7],
+        "head_subject": head_subject,
         "behind": behind,
         "commits": commits,
     })

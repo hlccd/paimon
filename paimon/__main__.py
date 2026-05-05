@@ -67,15 +67,22 @@ async def _write_last_good_commit_after(delay: float = 60.0) -> None:
 
 
 def _run_git(args: list[str], cwd=None) -> tuple[int, str, str]:
-    """同步跑 git 子命令，返回 (rc, stdout, stderr)。失败不抛。"""
+    """同步跑 git 子命令，返回 (rc, stdout, stderr)。失败不抛。
+
+    显式 encoding='utf-8' 必须：Windows 下 text=True 默认用 GBK 解码 stdout，
+    git log 输出 UTF-8 中文 commit subject 时 GBK 解码失败抛 UnicodeDecodeError，
+    proc.stdout 变 None。git 输出固定 UTF-8，全平台用 utf-8 安全。
+    """
     import subprocess as _sp
     try:
         proc = _sp.run(
             ["git", *args],
             cwd=cwd or _project_root_for_git(),
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True, encoding="utf-8", errors="replace",
+            timeout=30,
         )
-        return proc.returncode, proc.stdout, proc.stderr
+        return proc.returncode, proc.stdout or "", proc.stderr or ""
     except Exception as e:
         return 1, "", str(e)
 

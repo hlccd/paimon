@@ -461,7 +461,12 @@ SELFCHECK_SCRIPT = """
                     return;
                 }
                 _upgradeData = d;
-                headEl.textContent = '当前 ' + d.head_short;
+                // 显示 commit subject + 短 hash（不只是 md5）
+                var sub = d.head_subject || '';
+                if(sub.length > 70) sub = sub.substring(0, 70) + '…';
+                headEl.textContent = sub
+                    ? '当前: ' + sub + ' (' + d.head_short + ')'
+                    : '当前 ' + d.head_short;
                 if(d.behind > 0){
                     behindEl.textContent = '· 远程领先 ' + d.behind + ' commits';
                     behindEl.className = 'has-update';
@@ -492,7 +497,41 @@ SELFCHECK_SCRIPT = """
             }
         }
 
-        document.getElementById('btnUpgradeCheck').addEventListener('click', loadUpgradeStatus);
+        // 用户主动点「检查更新」：按钮 loading 状态 + 完成后 toast 反馈
+        // （初始化和 5min 自动轮询走 loadUpgradeStatus 不弹 toast）
+        function showToast(msg, kind){
+            var t = document.getElementById('upgradeToast');
+            if(t) t.remove();
+            t = document.createElement('div');
+            t.id = 'upgradeToast';
+            t.className = 'upgrade-toast ' + (kind || 'info');
+            t.textContent = msg;
+            document.body.appendChild(t);
+            setTimeout(function(){ if(t.parentNode) t.remove(); }, 3000);
+        }
+
+        document.getElementById('btnUpgradeCheck').addEventListener('click', async function(){
+            var btn = this;
+            if(btn.disabled) return;
+            var origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ 检查中...';
+            try{
+                await loadUpgradeStatus();
+                if(_upgradeData && _upgradeData.ok){
+                    if(_upgradeData.behind > 0){
+                        showToast('🔄 发现 ' + _upgradeData.behind + ' 个新 commit，可点击「拉取并重启」升级', 'info');
+                    }else{
+                        showToast('✅ 已是最新 (' + _upgradeData.head_short + ')', 'success');
+                    }
+                }else{
+                    showToast('❌ 检查失败', 'error');
+                }
+            }finally{
+                btn.disabled = false;
+                btn.textContent = origText;
+            }
+        });
 
         document.getElementById('btnUpgradeApply').addEventListener('click', async function(){
             if(!_upgradeData || _upgradeData.behind <= 0){

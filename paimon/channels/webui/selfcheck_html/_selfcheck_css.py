@@ -168,4 +168,20 @@ SELFCHECK_CSS = """
         background: var(--paimon-panel-light); font-size: 13px; }
     .upgrade-status.error { color: var(--status-error); border: 1px solid var(--status-error); }
     .upgrade-status.success { color: var(--status-success); border: 1px solid var(--status-success); }
+
+    /* 升级 toast（顶部居中浮层，3s 自动消失）*/
+    .upgrade-toast {
+        position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+        padding: 10px 20px; border-radius: 6px; font-size: 13px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 9999;
+        animation: toastFadeIn 0.2s ease-out;
+        max-width: 80%;
+    }
+    .upgrade-toast.success { background: var(--status-success); color: white; }
+    .upgrade-toast.info    { background: var(--gold); color: var(--paimon-bg); }
+    .upgrade-toast.error   { background: var(--status-error); color: white; }
+    @keyframes toastFadeIn {
+        from { opacity: 0; transform: translate(-50%, -10px); }
+        to   { opacity: 1; transform: translate(-50%, 0); }
+    }
 """
