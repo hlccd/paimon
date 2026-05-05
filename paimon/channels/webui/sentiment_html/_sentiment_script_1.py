@@ -349,6 +349,9 @@ SENTIMENT_SCRIPT_1 = r"""
         }
 
         var _ventiBulletinsPollTimer = null;
+        // 自动 fallback 跳到的日期（今天 0 条时自动找最近一篇所在日）；用于 hint 显示「（最近一次）」标识。
+        // 用户主动 ←/→/今天 切到别的日后自然不再匹配，不需手动重置。
+        var _ventiFallbackTo = null;
         async function loadVentiBulletins(){
             // 公告区：渲染当前选中日期的所有 digest（一日多篇也展开）
             var el = document.getElementById('ventiBulletins');
@@ -376,6 +379,28 @@ SENTIMENT_SCRIPT_1 = r"""
                 var runningSubs = (subsResp.subs || []).filter(function(s){return s.running;});
                 var runningIds = {};
                 runningSubs.forEach(function(s){ runningIds[s.id] = s.query; });
+
+                // 方案 A · fallback：今天 0 条且没在采集 → 自动跳到最近一篇所在日
+                // （应对 cron 触发前看面板的空白窗口）
+                if(isToday && !records.length && !runningSubs.length){
+                    try{
+                        var r2 = await fetch('/api/push_archive/list?actor='
+                            + encodeURIComponent('风神') + '&limit=1');
+                        var d2 = await r2.json();
+                        if(d2.records && d2.records.length){
+                            var dt = new Date(d2.records[0].created_at * 1000);
+                            var fbDate = dt.getFullYear() + '-'
+                                + String(dt.getMonth()+1).padStart(2,'0') + '-'
+                                + String(dt.getDate()).padStart(2,'0');
+                            if(fbDate !== dateStr){
+                                var inpFb = document.getElementById('ventiDateInput');
+                                if(inpFb) inpFb.value = fbDate;
+                                _ventiFallbackTo = fbDate;
+                                return loadVentiBulletins();
+                            }
+                        }
+                    }catch(e){ /* fallback 失败不影响主流程 */ }
+                }
 
                 // 渲染顶部采集状态条
                 if(runBar){
@@ -405,7 +430,9 @@ SENTIMENT_SCRIPT_1 = r"""
                     if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'');
                 }else{
                     var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
-                    if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'')
+                    var dateLabel = isToday ? '（今天）'
+                        : (dateStr === _ventiFallbackTo ? '（最近一次）' : '');
+                    if(hint) hint.textContent = '· ' + dateStr + dateLabel
                         + ' · ' + records.length + ' 篇'
                         + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
                     el.innerHTML = records.map(function(rec){

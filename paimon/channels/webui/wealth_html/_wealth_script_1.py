@@ -98,6 +98,10 @@ WEALTH_SCRIPT_1 = """
         }
 
         var _zhongliBulletinsPollTimer = null;
+        // 自动 fallback 跳到的日期（今天 0 条时自动找最近一篇所在日 → 跨周末也能找到）；
+        // 仅用于在 hint 显示「（最近一次）」标识。用户主动 ←/→/今天 切到别的日后自然不再匹配，
+        // 不需手动重置。
+        var _zhongliFallbackTo = null;
         // 已被用户点关的 error.ts 集合（避免再次轮询又弹）
         var _zhongliDismissedErrors = {};
         window.dismissZhongliError = function(ts){
@@ -135,6 +139,32 @@ WEALTH_SCRIPT_1 = """
                 var running = !!runResp.running;
                 var progress = runResp.progress || null;
                 var lastError = runResp.last_error || null;
+
+                // 方案 A · fallback：今天 0 条且没在采集 → 自动跳到最近一篇所在日
+                // （岩神 cron 仅工作日 19:00，周六/周一上午看会跨多天；用 limit 拿最近一条
+                //  实际 created_at 决定，不需要手动算跨几天）
+                if(isToday && !records.length && !running){
+                    try{
+                        var r2 = await fetch('/api/push_archive/list?actor='
+                            + encodeURIComponent('岩神') + '&limit=10');
+                        var d2 = await r2.json();
+                        var fallbackRec = (d2.records || []).find(function(r){
+                            return (r.source || '').indexOf('stock_watch:') < 0;
+                        });
+                        if(fallbackRec){
+                            var dt = new Date(fallbackRec.created_at * 1000);
+                            var fbDate = dt.getFullYear() + '-'
+                                + String(dt.getMonth()+1).padStart(2,'0') + '-'
+                                + String(dt.getDate()).padStart(2,'0');
+                            if(fbDate !== dateStr){
+                                var inpFb = document.getElementById('zhongliDateInput');
+                                if(inpFb) inpFb.value = fbDate;
+                                _zhongliFallbackTo = fbDate;
+                                return loadZhongliBulletins();
+                            }
+                        }
+                    }catch(e){ /* fallback 失败不影响主流程 */ }
+                }
 
                 // 顶部采集状态条
                 if(runBar){
@@ -184,7 +214,9 @@ WEALTH_SCRIPT_1 = """
                     if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'');
                 }else{
                     var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
-                    if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'')
+                    var dateLabel = isToday ? '（今天）'
+                        : (dateStr === _zhongliFallbackTo ? '（最近一次）' : '');
+                    if(hint) hint.textContent = '· ' + dateStr + dateLabel
                         + ' · ' + records.length + ' 篇'
                         + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
                     el.innerHTML = records.map(function(rec){
