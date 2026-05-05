@@ -189,8 +189,165 @@ def _run_to_json(run) -> dict:
     }
 
 
+# ============ 自动升级（git pull + sys.exit(100) 让 watchdog 拉起）============
+
+import asyncio as _aio_upgrade
+_upgrade_lock = _aio_upgrade.Lock()
+
+
+async def upgrade_check_api(channel, request: web.Request) -> web.Response:
+    """检查远程是否有更新：git fetch + git log local..origin。返回是否落后 + commit list。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    from paimon.__main__ import _run_git
+    # fetch（30s timeout）
+    rc, _, err = _run_git(["fetch", "origin"])
+    if rc != 0:
+        return web.json_response(
+            {"ok": False, "error": f"git fetch 失败: {err.strip()[:200]}"}, status=500,
+        )
+
+    # 当前 HEAD
+    rc, head_out, _ = _run_git(["rev-parse", "HEAD"])
+    if rc != 0:
+        return web.json_response({"ok": False, "error": "git rev-parse HEAD 失败"}, status=500)
+    head_short_rc, head_short, _ = _run_git(["rev-parse", "--short", "HEAD"])
+
+    # 落后 commit 数
+    rc, count_out, _ = _run_git(["rev-list", "--count", "HEAD..origin/main"])
+    behind = int(count_out.strip() or 0) if rc == 0 else 0
+
+    # 落后的 commit list（最多 20 条）
+    rc, log_out, _ = _run_git([
+        "log", "--max-count=20", "--pretty=format:%h|%s|%cr",
+        "HEAD..origin/main",
+    ])
+    commits = []
+    if rc == 0 and log_out:
+        for line in log_out.splitlines():
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                commits.append({"hash": parts[0], "subject": parts[1], "age": parts[2]})
+
+    return web.json_response({
+        "ok": True,
+        "head": head_out.strip(),
+        "head_short": head_short.strip() if head_short_rc == 0 else head_out.strip()[:7],
+        "behind": behind,
+        "commits": commits,
+    })
+
+
+async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
+    """git pull + 退出码 100 让 watchdog 拉起新代码。
+
+    流程：
+      1. 加锁防并发
+      2. git fetch + 看是否落后；不落后直接返回
+      3. git pull
+      4. 异步 schedule 0.5s 后 raise SystemExit(100) 让 entry() 退出
+      5. 立即返回 200 给前端，前端展示「正在重启…」
+    """
+    # USB-007 破坏性操作 server-side 确认
+    from paimon.channels.webui.api import check_confirm, confirm_required_response
+    if not check_confirm(request):
+        return confirm_required_response()
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    from paimon.__main__ import _run_git, trigger_upgrade_exit
+
+    if _upgrade_lock.locked():
+        return web.json_response(
+            {"ok": False, "error": "已有升级任务进行中，请勿重复触发"}, status=409,
+        )
+
+    async with _upgrade_lock:
+        # 再次 fetch + 看是否真的落后（防 stale check）
+        rc, _, err = _run_git(["fetch", "origin"])
+        if rc != 0:
+            return web.json_response(
+                {"ok": False, "error": f"git fetch 失败: {err.strip()[:200]}"}, status=500,
+            )
+        rc, behind_out, _ = _run_git(["rev-list", "--count", "HEAD..origin/main"])
+        behind = int(behind_out.strip() or 0) if rc == 0 else 0
+        if behind == 0:
+            return web.json_response({"ok": False, "error": "已是最新版本，无需升级"}, status=400)
+
+        # 语法预检（升级前防 broken commit；只对 paimon/ 包扫）
+        import subprocess as _sp, sys as _sys
+        from paimon.__main__ import _project_root_for_git
+        root = _project_root_for_git()
+        try:
+            check_proc = _sp.run(
+                [_sys.executable, "-m", "compileall", "-q", str(root / "paimon")],
+                capture_output=True, text=True, timeout=60,
+            )
+            if check_proc.returncode != 0:
+                return web.json_response({
+                    "ok": False,
+                    "error": "本地代码语法预检失败（不应发生）："
+                             + check_proc.stdout[:300] + check_proc.stderr[:300],
+                }, status=500)
+        except Exception as e:
+            logger.warning("[升级] 语法预检异常（跳过）: {}", e)
+
+        # git pull
+        rc, pull_out, pull_err = _run_git(["pull", "--ff-only", "origin", "main"])
+        if rc != 0:
+            return web.json_response({
+                "ok": False,
+                "error": f"git pull 失败: {(pull_err or pull_out).strip()[:300]}",
+            }, status=500)
+
+        # pull 后再 syntax check 一遍
+        try:
+            check_proc = _sp.run(
+                [_sys.executable, "-m", "compileall", "-q", str(root / "paimon")],
+                capture_output=True, text=True, timeout=60,
+            )
+            if check_proc.returncode != 0:
+                # 拉到 broken commit！立即 git reset --hard 回退
+                _run_git(["reset", "--hard", "HEAD@{1}"])
+                return web.json_response({
+                    "ok": False,
+                    "error": "拉取的代码语法预检失败，已自动 git reset 回退："
+                             + check_proc.stdout[:300] + check_proc.stderr[:300],
+                }, status=500)
+        except Exception as e:
+            logger.warning("[升级] pull 后语法预检异常（继续重启）: {}", e)
+
+        # 检查 pyproject.toml 是否变（提示用户 watchdog 内 pip install）
+        rc, dep_diff, _ = _run_git([
+            "diff", "HEAD@{1}..HEAD", "--name-only", "--", "pyproject.toml",
+        ])
+        deps_changed = bool(rc == 0 and dep_diff.strip())
+
+        rc, new_head_short, _ = _run_git(["rev-parse", "--short", "HEAD"])
+
+        logger.info(
+            "[升级] git pull 完成 → 新 HEAD={}，0.5s 后退出码 100 让 watchdog 拉起",
+            new_head_short.strip() if rc == 0 else "?",
+        )
+
+        # 调度退出
+        trigger_upgrade_exit()
+
+        return web.json_response({
+            "ok": True,
+            "new_head_short": new_head_short.strip() if rc == 0 else "",
+            "deps_changed": deps_changed,
+            "deps_warning": (
+                "pyproject.toml 已变化。watchdog 会拉起新进程，但**不会**自动 pip install — "
+                "如有依赖变更请 ssh 上去跑 `pip install -e .` 后再重启 watchdog"
+            ) if deps_changed else "",
+            "message": "升级成功，进程将在 1 秒内重启加载新代码。前端会暂时无响应，请等 5-10 秒后刷新。",
+        })
+
+
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
-    """注册 selfcheck 面板的 10 个路由。"""
+    """注册 selfcheck 面板的 12 个路由（10 自检 + 2 升级）。"""
     app.router.add_get("/selfcheck", lambda r, ch=channel: selfcheck_page(ch, r))
     app.router.add_get("/api/selfcheck/quick/latest", lambda r, ch=channel: selfcheck_quick_latest_api(ch, r))
     app.router.add_post("/api/selfcheck/quick/run", lambda r, ch=channel: selfcheck_quick_run_api(ch, r))
@@ -201,3 +358,5 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_get("/api/selfcheck/runs/{run_id}/quick", lambda r, ch=channel: selfcheck_run_quick_api(ch, r))
     app.router.add_delete("/api/selfcheck/runs/{run_id}", lambda r, ch=channel: selfcheck_run_delete_api(ch, r))
     app.router.add_post("/api/selfcheck/deep/run", lambda r, ch=channel: selfcheck_deep_run_api(ch, r))
+    app.router.add_get("/api/selfcheck/upgrade/check", lambda r, ch=channel: upgrade_check_api(ch, r))
+    app.router.add_post("/api/selfcheck/upgrade/trigger", lambda r, ch=channel: upgrade_trigger_api(ch, r))

@@ -146,4 +146,26 @@ SELFCHECK_CSS = """
     .comp-name { font-weight: 600; font-size: 13px; }
     .comp-latency { font-size: 11px; color: var(--text-muted); }
     .comp-details { margin-top: 6px; font-size: 12px; color: var(--text-secondary); white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
+
+    /* 自动升级区 */
+    .upgrade-bar { display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 14px; margin-bottom: 12px; border-radius: 8px;
+        background: var(--paimon-panel-light); border: 1px solid var(--paimon-border); }
+    .upgrade-info { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+    .upgrade-label { color: var(--text-muted); }
+    .upgrade-bar .upgrade-actions { display: flex; gap: 8px; }
+    .upgrade-bar.has-update { border-color: var(--gold); background: rgba(255, 215, 0, 0.08); }
+    #upgradeBehind.has-update { color: var(--gold); font-weight: 600; }
+    .upgrade-commits { padding: 12px 14px; margin-bottom: 12px;
+        background: var(--paimon-bg); border-radius: 6px;
+        border-left: 3px solid var(--gold); font-size: 12px; max-height: 200px;
+        overflow-y: auto; }
+    .upgrade-commit { padding: 4px 0; border-bottom: 1px dashed var(--paimon-border); }
+    .upgrade-commit:last-child { border-bottom: none; }
+    .upgrade-commit .h { color: var(--text-muted); font-family: monospace; font-size: 11px; }
+    .upgrade-commit .a { color: var(--text-muted); font-size: 11px; margin-left: 6px; }
+    .upgrade-status { padding: 10px 14px; margin-top: 8px; border-radius: 6px;
+        background: var(--paimon-panel-light); font-size: 13px; }
+    .upgrade-status.error { color: var(--status-error); border: 1px solid var(--status-error); }
+    .upgrade-status.success { color: var(--status-success); border: 1px solid var(--status-success); }
 """

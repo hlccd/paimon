@@ -35,6 +35,20 @@ SELFCHECK_BODY = """
             </div>
         </div>
 
+        <!-- 自动升级区：检查远程 git 是否落后 + 一键 pull+重启（依赖 watchdog 脚本拉起） -->
+        <div class="upgrade-bar" id="upgradeBar">
+            <div class="upgrade-info">
+                <span class="upgrade-label">📦 版本</span>
+                <span id="upgradeHead">检查中...</span>
+                <span id="upgradeBehind"></span>
+            </div>
+            <div class="upgrade-actions">
+                <button id="btnUpgradeCheck" class="btn">🔄 检查更新</button>
+                <button id="btnUpgradeApply" class="btn btn-primary" style="display:none">⬇️ 拉取并重启</button>
+            </div>
+        </div>
+        <div id="upgradeCommits" class="upgrade-commits" style="display:none"></div>
+
         <div class="tab-bar">
             <div class="tab active" data-tab="deep">Deep 历史</div>
             <div class="tab" data-tab="quick">Quick 历史</div>

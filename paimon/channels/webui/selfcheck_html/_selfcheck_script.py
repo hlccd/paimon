@@ -430,14 +430,123 @@ SELFCHECK_SCRIPT = """
             }
         });
 
+        // ========== 自动升级（git pull + sys.exit(100) 让 watchdog 拉起新代码）==========
+
+        var _upgradeChecking = false;
+        var _upgradeData = null;
+
+        function escapeHtml(s){
+            return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function loadUpgradeStatus(){
+            if(_upgradeChecking) return;
+            _upgradeChecking = true;
+            var bar = document.getElementById('upgradeBar');
+            var headEl = document.getElementById('upgradeHead');
+            var behindEl = document.getElementById('upgradeBehind');
+            var btnApply = document.getElementById('btnUpgradeApply');
+            var commitsEl = document.getElementById('upgradeCommits');
+            try{
+                var r = await fetch('/api/selfcheck/upgrade/check');
+                var d = await r.json();
+                if(!d.ok){
+                    headEl.textContent = '检查失败';
+                    behindEl.textContent = '· ' + (d.error || '');
+                    behindEl.className = '';
+                    bar.classList.remove('has-update');
+                    btnApply.style.display = 'none';
+                    commitsEl.style.display = 'none';
+                    return;
+                }
+                _upgradeData = d;
+                headEl.textContent = '当前 ' + d.head_short;
+                if(d.behind > 0){
+                    behindEl.textContent = '· 远程领先 ' + d.behind + ' commits';
+                    behindEl.className = 'has-update';
+                    bar.classList.add('has-update');
+                    btnApply.style.display = '';
+                    var html = '<div style="margin-bottom:6px;color:var(--gold)">📋 待拉取的 commits：</div>';
+                    d.commits.forEach(function(c){
+                        html += '<div class="upgrade-commit">'
+                            + '<span class="h">' + c.hash + '</span> '
+                            + escapeHtml(c.subject)
+                            + '<span class="a">(' + c.age + ')</span>'
+                            + '</div>';
+                    });
+                    commitsEl.innerHTML = html;
+                    commitsEl.style.display = '';
+                }else{
+                    behindEl.textContent = '· 已是最新';
+                    behindEl.className = '';
+                    bar.classList.remove('has-update');
+                    btnApply.style.display = 'none';
+                    commitsEl.style.display = 'none';
+                }
+            }catch(e){
+                headEl.textContent = '检查失败';
+                behindEl.textContent = '· ' + e.message;
+            }finally{
+                _upgradeChecking = false;
+            }
+        }
+
+        document.getElementById('btnUpgradeCheck').addEventListener('click', loadUpgradeStatus);
+
+        document.getElementById('btnUpgradeApply').addEventListener('click', async function(){
+            if(!_upgradeData || _upgradeData.behind <= 0){
+                alert('当前没有可升级的内容，请先点「🔄 检查更新」');
+                return;
+            }
+            var msg = '确认拉取并重启？\\n\\n'
+                + '将拉取 ' + _upgradeData.behind + ' 个 commit 并重启进程。\\n'
+                + '前端会暂时无响应（5-10 秒），重启后页面会自动刷新。';
+            if(!confirm(msg)) return;
+
+            var btn = this;
+            btn.disabled = true;
+            btn.textContent = '升级中...';
+            try{
+                var r = await fetch('/api/selfcheck/upgrade/trigger', {
+                    method: 'POST',
+                    headers: { 'X-Confirm': 'yes' },
+                });
+                var d = await r.json();
+                if(!d.ok){
+                    alert('升级失败：' + (d.error || '未知'));
+                    btn.disabled = false;
+                    btn.textContent = '⬇️ 拉取并重启';
+                    return;
+                }
+                var html = '<div class="upgrade-status success">'
+                    + '✅ ' + escapeHtml(d.message || '已触发升级') + '<br>'
+                    + '<small>新 HEAD: ' + escapeHtml(d.new_head_short || '?') + '</small>';
+                if(d.deps_warning){
+                    html += '<br><br>⚠️ ' + escapeHtml(d.deps_warning);
+                }
+                html += '</div>';
+                document.getElementById('upgradeCommits').innerHTML = html;
+                document.getElementById('upgradeCommits').style.display = '';
+                setTimeout(function(){ location.reload(); }, 10000);
+            }catch(e){
+                alert('请求失败：' + e.message);
+                btn.disabled = false;
+                btn.textContent = '⬇️ 拉取并重启';
+            }
+        });
+
         // 初始化
         loadLatestQuick();
         loadRuns('deep');
+        loadUpgradeStatus();
         // 30s 自动刷新当前 tab
         setInterval(function(){
             loadLatestQuick();
             loadRuns(currentTab);
         },30000);
+        // 5 分钟刷一次升级状态（避免频繁 git fetch 打扰）
+        setInterval(loadUpgradeStatus, 300000);
     })();
     </script>
 """

@@ -117,13 +117,75 @@ QQ_OWNER_IDS=qq1,qq2
 
 ### 3. 启动
 
+#### 本地开发
+
 ```bash
-python -m paimon
-# 或安装后使用命令
-paimon
+python -m paimon          # 或 paimon
 ```
 
-WebUI 启动后访问 `http://localhost:2975`，用 `WEBUI_ACCESS_CODE` 登录即可开始对话。
+WebUI 默认 `http://localhost:2975`，用 `WEBUI_ACCESS_CODE` 登录。
+
+#### 云端部署（watchdog 守护，推荐）
+
+`scripts/run_with_watchdog.sh` 提供三个能力：
+
+- **webui 一键升级**：`/selfcheck` 面板「🔄 检查更新 / ⬇️ 拉取并重启」，无需 ssh 登录服务器
+- **崩溃自动重启**：paimon 异常退出 → watchdog 重新拉起
+- **broken commit 自动回退**：连续异常 3 次 → `git reset --hard <last_good_commit>` 回退到最后一次稳定版本
+
+##### 首次部署
+
+```bash
+# 在云端服务器
+git clone git@github.com:hlccd/paimon.git
+cd paimon
+pip install -e .                                          # Python ≥ 3.10
+cp .env.example .env && vim .env                          # 填 LLM_PROVIDER / API key / WEBUI_ACCESS_CODE 等
+chmod +x scripts/run_with_watchdog.sh
+nohup ./scripts/run_with_watchdog.sh 80 > paimon.log 2>&1 &
+
+# 验证
+tail -f paimon.log                                        # 看到 [派蒙·启动] 系统就绪 即可
+curl -s localhost:80/api/selfcheck/upgrade/check          # 应返回 {"ok":true,"head":"...","behind":0,"commits":[]}
+```
+
+##### 已有 nohup paimon 改造（一次性）
+
+```bash
+ssh 到云端
+cd paimon
+pkill -f 'paimon'                                         # 杀掉旧的 nohup paimon
+git pull                                                  # 拉新代码（含 scripts/run_with_watchdog.sh）
+chmod +x scripts/run_with_watchdog.sh
+nohup ./scripts/run_with_watchdog.sh 80 > paimon.log 2>&1 &
+```
+
+之后**所有更新走 webui** `/selfcheck` 面板的「🔄 检查更新 → ⬇️ 拉取并重启」按钮，**不再需要 ssh**。
+
+##### watchdog 工作原理
+
+paimon 进程退出码约定：
+
+| RC | 含义 | watchdog 动作 |
+|---|---|---|
+| 0 | 用户主动 stop / 正常退出 | watchdog 一同退出 |
+| 100 | webui 升级请求（git pull 后 `sys.exit(100)`） | **立即** 重启加载新代码 |
+| 其他 | 异常崩溃 | 累计 `restart_fail_count` +1；达 3 次 → `git reset --hard <last_good_commit>` 回退 |
+
+状态文件（在 `.paimon/`）：
+
+| 文件 | 写入时机 | 用途 |
+|---|---|---|
+| `last_good_commit` | paimon 启动稳定 **60s** 后自动写当前 git HEAD | broken commit 回退点；启动失败 60s 内 → 此文件不更新，保留旧 commit 作为回退目标 |
+| `restart_fail_count` | watchdog 每次异常退出 +1，达 3 触发回退后清零 | 累计失败计数 |
+
+##### 故障处理
+
+升级失败常见情形：
+
+- **`git pull 失败: ...`**：本地有 uncommitted 修改（`git status` 看），ssh 上 `git stash` 或 `git checkout -- .` 清掉
+- **依赖变更需要 pip install**：升级 endpoint 检测到 `pyproject.toml` 变化时会在响应里 warning，需要 ssh 一次跑 `pip install -e .` 再触发升级
+- **拉到 broken commit 后陷入循环**：watchdog 自动回退应该处理；如未生效手动 `git log .paimon/last_good_commit` + `git reset --hard <hash>` + 重启 watchdog
 
 ### 4. 常用指令
 

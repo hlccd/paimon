@@ -2,6 +2,7 @@ import asyncio
 import signal
 import sys
 import time
+from pathlib import Path
 
 from paimon.bootstrap import create_app
 from paimon.config import config
@@ -36,9 +37,74 @@ def _install_signal_handlers() -> None:
         pass
 
 
-async def main():
+async def _write_last_good_commit_after(delay: float = 60.0) -> None:
+    """启动稳定 delay 秒后写 .paimon/last_good_commit。供 watchdog 自动回退用：
+    broken commit 启动失败时（如 import error），这个写入永远不会触发，
+    last_good_commit 保留旧值；watchdog 累计失败 3 次后 git reset 回到旧 commit。
+    """
+    import asyncio as _aio
+    import subprocess as _sp
+    try:
+        await _aio.sleep(delay)
+        rc, out, _ = _run_git(["rev-parse", "HEAD"])
+        if rc != 0 or not out.strip():
+            return
+        commit = out.strip()
+        target = config.paimon_home / "last_good_commit"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(commit + "\n", encoding="utf-8")
+        # 同时清 restart_fail_count（启动稳定即可视作健康）
+        fail_file = config.paimon_home / "restart_fail_count"
+        if fail_file.exists():
+            try:
+                fail_file.write_text("0\n", encoding="utf-8")
+            except Exception:
+                pass
+    except _aio.CancelledError:
+        return
+    except Exception as _e:
+        print(f"[三月·守护] last_good_commit 写入异常（不影响主流程）: {_e}", file=sys.stderr)
+
+
+def _run_git(args: list[str], cwd=None) -> tuple[int, str, str]:
+    """同步跑 git 子命令，返回 (rc, stdout, stderr)。失败不抛。"""
+    import subprocess as _sp
+    try:
+        proc = _sp.run(
+            ["git", *args],
+            cwd=cwd or _project_root_for_git(),
+            capture_output=True, text=True, timeout=30,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+    except Exception as e:
+        return 1, "", str(e)
+
+
+def _project_root_for_git():
+    """项目 git 根（paimon 包父目录）。"""
+    return Path(__file__).resolve().parent.parent
+
+
+def trigger_upgrade_exit() -> None:
+    """webui 升级 endpoint 调：调度 0.5s 后整体退出 100，让 watchdog 拉起新代码。
+
+    延迟 0.5s 是给 HTTP response 写出去的时间窗口；之后 raise SystemExit(100)
+    冒泡到 entry() 透传 exit code 给 OS。watchdog 看到 100 → 立即重启。
+    """
+    import asyncio as _aio
+    async def _delayed():
+        await _aio.sleep(0.5)
+        # 触发主 gather() 退出
+        raise SystemExit(100)
+    _aio.create_task(_delayed(), name="upgrade_exit")
+
+
+async def main() -> int:
+    """返回 exit code：0 正常 / 100 升级请求（让 watchdog 拉起新代码）。"""
     setup_logging(debug=config.debug, log_dir=config.paimon_home)
     _install_signal_handlers()
+
+    exit_code = 0
 
     try:
         channels = await create_app(config)
@@ -57,7 +123,16 @@ async def main():
         if state.march:
             tasks.append(state.march.start())
 
+        # 启动稳定 60s 后写 last_good_commit（启动失败 / 崩溃 60s 内则不写）
+        last_good_writer = asyncio.create_task(
+            _write_last_good_commit_after(60.0), name="last_good_commit_writer",
+        )
+        tasks.append(last_good_writer)
+
         await asyncio.gather(*tasks)
+    except SystemExit as e:
+        # webui 升级 endpoint 调 trigger_upgrade_exit() 抛 SystemExit(100) 走这里
+        exit_code = int(e.code) if e.code is not None else 0
     except KeyboardInterrupt:
         pass
     finally:
@@ -82,6 +157,8 @@ async def main():
             except Exception as e:
                 print(f"[三月·守护] {name}关闭异常: {e}", file=sys.stderr)
 
+    return exit_code
+
 
 def entry():
     """三月守护：崩溃自动重启，防止 crash loop。
@@ -95,12 +172,14 @@ def entry():
     while True:
         run_started_at = time.time()
         try:
-            asyncio.run(main())
-            break
+            rc = asyncio.run(main())
+            # rc=100 升级请求 → 透传给 watchdog 让它重新加载新代码
+            # rc=0 正常退出 → 同样透传退出
+            sys.exit(rc or 0)
         except KeyboardInterrupt:
             break
         except SystemExit:
-            break
+            raise  # 透传 exit code 给 OS / watchdog
         except Exception as e:
             now = time.time()
             run_duration = now - run_started_at
