@@ -366,7 +366,7 @@ WEALTH_SCRIPT_1 = """
         // 已关注 code 的集合，渲染推荐/排名时知道哪些股票已经加入了 → "+ 关注" 按钮直接 added 态
         // 比较时统一 normalize 成纯 6 位数字（去前缀/点/空格/大小写），避免格式差异（sh.600519 vs SH.600519 vs 600519）漏判
         function _normCode(c){
-            return String(c||'').toLowerCase().replace(/\s/g, '').replace(/^(sh|sz|bj)\.?/, '');
+            return String(c||'').toLowerCase().replace(/\\s/g, '').replace(/^(sh|sz|bj)\\.?/, '');
         }
         var _userWatchCodes = new Set();
         // normalized code → stock_name 映射（资讯面板显示名字而不是代码）
