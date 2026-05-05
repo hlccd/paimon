@@ -35,7 +35,7 @@ GAME_BODY = """
 
         <div class="status-bar">
             <div class="status-title">
-                <h1>🎮 水神 · 游戏</h1>
+                <h1>🎮 游戏</h1>
                 <div class="sub" id="statusSub">加载中...</div>
             </div>
             <div class="status-actions">

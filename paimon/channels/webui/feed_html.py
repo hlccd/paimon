@@ -148,7 +148,7 @@ FEED_BODY = """
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>风神 · 信息流</h1>
+                <h1>🔔 订阅</h1>
                 <div class="sub">话题订阅 + 定时采集 + 自动推送 · 想看事件聚合？<a href="/sentiment" style="color:var(--gold)">舆情看板 →</a></div>
             </div>
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>

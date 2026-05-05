@@ -4,7 +4,7 @@ LLM_BODY = """
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>🧠 神之心 · 模型与路由</h1>
+                <h1>🧠 模型</h1>
                 <div class="sub">管理模型 profile · 配置每个调用点用哪个模型</div>
             </div>
             <div class="header-actions">

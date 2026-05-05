@@ -35,7 +35,7 @@ def build_llm_html() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paimon · 神之心 模型管理</title>
+    <title>模型</title>
     <style>"""
         + THEME_COLORS
         + BASE_CSS

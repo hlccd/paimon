@@ -26,7 +26,7 @@ KNOWLEDGE_BODY = """
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>草神 · 世界树</h1>
+                <h1>📚 世界树</h1>
                 <div class="sub">跨会话记忆 · 结构化知识库 · 四影文书产物归档</div>
             </div>
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>
@@ -116,7 +116,7 @@ def build_knowledge_html() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paimon - 草神·世界树</title>
+    <title>世界树</title>
     <style>"""
         + THEME_COLORS
         + BASE_CSS

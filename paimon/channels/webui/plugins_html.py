@@ -73,7 +73,7 @@ PLUGINS_BODY = """
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>冰神 · 插件面板</h1>
+                <h1>🔌 插件</h1>
                 <div class="sub">Skill 生态管理 + 用户授权</div>
             </div>
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>
@@ -244,7 +244,7 @@ def build_plugins_html() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paimon - 插件面板</title>
+    <title>插件</title>
     <style>"""
         + THEME_COLORS
         + BASE_CSS

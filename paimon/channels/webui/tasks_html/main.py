@@ -24,7 +24,7 @@ TASKS_CSS = TASKS_CSS
 TASKS_BODY = """
     <div class="container">
         <div class="page-header">
-            <h1>任务观测</h1>
+            <h1>📋 任务观测</h1>
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>
         </div>
         <div class="tabs">

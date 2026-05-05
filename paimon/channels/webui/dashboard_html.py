@@ -101,7 +101,7 @@ DASHBOARD_CSS = """
 DASHBOARD_BODY = """
     <div class="container">
         <div class="page-header">
-            <h1>原石仪表盘</h1>
+            <h1>📊 用量</h1>
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>
         </div>
 

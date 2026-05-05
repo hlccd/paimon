@@ -27,7 +27,7 @@ SELFCHECK_CSS = SELFCHECK_CSS
 SELFCHECK_BODY = """
     <div class="container">
         <div class="page-header">
-            <h1>🩺 三月·自检</h1>
+            <h1>🩺 自检</h1>
             <div class="header-actions">
                 <span id="statusPill" class="status-pill">加载中...</span>
                 <button id="btnQuick" class="btn">⚡ 跑 Quick</button>

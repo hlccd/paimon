@@ -4,7 +4,7 @@ WEALTH_BODY = """
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>岩神 · 理财</h1>
+                <h1>💰 理财</h1>
                 <div class="sub">A 股红利股追踪（评分 + 行业均衡 + 变化检测）</div>
             </div>
             <div class="actions-bar">

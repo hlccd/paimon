@@ -46,7 +46,7 @@ def build_sentiment_html() -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paimon · 风神舆情看板</title>
+    <title>舆情</title>
     <style>"""
         + THEME_COLORS
         + BASE_CSS

@@ -4,12 +4,12 @@ SENTIMENT_BODY = """
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>🌬️ 风神·舆情看板</h1>
+                <h1>🌪️ 舆情看板</h1>
                 <div class="sub">事件级聚合 / 严重度分级 / 跨批次合并</div>
             </div>
             <div class="header-actions">
                 <button class="btn" onclick="loadAll()">刷新</button>
-                <a href="/feed" class="btn" style="text-decoration:none">信息流原始流</a>
+                <a href="/feed" class="btn" style="text-decoration:none">订阅原始流</a>
             </div>
         </div>
 
