@@ -93,6 +93,20 @@ class _LoginMixin:
         sess = self._pending_login.get(session_id)
         return sess.qr_image if sess else None
 
+    def login_sms_form(self, session_id: str) -> bytes | None:
+        """SMS 风控分支：扫码后被站点跳到验证码页，前端展示这张表单截图给用户参考。"""
+        self._ensure_login_attrs()
+        sess = self._pending_login.get(session_id)
+        return sess.sms_form_image if sess else None
+
+    def login_submit_sms(self, session_id: str, code: str) -> dict:
+        """webui 用户填了验证码后调：交给 LoginSession 的后台 task 去 fill+click。"""
+        self._ensure_login_attrs()
+        sess = self._pending_login.get(session_id)
+        if not sess:
+            return {"ok": False, "error": "session 不存在或已过期"}
+        return sess.submit_sms(code)
+
     def login_overview(self) -> list[dict]:
         """所有支持站点的 cookies 状态总览（前端登录区表格用）。"""
         result: list[dict] = []

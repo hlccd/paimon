@@ -284,6 +284,39 @@ async def login_qr_api(channel, request: web.Request) -> web.Response:
     })
 
 
+async def login_sms_form_api(channel, request: web.Request) -> web.Response:
+    """SMS 验证页截图（awaiting_sms 时前端 <img> 指向这里展示给用户参考）。"""
+    if not channel._check_auth(request):
+        return web.Response(status=401, text="Unauthorized")
+    venti = channel.state.venti
+    if not venti:
+        return web.Response(status=500, text="venti 未就绪")
+    session_id = request.match_info.get("session_id", "")
+    img = venti.login_sms_form(session_id)
+    if not img:
+        return web.Response(status=404, text="SMS 表单未生成或会话过期")
+    return web.Response(body=img, content_type="image/png", headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+    })
+
+
+async def login_submit_sms_api(channel, request: web.Request) -> web.Response:
+    """用户在 webui 输入验证码 → 转交给 LoginSession.submit_sms。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    venti = channel.state.venti
+    if not venti:
+        return web.json_response({"ok": False, "error": "风神未就绪"}, status=500)
+    session_id = request.match_info.get("session_id", "")
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+    code = (data.get("code") or "").strip()
+    return web.json_response(venti.login_submit_sms(session_id, code))
+
+
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     """注册 feed 面板的路由（订阅 + 站点登录）。"""
     app.router.add_get("/feed", lambda r, ch=channel: feed_page(ch, r))
@@ -299,3 +332,5 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_post("/api/feed/login/start", lambda r, ch=channel: login_start_api(ch, r))
     app.router.add_get("/api/feed/login/status/{session_id}", lambda r, ch=channel: login_status_api(ch, r))
     app.router.add_get("/api/feed/login/qr/{session_id}", lambda r, ch=channel: login_qr_api(ch, r))
+    app.router.add_get("/api/feed/login/sms-form/{session_id}", lambda r, ch=channel: login_sms_form_api(ch, r))
+    app.router.add_post("/api/feed/login/sms/{session_id}", lambda r, ch=channel: login_submit_sms_api(ch, r))

@@ -59,8 +59,39 @@ SITE_CONFIG: dict[str, dict] = {
         "login_url": "https://www.xiaohongshu.com/explore",
         "success_cookie": "web_session",
         "qr_selectors": [".qrcode-img", ".login-qrcode", "[class*='qrcode']"],
+        # explore 页登录浮层默认手机号 tab，需 click 切到扫码 tab；selector 候选试错命中第一个就 click
+        "qr_tab_selectors": ["text=扫码登录", "text=二维码登录", "text=扫一扫", "[class*='qrcode-tab']", "[class*='qr-tab']"],
     },
 }
+
+# SMS 验证页常见 selector 候选（猜测，云端验证后回填）：
+# - 表单出现判定：任一命中即视为进入 SMS 验证页
+# - 「获取验证码」按钮：扫码后 best-effort click 一次，自动发短信场景下 click 无害
+# - 验证码输入框：用户提交时 page.fill 写入
+# - 提交按钮：fill 后 click
+_SMS_FORM_DETECT_SELECTORS = [
+    "input[placeholder*='验证码']",
+    "input[placeholder*='短信']",
+    "input[name*='verify']",
+    "input[name*='code']",
+]
+_SMS_GET_BUTTON_SELECTORS = [
+    "text=获取验证码",
+    "text=发送验证码",
+    "text=重新发送",
+]
+_SMS_CODE_INPUT_SELECTORS = [
+    "input[placeholder*='验证码']",
+    "input[placeholder*='短信']",
+    "input[name*='verify']",
+    "input[name*='code']",
+]
+_SMS_SUBMIT_SELECTORS = [
+    "button:has-text('登录')",
+    "button:has-text('确定')",
+    "button:has-text('提交')",
+    "[type='submit']",
+]
 
 
 async def _capture_qr(page, qr_selectors: list[str]) -> bytes:
@@ -115,7 +146,10 @@ class LoginSession:
     生命周期：
         new → start() 起后台 task → status='baseline'（拍匿名 cookies 名集合做 baseline，避免用户抢跑把登录后 cookie 吃进 baseline）
             → status='qr_ready' + qr_image → 用户扫码
-            → 检测 success_cookie 出现且不在 baseline → status='success' + cookies 落盘
+            ↳ 直接登录态：检测 success_cookie 出现且不在 baseline → status='success' + cookies 落盘
+            ↳ 风控 SMS 路径（如云端 IP 登 xhs）：检测 SMS 表单 → status='awaiting_sms' + sms_form_image
+                → 用户在 webui 输入验证码调 submit_sms() → status='sms_submitting'
+                → 后端 fill+click → 5s 后再判 web_session：成功 success；失败回 awaiting_sms 让用户重试
             或 status='timeout' / 'failed'
 
     用法：
@@ -138,10 +172,13 @@ class LoginSession:
         self.success_cookie: str = cfg["success_cookie"]
         self.timeout_seconds: int = timeout_seconds or self.DEFAULT_TIMEOUT
         self.started_at: float = time.time()
-        self.status: str = "pending"   # pending / baseline / qr_ready / success / timeout / failed
+        # pending / baseline / qr_ready / awaiting_sms / sms_submitting / success / timeout / failed
+        self.status: str = "pending"
         self.qr_image: Optional[bytes] = None
+        self.sms_form_image: Optional[bytes] = None  # SMS 验证页截图（前端在 awaiting_sms 时显示）
         self.error: Optional[str] = None
         self._task: Optional[asyncio.Task] = None
+        self._sms_code: Optional[str] = None         # 用户提交的验证码，主循环 consume 后清空
 
     async def start(self) -> None:
         """启动后台 task，立即返回；调用方继续轮询 self.status。"""
@@ -186,6 +223,19 @@ class LoginSession:
                     await asyncio.sleep(1.5)
                     qr_selectors = SITE_CONFIG[self.site].get("qr_selectors", [])
 
+                    # 部分站点登录浮层默认非扫码 tab（如 xhs explore 默认手机号），先 click 切到扫码 tab
+                    qr_tab_selectors = SITE_CONFIG[self.site].get("qr_tab_selectors", [])
+                    for sel in qr_tab_selectors:
+                        try:
+                            loc = page.locator(sel).first
+                            if await loc.count() > 0:
+                                await loc.click(timeout=3000)
+                                logger.info("[浏览器·登录] {} 切到扫码 tab selector={}", self.site, sel)
+                                await asyncio.sleep(1.0)   # 等 tab 切换动画
+                                break
+                        except Exception as e:
+                            logger.debug("[浏览器·登录] {} tab selector {} 失败: {}", self.site, sel, e)
+
                     # baseline 先拍稳：先把"匿名状态 cookies 名集合"拍下来再暴露 QR
                     # 顺序很关键：以前是先 status='qr_ready' → 再拍 baseline，前端立刻显示 QR
                     # 用户秒扫导致登录后产生的 z_c0/web_session 等关键 cookie 被吃进 baseline
@@ -220,14 +270,36 @@ class LoginSession:
                         self.success_cookie in baseline_names,
                     )
 
-                    # 等用户扫码：双轨判定
-                    # 主：success_cookie 出现且不在 baseline → 真登录（精确，避免 baseline diff 把任意新 cookie 当成功）
-                    # 兜底：success_cookie 已在 baseline（匿名占位场景，如 xhs 匿名 web_session）→ 退回 baseline diff
+                    # 等用户扫码：双轨判定 + SMS 风控分支
+                    # 登录态判定：
+                    #   主：success_cookie 出现且不在 baseline → 真登录（精确，避免 baseline diff 把任意新 cookie 当成功）
+                    #   兜底：success_cookie 已在 baseline（匿名占位场景，如 xhs 匿名 web_session）→ 退回 baseline diff
+                    # SMS 风控分支：扫码后若小红书等站点跳到 SMS 验证页（云端异地 IP），状态切 awaiting_sms 等用户在
+                    #   webui 提交验证码；代码 fill+click 后 5s 再判 cookies，成功落盘失败回 awaiting_sms 让用户重试
                     success_in_baseline = self.success_cookie in baseline_names
                     last_qr_refresh = time.time()
+                    sms_get_button_attempted = False   # 「获取验证码」按钮 best-effort click 一次的标记
+                    last_url_logged: Optional[str] = None
                     while time.time() < deadline:
+                        # 诊断：page.url 变化时打日志 + dump DOM 头部 1KB（SMS 页 selector 没命中场景下的 fallback 观察点）
+                        try:
+                            cur_url = page.url
+                            if cur_url != last_url_logged:
+                                logger.info("[浏览器·登录] {} URL 变化 {} → {}",
+                                            self.site, last_url_logged, cur_url)
+                                last_url_logged = cur_url
+                                try:
+                                    content_head = (await page.content())[:1024].replace("\n", " ")
+                                    logger.info("[浏览器·登录] {} URL 变化后 DOM 头部 1KB：{}",
+                                                self.site, content_head)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
                         cookies = await context.cookies()
                         current_names = {c.get("name", "") for c in cookies}
+                        # 判定 1：登录成功
                         if success_in_baseline:
                             new_names = current_names - baseline_names
                             triggered = bool(new_names)
@@ -240,8 +312,118 @@ class LoginSession:
                             self.status = "success"
                             logger.info("[浏览器·登录] {} 成功 cookies 落盘（{}）", self.site, reason)
                             return
-                        # 每 N 秒刷一次 QR 截图（QR 在页面里会自动 rotate）
-                        if time.time() - last_qr_refresh >= self.REFRESH_QR_EVERY_SEC:
+
+                        # 判定 2：扫码后跳到 SMS 验证页（仅在 qr_ready 阶段检测，避免重复进入）
+                        if self.status == "qr_ready":
+                            sms_detected = False
+                            for sel in _SMS_FORM_DETECT_SELECTORS:
+                                try:
+                                    if await page.locator(sel).count() > 0:
+                                        sms_detected = True
+                                        break
+                                except Exception:
+                                    pass
+                            if sms_detected:
+                                logger.info("[浏览器·登录] {} 检测到 SMS 验证页 url={}", self.site, page.url)
+                                # DOM dump 前 2KB 进 paimon.log，云端遇到时把日志贴回来调 selector
+                                try:
+                                    content = await page.content()
+                                    logger.info("[浏览器·登录] {} SMS 页 DOM dump（前 2KB）：{}",
+                                                self.site, content[:2048].replace("\n", " "))
+                                except Exception:
+                                    pass
+                                # best-effort click 「获取验证码」一次（自动发短信场景下找不到按钮也无所谓）
+                                if not sms_get_button_attempted:
+                                    sms_get_button_attempted = True
+                                    for sel in _SMS_GET_BUTTON_SELECTORS:
+                                        try:
+                                            loc = page.locator(sel).first
+                                            if await loc.count() > 0:
+                                                await loc.click(timeout=3000)
+                                                logger.info("[浏览器·登录] {} 已 click 获取验证码 selector={}",
+                                                            self.site, sel)
+                                                await asyncio.sleep(1.5)
+                                                break
+                                        except Exception as e:
+                                            logger.debug("[浏览器·登录] {} 获取验证码 selector {} 失败: {}",
+                                                         self.site, sel, e)
+                                # 截图 SMS 表单给前端
+                                try:
+                                    self.sms_form_image = await page.screenshot(full_page=False)
+                                except Exception as e:
+                                    logger.warning("[浏览器·登录] {} SMS 截图失败: {}", self.site, e)
+                                self.status = "awaiting_sms"
+
+                        # 判定 3：用户已提交 SMS 验证码（submit_sms 把 _sms_code 置上、status 改 sms_submitting）
+                        if self.status == "sms_submitting" and self._sms_code:
+                            code = self._sms_code
+                            self._sms_code = None   # consume
+                            filled = False
+                            for sel in _SMS_CODE_INPUT_SELECTORS:
+                                try:
+                                    loc = page.locator(sel).first
+                                    if await loc.count() > 0:
+                                        await loc.fill(code, timeout=3000)
+                                        filled = True
+                                        logger.info("[浏览器·登录] {} 已填验证码 selector={}", self.site, sel)
+                                        break
+                                except Exception as e:
+                                    logger.debug("[浏览器·登录] {} 验证码 input selector {} 失败: {}",
+                                                 self.site, sel, e)
+                            if not filled:
+                                logger.warning("[浏览器·登录] {} 未找到验证码输入框，回退 awaiting_sms", self.site)
+                                self.status = "awaiting_sms"
+                                try:
+                                    self.sms_form_image = await page.screenshot(full_page=False)
+                                except Exception:
+                                    pass
+                            else:
+                                # click 提交
+                                clicked = False
+                                for sel in _SMS_SUBMIT_SELECTORS:
+                                    try:
+                                        loc = page.locator(sel).first
+                                        if await loc.count() > 0:
+                                            await loc.click(timeout=3000)
+                                            clicked = True
+                                            logger.info("[浏览器·登录] {} 已 click 提交 selector={}",
+                                                        self.site, sel)
+                                            break
+                                    except Exception as e:
+                                        logger.debug("[浏览器·登录] {} 提交 selector {} 失败: {}",
+                                                     self.site, sel, e)
+                                if not clicked:
+                                    logger.warning("[浏览器·登录] {} 未找到提交按钮，回退 awaiting_sms", self.site)
+                                    self.status = "awaiting_sms"
+                                    try:
+                                        self.sms_form_image = await page.screenshot(full_page=False)
+                                    except Exception:
+                                        pass
+                                else:
+                                    # 等 5s 让小红书后端处理，下一轮判定 1 看 cookies 是否拿到 web_session
+                                    await asyncio.sleep(5)
+                                    cookies_after = await context.cookies()
+                                    after_names = {c.get("name", "") for c in cookies_after}
+                                    after_ok = (
+                                        bool(after_names - baseline_names) if success_in_baseline
+                                        else (self.success_cookie in after_names)
+                                    )
+                                    if after_ok:
+                                        await context.storage_state(path=str(cookies_path(self.site)))
+                                        self.status = "success"
+                                        logger.info("[浏览器·登录] {} SMS 提交后成功 cookies 落盘", self.site)
+                                        return
+                                    # 失败回 awaiting_sms 让用户重试（验证码错误/过期/风控加强）
+                                    logger.warning("[浏览器·登录] {} SMS 提交后未拿到登录态，回退 awaiting_sms",
+                                                   self.site)
+                                    self.status = "awaiting_sms"
+                                    try:
+                                        self.sms_form_image = await page.screenshot(full_page=False)
+                                    except Exception:
+                                        pass
+
+                        # QR 刷新仅在 qr_ready 阶段（awaiting_sms / sms_submitting 时 QR 已不重要）
+                        if self.status == "qr_ready" and time.time() - last_qr_refresh >= self.REFRESH_QR_EVERY_SEC:
                             try:
                                 self.qr_image = await _capture_qr(page, qr_selectors)
                                 last_qr_refresh = time.time()
@@ -259,7 +441,7 @@ class LoginSession:
             logger.warning("[浏览器·登录] {} 异常: {}", self.site, self.error)
 
     def to_status_dict(self) -> dict:
-        """前端轮询用：不含二进制 qr_image。error 截首行，避免 ASCII 横幅撑爆 UI。"""
+        """前端轮询用：不含二进制 qr_image / sms_form_image。error 截首行避免 ASCII 横幅撑爆 UI。"""
         err = self.error
         if err:
             # playwright "Executable doesn't exist..." 错误后面会带 60 行 banner，截掉
@@ -276,7 +458,20 @@ class LoginSession:
             "error": err,
             "elapsed": int(time.time() - self.started_at),
             "timeout": self.timeout_seconds,
+            "has_sms_form": self.sms_form_image is not None,
         }
+
+    def submit_sms(self, code: str) -> dict:
+        """webui 用户输入验证码后调；只接受在 awaiting_sms 状态下的提交，
+        把 code 暂存到 _sms_code、状态切 sms_submitting，由后台 _run 主循环 consume。"""
+        code = (code or "").strip()
+        if not code:
+            return {"ok": False, "error": "验证码不能为空"}
+        if self.status != "awaiting_sms":
+            return {"ok": False, "error": f"当前状态 {self.status} 不接受验证码提交"}
+        self._sms_code = code
+        self.status = "sms_submitting"
+        return {"ok": True}
 
 
 # ─────────────────────────────────────────────────────────────

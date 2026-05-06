@@ -562,6 +562,7 @@ FEED_SCRIPT = """
             // baseline 阶段后端还没拍 QR，前端别提前 fetch /api/feed/login/qr/ 拿 404
             // 等 status='qr_ready' 后由 pollStatus 触发首次 refreshQr 并把 _qrReady 置 true
             var _qrReady = false;
+            var _lastSt = null;   // 跟踪状态切换；仅在跨态边沿时重渲染 body 避免抹掉用户输入
             var refreshQr = function(){
                 if(!_currentLoginSession || !_qrReady) return;
                 var img = document.getElementById('qrImg');
@@ -571,6 +572,25 @@ FEED_SCRIPT = """
                 } else {
                     img.src = '/api/feed/login/qr/' + _currentLoginSession + '?t=' + Date.now();
                 }
+            };
+            var renderSmsForm = function(){
+                // 截图 + 验证码输入框 + 提交按钮；用户按提交后调 submitSms() POST 到后端
+                var sid = _currentLoginSession;
+                document.getElementById('qrModalBody').innerHTML =
+                    '<div style="display:flex;flex-direction:column;gap:10px;width:100%">' +
+                        '<img src="/api/feed/login/sms-form/' + sid + '?t=' + Date.now() +
+                            '" style="max-width:100%;max-height:280px;border-radius:6px" />' +
+                        '<div style="font-size:13px;color:#444">扫码后被站点要求短信验证。如未自动发送，请在手机端等待或在小红书 app 内重试；收到验证码后填入下方框：</div>' +
+                        '<input id="smsCodeInput" type="text" inputmode="numeric" maxlength="8" placeholder="短信验证码" ' +
+                            'style="padding:8px 10px;border:1px solid #bbb;border-radius:6px;font-size:15px" />' +
+                        '<button id="smsSubmitBtn" onclick="submitSms()" ' +
+                            'style="padding:8px 12px;border:0;border-radius:6px;background:var(--gold);color:#000;cursor:pointer;font-weight:600">' +
+                            '提交验证码</button>' +
+                    '</div>';
+                setTimeout(function(){
+                    var inp = document.getElementById('smsCodeInput');
+                    if(inp) inp.focus();
+                }, 50);
             };
             // status：每 2s 一次
             var pollStatus = async function(){
@@ -593,6 +613,14 @@ FEED_SCRIPT = """
                             _qrReady = true;
                             refreshQr();
                         }
+                    } else if(st === 'awaiting_sms'){
+                        // 仅在跨态边沿（首次进入 awaiting_sms 或从 sms_submitting 失败回退）重渲染，避免抹掉用户输入
+                        if(_lastSt !== 'awaiting_sms') renderSmsForm();
+                    } else if(st === 'sms_submitting'){
+                        if(_lastSt !== 'sms_submitting'){
+                            document.getElementById('qrModalBody').innerHTML =
+                                '<div class="empty-state">正在提交验证码…后端 fill+click 后等 5s 看登录态</div>';
+                        }
                     } else if(st === 'success'){
                         document.getElementById('qrModalBody').innerHTML = '<div class="empty-state" style="color:#7fcf7f">✅ 登录成功，cookies 已保存</div>';
                         _stopQrLoop();
@@ -604,8 +632,35 @@ FEED_SCRIPT = """
                         document.getElementById('qrModalBody').innerHTML = '<div class="empty-state" style="color:#e57373">❌ ' + esc(data.error || st) + '</div>';
                         _stopQrLoop();
                     }
+                    _lastSt = st;
                 } catch(e){
                     // 暂忽略，继续轮询
+                }
+            };
+            // SMS 提交：暴露到 window 给 onclick 用；session 关闭后失效
+            window.submitSms = async function(){
+                var sid = _currentLoginSession;
+                if(!sid) return;
+                var inp = document.getElementById('smsCodeInput');
+                var btn = document.getElementById('smsSubmitBtn');
+                var code = (inp && inp.value || '').trim();
+                if(!code){ if(inp) inp.focus(); return; }
+                if(btn){ btn.disabled = true; btn.textContent = '提交中…'; }
+                try {
+                    var res = await fetch('/api/feed/login/sms/' + sid, {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({code: code}),
+                    });
+                    var data = await res.json();
+                    if(!data.ok){
+                        if(btn){ btn.disabled = false; btn.textContent = '提交验证码'; }
+                        alert('提交失败：' + (data.error || '未知'));
+                    }
+                    // 成功后状态会切到 sms_submitting，由 pollStatus 接管 UI
+                } catch(e){
+                    if(btn){ btn.disabled = false; btn.textContent = '提交验证码'; }
+                    alert('提交失败：' + e.message);
                 }
             };
             _qrPollTimer = setInterval(pollStatus, 2000);
