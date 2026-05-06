@@ -141,6 +141,25 @@ FEED_CSS = """
         50% { opacity: .35; transform: scale(.65); }
     }
     .btn-action:disabled { opacity: .6; cursor: wait; }
+
+    /* 站点登录区 */
+    .site-row { display:flex; align-items:center; padding:12px 16px; border-radius:10px; background:var(--paimon-panel); margin-bottom:8px; border:1px solid var(--paimon-border); }
+    .site-row .site-name { flex: 0 0 120px; font-weight:600; color:var(--text-primary); }
+    .site-row .site-status { flex:1; color:var(--text-secondary); font-size:13px; }
+    .site-row .site-status.ok { color:var(--status-success); }
+    .site-row .site-status.warn { color:var(--status-warning); }
+    .site-row .site-action button { padding:6px 14px; border-radius:6px; cursor:pointer; border:1px solid var(--paimon-border); background:transparent; color:var(--gold); font-size:13px; }
+    .site-row .site-action button:hover { background:var(--gold); color:var(--paimon-bg); }
+
+    /* 登录扫码 modal */
+    .qr-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; z-index:9999; }
+    .qr-modal-box { background:var(--paimon-panel); border:1px solid var(--paimon-border); border-radius:12px; min-width:340px; max-width:520px; padding:0; box-shadow:0 8px 32px rgba(0,0,0,.5); }
+    .qr-modal-header { padding:14px 18px; border-bottom:1px solid var(--paimon-border); display:flex; justify-content:space-between; align-items:center; font-weight:600; color:var(--text-primary); }
+    .qr-modal-close { background:none; border:0; font-size:22px; line-height:1; color:var(--text-secondary); cursor:pointer; }
+    .qr-modal-close:hover { color:var(--text-primary); }
+    .qr-modal-body { padding:18px; min-height:280px; display:flex; align-items:center; justify-content:center; color:var(--text-secondary); background:#fff; }
+    .qr-modal-body img { max-width:100%; max-height:480px; border-radius:6px; image-rendering: crisp-edges; }
+    .qr-modal-footer { padding:10px 18px; border-top:1px solid var(--paimon-border); font-size:13px; color:var(--text-muted); text-align:center; }
 """
 
 
@@ -163,6 +182,7 @@ FEED_BODY = """
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('subs',this)">订阅管理</button>
             <button class="tab-btn" onclick="switchTab('feed',this)">信息流</button>
+            <button class="tab-btn" onclick="switchTab('login',this)">站点登录</button>
         </div>
 
         <div id="subs" class="tab-panel active">
@@ -225,6 +245,30 @@ FEED_BODY = """
             </div>
             <div id="feedListEl" class="feed-list"><div class="empty-state">加载中...</div></div>
         </div>
+
+        <div id="login" class="tab-panel">
+            <div class="form-hint" style="margin-bottom:12px">
+                各登录态爬虫（topic-research 知乎/微博/贴吧/虎扑/TapTap/小红书 等）需要的 cookies 在这里扫码取得。
+                cookies 落到 <code>~/.paimon/cookies/&lt;site&gt;.json</code>，3-12 个月失效后回这里重扫。
+            </div>
+            <div id="loginListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
+        </div>
+    </div>
+
+    <!-- 扫码登录 modal -->
+    <div id="qrModal" class="qr-modal-backdrop" style="display:none" onclick="if(event.target.id==='qrModal')closeQrModal()">
+        <div class="qr-modal-box">
+            <div class="qr-modal-header">
+                <span id="qrModalTitle">扫码登录</span>
+                <button class="qr-modal-close" onclick="closeQrModal()">×</button>
+            </div>
+            <div class="qr-modal-body" id="qrModalBody">
+                <div class="empty-state">启动浏览器中...</div>
+            </div>
+            <div class="qr-modal-footer" id="qrModalFooter">
+                <span id="qrModalStatus">pending</span>
+            </div>
+        </div>
     </div>
 """
 
@@ -254,6 +298,7 @@ FEED_SCRIPT = """
             document.getElementById(key).classList.add('active');
             btn.classList.add('active');
             if(key==='feed')loadFeed();
+            if(key==='login')loadLoginOverview();
         };
 
         window.refreshAll=function(){ loadSubs(); loadStats(); if(document.getElementById('feed').classList.contains('active')) loadFeed(); };
@@ -452,6 +497,124 @@ FEED_SCRIPT = """
             _scrollToSubFromHash();
         };
         window.addEventListener('hashchange', _scrollToSubFromHash);
+
+        // ─────── 站点登录区 ───────
+        var _qrPollTimer = null;
+        var _qrRefreshTimer = null;
+        var _currentLoginSession = null;
+
+        async function loadLoginOverview(){
+            var el = document.getElementById('loginListEl');
+            try {
+                var res = await fetch('/api/feed/login/overview');
+                if(!res.ok){ el.innerHTML='<div class="empty-state">加载失败 ('+res.status+')</div>'; return; }
+                var data = await res.json();
+                var sites = data.sites || [];
+                if(!sites.length){ el.innerHTML='<div class="empty-state">无站点</div>'; return; }
+                el.innerHTML = sites.map(function(s){
+                    var statusHtml;
+                    if(s.configured){
+                        var age = s.age_days != null ? s.age_days : '?';
+                        statusHtml = '<span class="site-status ok">✅ 已配置　<small>' + age + ' 天前</small></span>';
+                    } else {
+                        statusHtml = '<span class="site-status warn">⚪ 未配置</span>';
+                    }
+                    var btnText = s.configured ? '续期' : '扫码登录';
+                    return '<div class="site-row">' +
+                        '<div class="site-name">' + esc(s.display_name) + '</div>' +
+                        '<div class="site-status">' + statusHtml + '</div>' +
+                        '<div class="site-action"><button onclick="startSiteLogin(\\'' + s.site + '\\',\\'' + esc(s.display_name) + '\\')">' + btnText + '</button></div>' +
+                        '</div>';
+                }).join('');
+            } catch(e){
+                el.innerHTML = '<div class="empty-state">加载失败：' + esc(e.message) + '</div>';
+            }
+        }
+
+        window.startSiteLogin = async function(site, displayName){
+            // 打开 modal
+            document.getElementById('qrModalTitle').textContent = '扫码登录 — ' + displayName;
+            document.getElementById('qrModalBody').innerHTML = '<div class="empty-state">启动浏览器中（首次冷启动慢，约 5-10s）...</div>';
+            document.getElementById('qrModalStatus').textContent = '初始化';
+            document.getElementById('qrModal').style.display = 'flex';
+
+            // 启会话
+            try {
+                var res = await fetch('/api/feed/login/start', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({site: site}),
+                });
+                var data = await res.json();
+                if(!data.ok){
+                    document.getElementById('qrModalBody').innerHTML = '<div class="empty-state">启动失败：' + esc(data.error || '未知') + '</div>';
+                    return;
+                }
+                _currentLoginSession = data.session_id;
+                _startQrLoop();
+            } catch(e){
+                document.getElementById('qrModalBody').innerHTML = '<div class="empty-state">启动失败：' + esc(e.message) + '</div>';
+            }
+        };
+
+        function _startQrLoop(){
+            _stopQrLoop();
+            // QR 图：每 5s 刷一次（后端在重新截图）
+            var refreshQr = function(){
+                if(!_currentLoginSession) return;
+                var img = document.getElementById('qrImg');
+                if(!img){
+                    document.getElementById('qrModalBody').innerHTML =
+                        '<img id="qrImg" src="/api/feed/login/qr/' + _currentLoginSession + '?t=' + Date.now() + '" />';
+                } else {
+                    img.src = '/api/feed/login/qr/' + _currentLoginSession + '?t=' + Date.now();
+                }
+            };
+            // status：每 2s 一次
+            var pollStatus = async function(){
+                if(!_currentLoginSession) return;
+                try {
+                    var res = await fetch('/api/feed/login/status/' + _currentLoginSession);
+                    var data = await res.json();
+                    var st = data.status || 'unknown';
+                    document.getElementById('qrModalStatus').textContent =
+                        st + (data.elapsed != null ? '　(' + data.elapsed + 's / ' + data.timeout + 's)' : '');
+                    if(st === 'qr_ready'){
+                        // 第一次 qr_ready 时显示图
+                        if(!document.getElementById('qrImg')) refreshQr();
+                    } else if(st === 'success'){
+                        document.getElementById('qrModalBody').innerHTML = '<div class="empty-state" style="color:#7fcf7f">✅ 登录成功，cookies 已保存</div>';
+                        _stopQrLoop();
+                        setTimeout(function(){ closeQrModal(); loadLoginOverview(); }, 1500);
+                    } else if(st === 'timeout'){
+                        document.getElementById('qrModalBody').innerHTML = '<div class="empty-state" style="color:#e0b96a">⏱ 登录超时，请重试</div>';
+                        _stopQrLoop();
+                    } else if(st === 'failed' || st === 'not_found'){
+                        document.getElementById('qrModalBody').innerHTML = '<div class="empty-state" style="color:#e57373">❌ ' + esc(data.error || st) + '</div>';
+                        _stopQrLoop();
+                    }
+                } catch(e){
+                    // 暂忽略，继续轮询
+                }
+            };
+            _qrPollTimer = setInterval(pollStatus, 2000);
+            _qrRefreshTimer = setInterval(refreshQr, 5000);
+            pollStatus();
+            setTimeout(refreshQr, 3000);   // 给后端 3s 起 chromium 后再首抓
+        }
+
+        function _stopQrLoop(){
+            if(_qrPollTimer){ clearInterval(_qrPollTimer); _qrPollTimer=null; }
+            if(_qrRefreshTimer){ clearInterval(_qrRefreshTimer); _qrRefreshTimer=null; }
+        }
+
+        window.closeQrModal = function(){
+            _stopQrLoop();
+            _currentLoginSession = null;
+            document.getElementById('qrModal').style.display = 'none';
+        };
+
+        window.loadLoginOverview = loadLoginOverview;
     })();
     </script>
 """

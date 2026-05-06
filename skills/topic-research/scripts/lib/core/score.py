@@ -30,7 +30,10 @@ def _recency_score(published_at: str, range_from: str, range_to: str) -> float:
 _ENGAGEMENT_WEIGHTS: dict[str, dict[str, float]] = {
     "bili":  {"view": 1.0, "like": 5.0, "comment": 8.0, "favorite": 10.0, "share": 12.0},
     "xhs":   {"like": 1.0, "comment": 3.0, "favorite": 5.0, "share": 8.0},   # MVP 多为 0
-    "zhihu": {"like": 1.0, "comment": 2.0, "favorite": 3.0},
+    "zhihu": {
+        "like": 1.0, "comment": 2.0, "favorite": 5.0, "thanks": 3.0,   # answer / article
+        "follower": 0.3, "answer": 2.0, "view": 0.05,                  # question 类型
+    },
     "weibo": {"view": 0.5, "repost": 5.0, "comment": 3.0, "like": 1.0},
 }
 

@@ -13,6 +13,7 @@ from paimon.foundation.irminsul.task import Subtask, TaskEdict
 from ._alert import _AlertMixin
 from ._collect import _CollectMixin
 from ._digest import _DigestMixin
+from ._login import _LoginMixin
 from ._models import _SYSTEM_PROMPT
 
 from paimon.session import Session
@@ -22,13 +23,16 @@ if TYPE_CHECKING:
     from paimon.llm.model import Model
 
 
-class VentiArchon(_CollectMixin, _DigestMixin, _AlertMixin, Archon):
-    """风神·巴巴托斯：舆情采集 + 日报组装 + P0 即时预警。"""
+class VentiArchon(_CollectMixin, _DigestMixin, _AlertMixin, _LoginMixin, Archon):
+    """风神·巴巴托斯：舆情采集 + 日报组装 + P0 即时预警 + 站点 cookies 登录管理。"""
 
     def __init__(self) -> None:
         # 订阅采集 in-flight 集合：进入 collect_subscription 加入、finally 移除
         # 用途：① 前端卡片显示「采集中」角标 ② 防并发重入（cron + 手动按钮重叠）
         self._inflight: set[str] = set()
+        # 站点扫码登录会话池（_LoginMixin 用，惰性初始化但显式声明便于追踪）
+        self._pending_login: dict = {}
+        self._login_gc_task = None
 
     def is_running(self, sub_id: str) -> bool:
         return sub_id in self._inflight

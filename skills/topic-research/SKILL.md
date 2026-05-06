@@ -14,11 +14,14 @@ allowed-tools: Bash
 
 ## 使用方式
 
-### 默认（B 站 + 小红书）
+### 默认（B 站 + 知乎）
 
 ```bash
 python3 skills/topic-research/scripts/research.py "Claude 4.7" --emit md
 ```
+
+> 知乎需要 cookies；首次使用前去 webui `/feed` 面板的「站点登录」tab 扫码登录
+> （后端 playwright headless 拉知乎 QR → 你用知乎 APP 扫 → cookies 落到 `~/.paimon/cookies/zhihu.json`，3-12 个月失效后回面板重扫）
 
 ### 指定 sources
 
@@ -63,7 +66,8 @@ topic → bili.collect()   ─┐
 
 各源现状：
 - **B 站**：官方 search API（免签名免登录），返回 bvid / title / view / danmaku / favorites / pubdate
-- **小红书**：⏸ **未实装且无简单路径**（笔记数据走 SPA + edith 加密 API + x-s 签名 + cookies；paimon 现有 xhs skill 只解析单笔记没有搜索）；记 TODO，等 paimon 整体引入 playwright 等浏览器自动化能力时再做
+- **知乎**：search v3 API（`/api/v4/search_v3`），需要 cookies（playwright 登录后 storage_state）；处理 question / answer / article 三种 hit 类型，拿点赞 / 评论 / 收藏 / 感谢
+- **小红书**：⏸ 未实装（playwright 拿到 cookies 后再做，最难一档放最后）
 - 计分：`recency × 0.3 + engagement × 0.5 + relevance × 0.2`（engagement 同源内 log 缩放归一化）
 
 ## 目录结构
@@ -101,15 +105,20 @@ def collect(topic: str, range_from: str, range_to: str, *, limit: int) -> list[I
 
 ### Sources 待加（按计划顺序）
 
+实测下来除 B 站 / GitHub 外，主流中文 UGC 平台**全部需要登录态**（匿名直接 403 / 302 跳登录）。所以统一走 playwright cookies 路径——首次本地扫码登录，cookies 落 `~/.paimon/cookies/{site}.json`，云端 rsync。
+
 | Source | 状态 | 难度 | 路径 |
 |---|---|---|---|
-| **GitHub** | TODO | ★ 易 | issues / discussions / 仓库活跃度，公开 API 免登录；可参考 last30days `github.py` |
-| **知乎** | TODO | ★ 易 | `/search_v3?keyword=` 或 `zhihu.com/api/v4/search_v3`；公开搜索 API，匿名可拿标题 / 摘要 / 部分赞数 |
-| **贴吧** | TODO | ★ 易 | `tieba.baidu.com/f/search/res` 搜索接口宽松；老 IA 反爬弱 |
-| **虎扑** | TODO | ★★ 中 | `bbs.hupu.com/search` 网页搜索 + 二次抓帖子 meta（楼层 / 浏览 / 回复）|
-| **TapTap** | TODO | ★★ 中 | `taptap.cn/search` 或 webapi，主要拿"评论"engagement（适合游戏话题，与 bili 互补）|
-| **微博** | TODO | ★★★ 难 | `s.weibo.com/weibo?q=` 需 cookies + 防风控；反爬严但可做 |
-| **小红书** | ⏸ 暂搁置 | ★★★★ 极难 | 笔记走 SPA + edith 加密 API + x-s 签名 + cookies；paimon 现有 xhs skill 只解析单笔记没搜索；等 paimon 整体引入 playwright 等浏览器自动化能力时再做 |
+| **B 站** | ✅ 已接入 | ★ 易 | 官方 search API，免登录 |
+| **知乎** | ✅ 已接入 | ★★ 中 | search v3 API，需要 cookies；首次去 webui /feed「站点登录」tab 扫码 |
+| **贴吧** | TODO | ★★ 中 | 百度统一登录，`BDUSS` cookie；登录后调 `tieba.baidu.com/f/search/res` |
+| **虎扑** | TODO | ★★ 中 | `bbs.hupu.com/search` 网页搜索；登录后反爬宽松 |
+| **微博** | TODO | ★★★ 难 | `s.weibo.com/weibo?q=` 需 cookies；防风控较严 |
+| **TapTap** | TODO | ★★ 中 | webapi 搜索；游戏话题用 |
+| **GitHub** | TODO | ★ 易 | 公开 search API，免登录；技术话题补充 |
+| **小红书** | ⏸ 最后 | ★★★★ 极难 | edith API + x-s 签名 + cookies；先把其他 6 个搞完再啃 |
+
+各站 cookies 失效后，回 webui /feed「站点登录」tab 扫码续期。
 
 ### 流水线增强
 

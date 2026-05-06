@@ -6,19 +6,27 @@ import json as _json
 from .schema import Item, Report
 
 
-_SOURCE_NAME = {"bili": "B 站", "xhs": "小红书", "zhihu": "知乎", "weibo": "微博", "tieba": "贴吧", "github": "GitHub"}
+_SOURCE_NAME = {
+    "bili": "B 站", "xhs": "小红书", "zhihu": "知乎",
+    "weibo": "微博", "tieba": "贴吧", "hupu": "虎扑",
+    "taptap": "TapTap", "github": "GitHub",
+}
 
 
 def _fmt_engagement(item: Item) -> str:
     if not item.engagement:
         return ""
     parts = []
-    if (v := item.engagement.get("view")):    parts.append(f"播放 {v:,}")
-    if (v := item.engagement.get("like")):    parts.append(f"赞 {v:,}")
-    if (v := item.engagement.get("comment")): parts.append(f"评 {v:,}")
+    if (v := item.engagement.get("view")):     parts.append(f"播放 {v:,}")
+    if (v := item.engagement.get("like")):     parts.append(f"赞 {v:,}")
+    if (v := item.engagement.get("comment")):  parts.append(f"评 {v:,}")
     if (v := item.engagement.get("favorite")): parts.append(f"藏 {v:,}")
-    if (v := item.engagement.get("coin")):    parts.append(f"币 {v:,}")
-    if (v := item.engagement.get("share")):   parts.append(f"转 {v:,}")
+    if (v := item.engagement.get("coin")):     parts.append(f"币 {v:,}")
+    if (v := item.engagement.get("share")):    parts.append(f"转 {v:,}")
+    if (v := item.engagement.get("thanks")):   parts.append(f"谢 {v:,}")
+    if (v := item.engagement.get("follower")): parts.append(f"关 {v:,}")
+    if (v := item.engagement.get("answer")):   parts.append(f"答 {v:,}")
+    if (v := item.engagement.get("danmaku")):  parts.append(f"弹 {v:,}")
     return " · ".join(parts)
 
 

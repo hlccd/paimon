@@ -224,8 +224,68 @@ async def feed_items_api(channel, request: web.Request) -> web.Response:
     })
 
 
+# ─────────────────────────────────────────────────────────────
+# 站点登录 API（cookies 扫码管理；归风神主管，给 topic-research 等登录态 collector 用）
+# ─────────────────────────────────────────────────────────────
+
+async def login_overview_api(channel, request: web.Request) -> web.Response:
+    """各站点 cookies 配置状态总览。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    venti = channel.state.venti
+    if not venti:
+        return web.json_response({"sites": []})
+    return web.json_response({"sites": venti.login_overview()})
+
+
+async def login_start_api(channel, request: web.Request) -> web.Response:
+    """启动一次扫码登录会话。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    venti = channel.state.venti
+    if not venti:
+        return web.json_response({"ok": False, "error": "风神未就绪"}, status=500)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "JSON 无效"}, status=400)
+    site = (data.get("site") or "").strip()
+    if not site:
+        return web.json_response({"ok": False, "error": "site 必填"}, status=400)
+    return web.json_response(await venti.login_start(site))
+
+
+async def login_status_api(channel, request: web.Request) -> web.Response:
+    """轮询会话状态（前端循环调）。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    venti = channel.state.venti
+    if not venti:
+        return web.json_response({"ok": False, "error": "风神未就绪"})
+    session_id = request.match_info.get("session_id", "")
+    return web.json_response(venti.login_status(session_id))
+
+
+async def login_qr_api(channel, request: web.Request) -> web.Response:
+    """拿当前 QR PNG（前端 <img> src 指向这里）。"""
+    if not channel._check_auth(request):
+        return web.Response(status=401, text="Unauthorized")
+    venti = channel.state.venti
+    if not venti:
+        return web.Response(status=500, text="venti 未就绪")
+    session_id = request.match_info.get("session_id", "")
+    qr = venti.login_qr(session_id)
+    if not qr:
+        return web.Response(status=404, text="QR 未生成或会话过期")
+    # 不缓存，每次刷新拿最新
+    return web.Response(body=qr, content_type="image/png", headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+    })
+
+
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
-    """注册 feed 面板的 8 个路由。"""
+    """注册 feed 面板的路由（订阅 + 站点登录）。"""
     app.router.add_get("/feed", lambda r, ch=channel: feed_page(ch, r))
     app.router.add_get("/api/feed/stats", lambda r, ch=channel: feed_stats_api(ch, r))
     app.router.add_get("/api/feed/subs", lambda r, ch=channel: feed_subs_list_api(ch, r))
@@ -234,3 +294,8 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_delete("/api/feed/subs/{sub_id}", lambda r, ch=channel: feed_subs_delete_api(ch, r))
     app.router.add_post("/api/feed/subs/{sub_id}/run", lambda r, ch=channel: feed_subs_run_api(ch, r))
     app.router.add_get("/api/feed/items", lambda r, ch=channel: feed_items_api(ch, r))
+    # 站点登录扫码
+    app.router.add_get("/api/feed/login/overview", lambda r, ch=channel: login_overview_api(ch, r))
+    app.router.add_post("/api/feed/login/start", lambda r, ch=channel: login_start_api(ch, r))
+    app.router.add_get("/api/feed/login/status/{session_id}", lambda r, ch=channel: login_status_api(ch, r))
+    app.router.add_get("/api/feed/login/qr/{session_id}", lambda r, ch=channel: login_qr_api(ch, r))

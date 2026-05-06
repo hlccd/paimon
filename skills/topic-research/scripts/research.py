@@ -26,10 +26,12 @@ from lib.core.dates import date_window
 from lib.core.schema import Item, Report
 from lib.sources import bili as bili_mod
 from lib.sources import xhs as xhs_mod
+from lib.sources import zhihu as zhihu_mod
 
 _SOURCE_TABLE = {
-    "bili": bili_mod.collect,
-    "xhs":  xhs_mod.collect,
+    "bili":  bili_mod.collect,
+    "zhihu": zhihu_mod.collect,
+    "xhs":   xhs_mod.collect,
 }
 
 _DEFAULT_CACHE = Path.home() / ".paimon" / "skills" / "topic-research" / "cache"
@@ -95,8 +97,8 @@ def run(
 def main() -> int:
     ap = argparse.ArgumentParser(description="topic-research: 中文多源舆情调研")
     ap.add_argument("topic", help="调研主题")
-    ap.add_argument("--sources", default="bili,xhs",
-                    help="逗号分隔的 source 列表，默认 bili,xhs")
+    ap.add_argument("--sources", default="bili,zhihu",
+                    help="逗号分隔的 source 列表，默认 bili,zhihu（xhs 暂未实装）")
     ap.add_argument("--days", type=int, default=30, help="时间窗（天），默认 30")
     ap.add_argument("--emit", choices=("md", "json", "both"), default="md",
                     help="标准输出格式：md / json / both")

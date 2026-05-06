@@ -66,6 +66,11 @@
 git clone git@github.com:hlccd/paimon.git
 cd paimon
 pip install -e .
+
+# 装 chromium 二进制（playwright 用，topic-research 等登录态 skill 需要，~150MB）
+# 国内强烈推荐先设阿里镜像，否则默认 cdn.playwright.dev → google CDN，国内基本 timeout
+export PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+playwright install chromium
 ```
 
 > Windows 用户若 `pip` 提示"无法识别"，改用 `python -m pip install -e .`（或 `py -3 -m pip install -e .`）。
@@ -140,6 +145,12 @@ WebUI 默认 `http://localhost:2975`，用 `WEBUI_ACCESS_CODE` 登录。
 git clone git@github.com:hlccd/paimon.git
 cd paimon
 pip install -e .                                          # Python ≥ 3.10
+
+# 装 chromium 二进制（~150MB；云端 minimal 镜像加 --with-deps 顺手装系统 .so）
+# 腾讯云 / 阿里云国内节点直连 google CDN 几乎必超时，必设阿里镜像：
+export PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+playwright install chromium
+
 cp .env.example .env && vim .env                          # 填 LLM_PROVIDER / API key / WEBUI_ACCESS_CODE 等
 nohup ./scripts/run_with_watchdog.sh 80 > paimon.log 2>&1 &
 
@@ -155,6 +166,12 @@ ssh 到云端
 cd paimon
 pkill -f 'paimon'                                         # 杀掉旧的 nohup paimon
 git pull                                                  # 拉新代码（含 scripts/run_with_watchdog.sh）
+pip install -e .                                          # 同步新增依赖（如 playwright）
+
+# 一次性补装 chromium 二进制（~150MB；国内必设阿里镜像，否则 google CDN 超时）
+export PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+playwright install chromium
+
 nohup ./scripts/run_with_watchdog.sh 80 > paimon.log 2>&1 &
 ```
 
