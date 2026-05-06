@@ -87,6 +87,7 @@ _SMS_CODE_INPUT_SELECTORS = [
     "input[name*='code']",
 ]
 _SMS_SUBMIT_SELECTORS = [
+    "#login-btn",                  # 小红书登录浮层提交按钮的实测 ID（log 已确认）
     "button:has-text('登录')",
     "button:has-text('确定')",
     "button:has-text('提交')",
@@ -361,12 +362,14 @@ class LoginSession:
                             code = self._sms_code
                             self._sms_code = None   # consume
                             filled = False
+                            code_input_loc = None   # 留给 Enter fallback 用
                             for sel in _SMS_CODE_INPUT_SELECTORS:
                                 try:
                                     loc = page.locator(sel).first
                                     if await loc.count() > 0:
                                         await loc.fill(code, timeout=3000)
                                         filled = True
+                                        code_input_loc = loc
                                         logger.info("[浏览器·登录] {} 已填验证码 selector={}", self.site, sel)
                                         break
                                 except Exception as e:
@@ -380,49 +383,54 @@ class LoginSession:
                                 except Exception:
                                     pass
                             else:
-                                # click 提交
+                                # fill 6 位验证码后小红书前端可能已自动触发提交（form input change → submit）；等 1s 让 JS 处理
+                                # 之后尝试 click 提交按钮：force=True 跳过 visibility 检查（小红书 button 在 form 提交瞬间 not visible/被 detach）
+                                # click 失败 fallback 到在 input 上 press Enter
+                                # 不论 click/Enter 是否成功，都等 5s 看 cookies——fill 本身就可能已经触发提交
+                                await asyncio.sleep(1)
                                 clicked = False
                                 for sel in _SMS_SUBMIT_SELECTORS:
                                     try:
                                         loc = page.locator(sel).first
                                         if await loc.count() > 0:
-                                            await loc.click(timeout=3000)
+                                            await loc.click(timeout=2000, force=True)
                                             clicked = True
-                                            logger.info("[浏览器·登录] {} 已 click 提交 selector={}",
+                                            logger.info("[浏览器·登录] {} 已 click 提交（force）selector={}",
                                                         self.site, sel)
                                             break
                                     except Exception as e:
                                         logger.debug("[浏览器·登录] {} 提交 selector {} 失败: {}",
                                                      self.site, sel, e)
-                                if not clicked:
-                                    logger.warning("[浏览器·登录] {} 未找到提交按钮，回退 awaiting_sms", self.site)
-                                    self.status = "awaiting_sms"
+                                if not clicked and code_input_loc is not None:
                                     try:
-                                        self.sms_form_image = await page.screenshot(full_page=False)
-                                    except Exception:
-                                        pass
-                                else:
-                                    # 等 5s 让小红书后端处理，下一轮判定 1 看 cookies 是否拿到 web_session
-                                    await asyncio.sleep(5)
-                                    cookies_after = await context.cookies()
-                                    after_names = {c.get("name", "") for c in cookies_after}
-                                    after_ok = (
-                                        bool(after_names - baseline_names) if success_in_baseline
-                                        else (self.success_cookie in after_names)
-                                    )
-                                    if after_ok:
-                                        await context.storage_state(path=str(cookies_path(self.site)))
-                                        self.status = "success"
-                                        logger.info("[浏览器·登录] {} SMS 提交后成功 cookies 落盘", self.site)
-                                        return
-                                    # 失败回 awaiting_sms 让用户重试（验证码错误/过期/风控加强）
-                                    logger.warning("[浏览器·登录] {} SMS 提交后未拿到登录态，回退 awaiting_sms",
-                                                   self.site)
-                                    self.status = "awaiting_sms"
-                                    try:
-                                        self.sms_form_image = await page.screenshot(full_page=False)
-                                    except Exception:
-                                        pass
+                                        await code_input_loc.press("Enter", timeout=2000)
+                                        clicked = True
+                                        logger.info("[浏览器·登录] {} fallback：input press Enter 触发提交",
+                                                    self.site)
+                                    except Exception as e:
+                                        logger.debug("[浏览器·登录] {} press Enter 失败: {}", self.site, e)
+                                # 等 5s 看 cookies（即使 click/Enter 都失败，fill 6 位也可能已自动提交）
+                                await asyncio.sleep(5)
+                                cookies_after = await context.cookies()
+                                after_names = {c.get("name", "") for c in cookies_after}
+                                after_ok = (
+                                    bool(after_names - baseline_names) if success_in_baseline
+                                    else (self.success_cookie in after_names)
+                                )
+                                if after_ok:
+                                    await context.storage_state(path=str(cookies_path(self.site)))
+                                    self.status = "success"
+                                    logger.info("[浏览器·登录] {} SMS 提交后成功 cookies 落盘（click/Enter 触发={})",
+                                                self.site, clicked)
+                                    return
+                                # 失败回 awaiting_sms 让用户重输（可能验证码错误/过期/风控加强）
+                                logger.warning("[浏览器·登录] {} SMS 提交后未拿到登录态（click/Enter 触发={}），"
+                                               "回退 awaiting_sms", self.site, clicked)
+                                self.status = "awaiting_sms"
+                                try:
+                                    self.sms_form_image = await page.screenshot(full_page=False)
+                                except Exception:
+                                    pass
 
                         # QR 刷新仅在 qr_ready 阶段（awaiting_sms / sms_submitting 时 QR 已不重要）
                         if self.status == "qr_ready" and time.time() - last_qr_refresh >= self.REFRESH_QR_EVERY_SEC:
