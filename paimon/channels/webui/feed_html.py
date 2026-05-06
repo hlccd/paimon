@@ -559,9 +559,11 @@ FEED_SCRIPT = """
 
         function _startQrLoop(){
             _stopQrLoop();
-            // QR 图：每 5s 刷一次（后端在重新截图）
+            // baseline 阶段后端还没拍 QR，前端别提前 fetch /api/feed/login/qr/ 拿 404
+            // 等 status='qr_ready' 后由 pollStatus 触发首次 refreshQr 并把 _qrReady 置 true
+            var _qrReady = false;
             var refreshQr = function(){
-                if(!_currentLoginSession) return;
+                if(!_currentLoginSession || !_qrReady) return;
                 var img = document.getElementById('qrImg');
                 if(!img){
                     document.getElementById('qrModalBody').innerHTML =
@@ -579,9 +581,18 @@ FEED_SCRIPT = """
                     var st = data.status || 'unknown';
                     document.getElementById('qrModalStatus').textContent =
                         st + (data.elapsed != null ? '　(' + data.elapsed + 's / ' + data.timeout + 's)' : '');
-                    if(st === 'qr_ready'){
-                        // 第一次 qr_ready 时显示图
-                        if(!document.getElementById('qrImg')) refreshQr();
+                    if(st === 'baseline'){
+                        // baseline 中：等匿名 cookies 名集合稳定，避免抢扫码把登录后 cookie 吃进 baseline
+                        if(!_qrReady && !document.getElementById('qrImg')){
+                            document.getElementById('qrModalBody').innerHTML =
+                                '<div class="empty-state">等待页面状态稳定中…二维码即将出现（请勿提前扫码）</div>';
+                        }
+                    } else if(st === 'qr_ready'){
+                        // 第一次进 qr_ready 时显示图
+                        if(!_qrReady){
+                            _qrReady = true;
+                            refreshQr();
+                        }
                     } else if(st === 'success'){
                         document.getElementById('qrModalBody').innerHTML = '<div class="empty-state" style="color:#7fcf7f">✅ 登录成功，cookies 已保存</div>';
                         _stopQrLoop();
@@ -598,9 +609,8 @@ FEED_SCRIPT = """
                 }
             };
             _qrPollTimer = setInterval(pollStatus, 2000);
-            _qrRefreshTimer = setInterval(refreshQr, 5000);
+            _qrRefreshTimer = setInterval(refreshQr, 5000);   // _qrReady 守卫，baseline 阶段是 no-op
             pollStatus();
-            setTimeout(refreshQr, 3000);   // 给后端 3s 起 chromium 后再首抓
         }
 
         function _stopQrLoop(){

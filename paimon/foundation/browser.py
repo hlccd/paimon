@@ -113,8 +113,9 @@ class LoginSession:
     """单次扫码登录会话。
 
     生命周期：
-        new → start() 起后台 task → status='qr_ready' + qr_image
-            → 用户扫码 → 检测 success_cookie → status='success' + cookies 落盘
+        new → start() 起后台 task → status='baseline'（拍匿名 cookies 名集合做 baseline，避免用户抢跑把登录后 cookie 吃进 baseline）
+            → status='qr_ready' + qr_image → 用户扫码
+            → 检测 success_cookie 出现且不在 baseline → status='success' + cookies 落盘
             或 status='timeout' / 'failed'
 
     用法：
@@ -137,7 +138,7 @@ class LoginSession:
         self.success_cookie: str = cfg["success_cookie"]
         self.timeout_seconds: int = timeout_seconds or self.DEFAULT_TIMEOUT
         self.started_at: float = time.time()
-        self.status: str = "pending"   # pending / qr_ready / success / timeout / failed
+        self.status: str = "pending"   # pending / baseline / qr_ready / success / timeout / failed
         self.qr_image: Optional[bytes] = None
         self.error: Optional[str] = None
         self._task: Optional[asyncio.Task] = None
@@ -184,13 +185,12 @@ class LoginSession:
                     # 再 buffer 1.5s 留给 QR 异步渲染
                     await asyncio.sleep(1.5)
                     qr_selectors = SITE_CONFIG[self.site].get("qr_selectors", [])
-                    self.qr_image = await _capture_qr(page, qr_selectors)
-                    self.status = "qr_ready"
-                    logger.info("[浏览器·登录] {} QR 就绪 session={}", self.site, self.session_id)
 
-                    # baseline 拍摄：等 cookies 数量稳定后再拍
-                    # （chromium 跑 JS 后会异步陆续设 cookies，如 xhs `gid` 在 QR 就绪后 2s 才出现）
-                    # 等连续 N 次（共 ~6s）cookies 名集合不变 → 视为匿名稳态 → 拍 baseline
+                    # baseline 先拍稳：先把"匿名状态 cookies 名集合"拍下来再暴露 QR
+                    # 顺序很关键：以前是先 status='qr_ready' → 再拍 baseline，前端立刻显示 QR
+                    # 用户秒扫导致登录后产生的 z_c0/web_session 等关键 cookie 被吃进 baseline
+                    # 现在改成先 baseline → 拍 QR → status='qr_ready'，前端在此之前显示 baseline 中间态
+                    self.status = "baseline"
                     deadline = self.started_at + self.timeout_seconds
                     baseline_names: set[str] = set()
                     prev_set: frozenset = frozenset()
@@ -199,7 +199,7 @@ class LoginSession:
                         cur_set = frozenset(c.get("name", "") for c in await context.cookies())
                         if cur_set == prev_set:
                             stable_count += 1
-                            if stable_count >= 3:   # 连续 3 次（6s）相同 = 稳定
+                            if stable_count >= 2:   # 连续 2 次（≥4s）相同 = 稳定
                                 baseline_names = set(cur_set)
                                 break
                         else:
@@ -211,19 +211,34 @@ class LoginSession:
                         self.site, len(baseline_names), sorted(baseline_names)[:8],
                     )
 
-                    # baseline 已稳定，进入"等 user 扫码 → 检测新 cookie"循环
+                    # baseline 已稳定，再拍 QR 暴露给前端
+                    self.qr_image = await _capture_qr(page, qr_selectors)
+                    self.status = "qr_ready"
+                    logger.info(
+                        "[浏览器·登录] {} QR 就绪 session={} success_cookie='{}' 在 baseline={}",
+                        self.site, self.session_id, self.success_cookie,
+                        self.success_cookie in baseline_names,
+                    )
+
+                    # 等用户扫码：双轨判定
+                    # 主：success_cookie 出现且不在 baseline → 真登录（精确，避免 baseline diff 把任意新 cookie 当成功）
+                    # 兜底：success_cookie 已在 baseline（匿名占位场景，如 xhs 匿名 web_session）→ 退回 baseline diff
+                    success_in_baseline = self.success_cookie in baseline_names
                     last_qr_refresh = time.time()
                     while time.time() < deadline:
                         cookies = await context.cookies()
                         current_names = {c.get("name", "") for c in cookies}
-                        new_names = current_names - baseline_names
-                        if new_names:
+                        if success_in_baseline:
+                            new_names = current_names - baseline_names
+                            triggered = bool(new_names)
+                            reason = f"baseline diff 新增 {sorted(new_names)[:5]}"
+                        else:
+                            triggered = self.success_cookie in current_names
+                            reason = f"success_cookie '{self.success_cookie}' 出现"
+                        if triggered:
                             await context.storage_state(path=str(cookies_path(self.site)))
                             self.status = "success"
-                            logger.info(
-                                "[浏览器·登录] {} 成功 cookies 落盘（新增 {} 个：{}）",
-                                self.site, len(new_names), sorted(new_names)[:5],
-                            )
+                            logger.info("[浏览器·登录] {} 成功 cookies 落盘（{}）", self.site, reason)
                             return
                         # 每 N 秒刷一次 QR 截图（QR 在页面里会自动 rotate）
                         if time.time() - last_qr_refresh >= self.REFRESH_QR_EVERY_SEC:
