@@ -268,7 +268,9 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
 
     async with _upgrade_lock:
         # #A1 自挑刺：dirty tree 检查 — 工作区有未提交修改时拉取会失败 / 冲突 / 数据丢失
-        rc, dirty_out, _ = _run_git(["status", "--porcelain"])
+        # `-uno` 排除 untracked 文件（如 paimon.log / .env / 用户自己的临时文件）；
+        # 只关心 modified / staged / 冲突文件——这些才会真挡 git pull。
+        rc, dirty_out, _ = _run_git(["status", "--porcelain", "-uno"])
         if rc == 0 and dirty_out.strip():
             return web.json_response({
                 "ok": False,

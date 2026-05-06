@@ -3,6 +3,10 @@
 .env
 .env.local
 .paimon/
+
+# watchdog / nohup 写的运行日志（部署到仓库根的兼容兜底；新部署应落 .paimon/paimon.log）
+paimon.log
+*.log
 __pycache__/
 *.pyc
 *.pyo

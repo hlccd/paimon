@@ -1,6 +1,6 @@
 """风神·站点登录管理 mixin：扫码会话 + cookies 状态总览。
 
-风神主管 topic-research / 各登录态 collector，所以站点 cookies 归风神管：
+风神主管 topic / 各登录态 collector，所以站点 cookies 归风神管：
 - WebUI 的 `/feed` 面板通过 API 调风神：login_start / login_status / login_qr
 - LoginSession 的实例字典放在 archon 上（跨请求保留）
 - 后台 GC：超过 600s 的 stale 会话清掉

@@ -1,6 +1,6 @@
 """站点 cookies 管理：~/.paimon/cookies/{site}.json。
 
-paimon 全项目共用（不限 topic-research）。playwright 写入 / 各 skill 读取。
+paimon 全项目共用（不限 topic）。playwright 写入 / 各 skill 读取。
 """
 from __future__ import annotations
 

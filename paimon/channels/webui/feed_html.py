@@ -248,7 +248,7 @@ FEED_BODY = """
 
         <div id="login" class="tab-panel">
             <div class="form-hint" style="margin-bottom:12px">
-                各登录态爬虫（topic-research 知乎/微博/贴吧/虎扑/TapTap/小红书 等）需要的 cookies 在这里扫码取得。
+                各登录态爬虫（topic 知乎/微博/贴吧/虎扑/TapTap/小红书 等）需要的 cookies 在这里扫码取得。
                 cookies 落到 <code>~/.paimon/cookies/&lt;site&gt;.json</code>，3-12 个月失效后回这里重扫。
             </div>
             <div id="loginListEl" class="sub-list"><div class="empty-state">加载中...</div></div>

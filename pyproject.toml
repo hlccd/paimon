@@ -51,7 +51,7 @@ dependencies = [
     "yt-dlp>=2024.0.0",
     "imageio-ffmpeg>=0.5.1",
 
-    # 浏览器自动化（topic-research / 各登录态爬虫 skill 共用）
+    # 浏览器自动化（topic / 各登录态爬虫 skill 共用）
     # pip install -e . 后还需要：playwright install chromium
     # 钉死 1.48：1.49+ 改用 Chrome for Testing (CFT) 路径，国内 npmmirror 无镜像下载会 404
     "playwright==1.48.0",

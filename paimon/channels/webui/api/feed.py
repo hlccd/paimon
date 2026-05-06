@@ -225,7 +225,7 @@ async def feed_items_api(channel, request: web.Request) -> web.Response:
 
 
 # ─────────────────────────────────────────────────────────────
-# 站点登录 API（cookies 扫码管理；归风神主管，给 topic-research 等登录态 collector 用）
+# 站点登录 API（cookies 扫码管理；归风神主管，给 topic 等登录态 collector 用）
 # ─────────────────────────────────────────────────────────────
 
 async def login_overview_api(channel, request: web.Request) -> web.Response:

@@ -1,12 +1,12 @@
 ---
-name: topic-research
+name: topic
 description: 中文多源舆情聚合调研。给定话题，跨 B 站 / 小红书等中文平台并发拉近 30 天热门内容，按 engagement + recency + relevance 计分排序，输出综合简报。
 triggers: 调研, 全网调研, 近 30 天, 30天内, 多源聚合, 舆情调研
 license: MIT
 allowed-tools: Bash
 ---
 
-# topic-research：中文多源舆情聚合
+# topic：中文多源舆情聚合
 
 按"事件 / 话题"做近 30 天的横向调研。每个平台独立 collector 拿 engagement 数据，跨源去重 + 计分 + 排序，输出 markdown 简报。
 
@@ -17,7 +17,7 @@ allowed-tools: Bash
 ### 默认（B 站 + 知乎）
 
 ```bash
-python3 skills/topic-research/scripts/research.py "Claude 4.7" --emit md
+python3 skills/topic/scripts/research.py "Claude 4.7" --emit md
 ```
 
 > 知乎需要 cookies；首次使用前去 webui `/feed` 面板的「站点登录」tab 扫码登录
@@ -26,18 +26,18 @@ python3 skills/topic-research/scripts/research.py "Claude 4.7" --emit md
 ### 指定 sources
 
 ```bash
-python3 skills/topic-research/scripts/research.py "小米 SU7 Ultra" --sources bili --emit md
+python3 skills/topic/scripts/research.py "小米 SU7 Ultra" --sources bili --emit md
 ```
 
 ### 调时间窗
 
 ```bash
-python3 skills/topic-research/scripts/research.py "OpenAI" --days 14 --emit json
+python3 skills/topic/scripts/research.py "OpenAI" --days 14 --emit json
 ```
 
 ### 落盘位置
 
-默认产物落到 `~/.paimon/skills/topic-research/cache/<slug>/`，包含：
+默认产物落到 `~/.paimon/skills/topic/cache/<slug>/`，包含：
 - `report.md` —— 人类可读简报
 - `report.json` —— 结构化数据（其他 skill 可复用）
 
@@ -73,7 +73,7 @@ topic → bili.collect()   ─┐
 ## 目录结构
 
 ```
-skills/topic-research/
+skills/topic/
 ├── SKILL.md                # 本文件
 └── scripts/
     ├── research.py         # CLI 入口
@@ -132,6 +132,6 @@ def collect(topic: str, range_from: str, range_to: str, *, limit: int) -> list[I
 
 ### 接入风神
 
-- 风神 `BusinessArchon.call_skill('topic-research', topic=...)` 调用代理（与世界式 v0.3 设计对齐）
+- 风神 `BusinessArchon.call_skill('topic', topic=...)` 调用代理（与世界式 v0.3 设计对齐）
 - 风神订阅类型扩展：新增 `binding_kind='deep_research'`，每周自动跑（与现有 manual 日报订阅并存）
 - WebUI 调研面板：仿 wealth/feed 面板做调研历史 + 一键重跑

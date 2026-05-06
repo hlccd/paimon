@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""topic-research CLI 入口。
+"""topic CLI 入口。
 
 用法：
     python3 research.py "<topic>" [--sources bili,xhs] [--days 30]
                                   [--emit md|json|both] [--output-dir DIR]
 
 示例：
-    python3 skills/topic-research/scripts/research.py "Claude 4.7" --emit md
+    python3 skills/topic/scripts/research.py "Claude 4.7" --emit md
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ _SOURCE_TABLE = {
     "xhs":   xhs_mod.collect,
 }
 
-_DEFAULT_CACHE = Path.home() / ".paimon" / "skills" / "topic-research" / "cache"
+_DEFAULT_CACHE = Path.home() / ".paimon" / "skills" / "topic" / "cache"
 
 
 def _slug(topic: str) -> str:
@@ -95,7 +95,7 @@ def run(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="topic-research: 中文多源舆情调研")
+    ap = argparse.ArgumentParser(description="topic: 中文多源舆情调研")
     ap.add_argument("topic", help="调研主题")
     ap.add_argument("--sources", default="bili,zhihu",
                     help="逗号分隔的 source 列表，默认 bili,zhihu（xhs 暂未实装）")
@@ -103,7 +103,7 @@ def main() -> int:
     ap.add_argument("--emit", choices=("md", "json", "both"), default="md",
                     help="标准输出格式：md / json / both")
     ap.add_argument("--output-dir", type=Path, default=None,
-                    help="产物落盘目录（默认 ~/.paimon/skills/topic-research/cache/<slug>/）")
+                    help="产物落盘目录（默认 ~/.paimon/skills/topic/cache/<slug>/）")
     ap.add_argument("--discover-limit", type=int, default=20)
     ap.add_argument("--enrich-limit", type=int, default=15)
     args = ap.parse_args()
