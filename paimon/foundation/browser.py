@@ -188,15 +188,42 @@ class LoginSession:
                     self.status = "qr_ready"
                     logger.info("[浏览器·登录] {} QR 就绪 session={}", self.site, self.session_id)
 
-                    # 轮询 cookies
+                    # baseline 拍摄：等 cookies 数量稳定后再拍
+                    # （chromium 跑 JS 后会异步陆续设 cookies，如 xhs `gid` 在 QR 就绪后 2s 才出现）
+                    # 等连续 N 次（共 ~6s）cookies 名集合不变 → 视为匿名稳态 → 拍 baseline
                     deadline = self.started_at + self.timeout_seconds
+                    baseline_names: set[str] = set()
+                    prev_set: frozenset = frozenset()
+                    stable_count = 0
+                    while time.time() < deadline:
+                        cur_set = frozenset(c.get("name", "") for c in await context.cookies())
+                        if cur_set == prev_set:
+                            stable_count += 1
+                            if stable_count >= 3:   # 连续 3 次（6s）相同 = 稳定
+                                baseline_names = set(cur_set)
+                                break
+                        else:
+                            stable_count = 0
+                            prev_set = cur_set
+                        await asyncio.sleep(2)
+                    logger.info(
+                        "[浏览器·登录] {} baseline 稳定 cookies 数={} 名={}",
+                        self.site, len(baseline_names), sorted(baseline_names)[:8],
+                    )
+
+                    # baseline 已稳定，进入"等 user 扫码 → 检测新 cookie"循环
                     last_qr_refresh = time.time()
                     while time.time() < deadline:
                         cookies = await context.cookies()
-                        if any(c.get("name") == self.success_cookie for c in cookies):
+                        current_names = {c.get("name", "") for c in cookies}
+                        new_names = current_names - baseline_names
+                        if new_names:
                             await context.storage_state(path=str(cookies_path(self.site)))
                             self.status = "success"
-                            logger.info("[浏览器·登录] {} 成功 cookies 落盘", self.site)
+                            logger.info(
+                                "[浏览器·登录] {} 成功 cookies 落盘（新增 {} 个：{}）",
+                                self.site, len(new_names), sorted(new_names)[:5],
+                            )
                             return
                         # 每 N 秒刷一次 QR 截图（QR 在页面里会自动 rotate）
                         if time.time() - last_qr_refresh >= self.REFRESH_QR_EVERY_SEC:

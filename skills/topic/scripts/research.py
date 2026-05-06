@@ -97,8 +97,8 @@ def run(
 def main() -> int:
     ap = argparse.ArgumentParser(description="topic: 中文多源舆情调研")
     ap.add_argument("topic", help="调研主题")
-    ap.add_argument("--sources", default="bili,zhihu",
-                    help="逗号分隔的 source 列表，默认 bili,zhihu（xhs 暂未实装）")
+    ap.add_argument("--sources", default="bili,zhihu,xhs",
+                    help="逗号分隔的 source 列表，默认 bili,zhihu,xhs（xhs 启 chromium 多 3-5s）")
     ap.add_argument("--days", type=int, default=30, help="时间窗（天），默认 30")
     ap.add_argument("--emit", choices=("md", "json", "both"), default="md",
                     help="标准输出格式：md / json / both")

@@ -14,14 +14,15 @@ allowed-tools: Bash
 
 ## 使用方式
 
-### 默认（B 站 + 知乎）
+### 默认（B 站 + 知乎 + 小红书）
 
 ```bash
 python3 skills/topic/scripts/research.py "Claude 4.7" --emit md
 ```
 
-> 知乎需要 cookies；首次使用前去 webui `/feed` 面板的「站点登录」tab 扫码登录
-> （后端 playwright headless 拉知乎 QR → 你用知乎 APP 扫 → cookies 落到 `~/.paimon/cookies/zhihu.json`，3-12 个月失效后回面板重扫）
+> 知乎 / 小红书需要 cookies；首次使用前去 webui `/feed` 面板的「站点登录」tab 扫码登录
+> （cookies 落到 `~/.paimon/cookies/<site>.json`，3-12 个月失效后回面板重扫）
+> xhs 走 playwright headless，每次 collect 多 3-5s 启动开销
 
 ### 指定 sources
 
@@ -46,7 +47,7 @@ python3 skills/topic/scripts/research.py "OpenAI" --days 14 --emit json
 | 参数 | 默认 | 含义 |
 |---|---|---|
 | `topic` | （必需） | 调研主题 |
-| `--sources` | `bili,xhs` | 逗号分隔的源列表（当前支持 `bili` / `xhs`）|
+| `--sources` | `bili,zhihu,xhs` | 逗号分隔的源列表（支持 `bili` / `zhihu` / `xhs`；xhs 启 chromium 多 3-5s）|
 | `--days` | `30` | 时间窗（天）|
 | `--emit` | `md` | 标准输出格式：`md` / `json` / `both` |
 | `--output-dir` | `<默认缓存>` | 产物落盘目录 |
@@ -67,7 +68,7 @@ topic → bili.collect()   ─┐
 各源现状：
 - **B 站**：官方 search API（免签名免登录），返回 bvid / title / view / danmaku / favorites / pubdate
 - **知乎**：search v3 API（`/api/v4/search_v3`），需要 cookies（playwright 登录后 storage_state）；处理 question / answer / article 三种 hit 类型，拿点赞 / 评论 / 收藏 / 感谢
-- **小红书**：⏸ 未实装（playwright 拿到 cookies 后再做，最难一档放最后）
+- **小红书**：playwright sync_api 启 headless chromium → 加载 cookies → goto 搜索页 → page.evaluate 解析 DOM 拿 title/url/作者/点赞；每次 collect 冷启动 chromium ~3-5s（单用户低频可接受）；published_at 用 range_to 占位（搜索列表卡片无日期）
 - 计分：`recency × 0.3 + engagement × 0.5 + relevance × 0.2`（engagement 同源内 log 缩放归一化）
 
 ## 目录结构
@@ -80,9 +81,10 @@ skills/topic/
     └── lib/
         ├── core/           # 公共组件（schema / http / log / dates / score / render / discover）
         └── sources/        # 各 source collector
-            ├── bili.py     # 简单 source = 单文件
-            ├── xhs.py      # ⏸ TODO stub
-            └── ...         # 复杂 source（要 cookies + 多步 enrich）将拆成子目录
+            ├── bili.py     # ✅ 走官方 search API，免登录
+            ├── zhihu.py    # ✅ search v3 + cookies
+            ├── xhs.py      # ✅ playwright headless 解析 DOM
+            └── ...         # 后续 tieba / hupu / weibo / taptap / github
 ```
 
 每个 source collector 必须暴露统一签名：
@@ -110,13 +112,13 @@ def collect(topic: str, range_from: str, range_to: str, *, limit: int) -> list[I
 | Source | 状态 | 难度 | 路径 |
 |---|---|---|---|
 | **B 站** | ✅ 已接入 | ★ 易 | 官方 search API，免登录 |
-| **知乎** | ✅ 已接入 | ★★ 中 | search v3 API，需要 cookies；首次去 webui /feed「站点登录」tab 扫码 |
+| **知乎** | ✅ 已接入 | ★★ 中 | search v3 API + cookies；首次去 webui /feed「站点登录」tab 扫码 |
+| **小红书** | ✅ 已接入 | ★★★ 中难 | playwright headless + cookies + DOM 解析；MVP 不抓发布日期 |
 | **贴吧** | TODO | ★★ 中 | 百度统一登录，`BDUSS` cookie；登录后调 `tieba.baidu.com/f/search/res` |
 | **虎扑** | TODO | ★★ 中 | `bbs.hupu.com/search` 网页搜索；登录后反爬宽松 |
 | **微博** | TODO | ★★★ 难 | `s.weibo.com/weibo?q=` 需 cookies；防风控较严 |
 | **TapTap** | TODO | ★★ 中 | webapi 搜索；游戏话题用 |
 | **GitHub** | TODO | ★ 易 | 公开 search API，免登录；技术话题补充 |
-| **小红书** | ⏸ 最后 | ★★★★ 极难 | edith API + x-s 签名 + cookies；先把其他 6 个搞完再啃 |
 
 各站 cookies 失效后，回 webui /feed「站点登录」tab 扫码续期。
 
