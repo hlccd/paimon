@@ -297,21 +297,23 @@ class LoginSession:
                         except Exception:
                             pass
 
-                        cookies = await context.cookies()
-                        current_names = {c.get("name", "") for c in cookies}
-                        # 判定 1：登录成功
-                        if success_in_baseline:
-                            new_names = current_names - baseline_names
-                            triggered = bool(new_names)
-                            reason = f"baseline diff 新增 {sorted(new_names)[:5]}"
-                        else:
-                            triggered = self.success_cookie in current_names
-                            reason = f"success_cookie '{self.success_cookie}' 出现"
-                        if triggered:
-                            await context.storage_state(path=str(cookies_path(self.site)))
-                            self.status = "success"
-                            logger.info("[浏览器·登录] {} 成功 cookies 落盘（{}）", self.site, reason)
-                            return
+                        # 判定 1：登录成功（仅在 qr_ready 阶段；进入 awaiting_sms / sms_submitting 后不再凭主循环 cookies 自动判，
+                        # 否则 SMS 页打开时新增的匿名 cookies 会把 baseline diff 兜底误触发，把用户的 SMS 填写界面直接推到 success）
+                        if self.status == "qr_ready":
+                            cookies = await context.cookies()
+                            current_names = {c.get("name", "") for c in cookies}
+                            if success_in_baseline:
+                                new_names = current_names - baseline_names
+                                triggered = bool(new_names)
+                                reason = f"baseline diff 新增 {sorted(new_names)[:5]}"
+                            else:
+                                triggered = self.success_cookie in current_names
+                                reason = f"success_cookie '{self.success_cookie}' 出现"
+                            if triggered:
+                                await context.storage_state(path=str(cookies_path(self.site)))
+                                self.status = "success"
+                                logger.info("[浏览器·登录] {} 成功 cookies 落盘（{}）", self.site, reason)
+                                return
 
                         # 判定 2：扫码后跳到 SMS 验证页（仅在 qr_ready 阶段检测，避免重复进入）
                         if self.status == "qr_ready":
