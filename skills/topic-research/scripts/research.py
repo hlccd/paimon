@@ -19,14 +19,13 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from lib import bili as bili_mod
-from lib import discover as discover_mod
-from lib import log
-from lib import render as render_mod
-from lib import score as score_mod
-from lib import xhs as xhs_mod
-from lib.dates import date_window
-from lib.schema import Item, Report
+from lib.core import log
+from lib.core import render as render_mod
+from lib.core import score as score_mod
+from lib.core.dates import date_window
+from lib.core.schema import Item, Report
+from lib.sources import bili as bili_mod
+from lib.sources import xhs as xhs_mod
 
 _SOURCE_TABLE = {
     "bili": bili_mod.collect,

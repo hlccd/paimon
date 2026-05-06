@@ -16,8 +16,8 @@ P2 阶段方案：
 """
 from __future__ import annotations
 
-from . import log
-from .schema import Item
+from ..core import log
+from ..core.schema import Item
 
 
 def collect(

@@ -12,9 +12,9 @@ from __future__ import annotations
 import re
 from html import unescape
 
-from . import http, log
-from .dates import in_window, parse_unix
-from .schema import Item
+from ..core import http, log
+from ..core.dates import in_window, parse_unix
+from ..core.schema import Item
 
 _SEARCH_URL = "https://api.bilibili.com/x/web-interface/search/all/v2"
 _VIEW_URL = "https://api.bilibili.com/x/web-interface/view"
