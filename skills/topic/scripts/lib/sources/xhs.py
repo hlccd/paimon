@@ -32,14 +32,9 @@ _UA = (
 
 
 def _cookies_storage_path() -> str | None:
-    """取 ~/.paimon/cookies/xhs.json 路径；不存在返回 None。"""
-    try:
-        from paimon.foundation.site_cookies import cookies_exists, cookies_path
-        return str(cookies_path("xhs")) if cookies_exists("xhs") else None
-    except ImportError:
-        from pathlib import Path
-        p = Path.home() / ".paimon" / "cookies" / "xhs.json"
-        return str(p) if p.exists() else None
+    """取 <paimon_home>/cookies/xhs.json 路径；不存在返回 None。"""
+    from paimon.foundation.site_cookies import cookies_exists, cookies_path
+    return str(cookies_path("xhs")) if cookies_exists("xhs") else None
 
 
 def _parse_count(text: str) -> int:

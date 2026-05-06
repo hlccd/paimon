@@ -34,7 +34,12 @@ _SOURCE_TABLE = {
     "xhs":   xhs_mod.collect,
 }
 
-_DEFAULT_CACHE = Path.home() / ".paimon" / "skills" / "topic" / "cache"
+try:
+    from paimon.config import config as _paimon_config
+    _DEFAULT_CACHE = _paimon_config.paimon_home / "skills" / "topic" / "cache"
+except ImportError:
+    # paimon 不在 PYTHONPATH 时降级到 user home（极少见）
+    _DEFAULT_CACHE = Path.home() / ".paimon" / "skills" / "topic" / "cache"
 
 
 def _slug(topic: str) -> str:

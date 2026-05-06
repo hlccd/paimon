@@ -1,6 +1,8 @@
-"""站点 cookies 管理：~/.paimon/cookies/{site}.json。
+"""站点 cookies 管理：<paimon_home>/cookies/{site}.json。
 
 paimon 全项目共用（不限 topic）。playwright 写入 / 各 skill 读取。
+路径锚定到 paimon_home（默认仓库根的 .paimon/），与 irminsul.db / paimon.log 同置，
+方便统一备份 / 删除 / 迁移。
 """
 from __future__ import annotations
 
@@ -9,7 +11,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-COOKIES_BASE = Path.home() / ".paimon" / "cookies"
+from paimon.config import config
+
+COOKIES_BASE = config.paimon_home / "cookies"
 
 
 def cookies_path(site: str) -> Path:

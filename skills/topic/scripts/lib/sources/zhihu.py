@@ -38,28 +38,9 @@ _UA = (
 
 
 def _load_cookies_header() -> str | None:
-    """读 ~/.paimon/cookies/zhihu.json → Cookie header。无 cookies 返回 None。"""
-    try:
-        from paimon.foundation.site_cookies import cookies_to_header
-    except ImportError:
-        # paimon 不在 PYTHONPATH 时（独立跑 skill），从仓库根读
-        return _load_cookies_header_standalone()
+    """读 <paimon_home>/cookies/zhihu.json → Cookie header。无 cookies 返回 None。"""
+    from paimon.foundation.site_cookies import cookies_to_header
     return cookies_to_header("zhihu")
-
-
-def _load_cookies_header_standalone() -> str | None:
-    """脱离 paimon 包独立运行时的 fallback：直接读 ~/.paimon/cookies/zhihu.json。"""
-    import json
-    from pathlib import Path
-    p = Path.home() / ".paimon" / "cookies" / "zhihu.json"
-    if not p.exists():
-        return None
-    try:
-        state = json.loads(p.read_text(encoding="utf-8"))
-        cookies = state.get("cookies") or []
-        return "; ".join(f"{c['name']}={c['value']}" for c in cookies if c.get("name"))
-    except (OSError, ValueError):
-        return None
 
 
 def _get_obj(d: dict, *path: str) -> Any:
@@ -189,20 +170,36 @@ def collect(
     skipped_window = 0
     page_size = 20
     for page in range(max_pages):
-        try:
-            resp = http.request(
-                "GET", _SEARCH_URL,
-                params={
-                    "t": "general",
-                    "q": topic,
-                    "limit": str(page_size),
-                    "offset": str(page * page_size),
-                },
-                headers=headers,
-                timeout=15,
-            )
-        except http.HTTPError as e:
-            log.source_log("zhihu", f"search 失败 HTTP {e.status}（cookies 可能失效，到 webui /feed「站点登录」tab 重新扫码续期）")
+        # 重试：知乎搜索偶发短暂风控 / 返回空 data，sleep 1s 重试 1-2 次能恢复
+        resp = None
+        last_err = ""
+        for attempt in range(3):
+            try:
+                r = http.request(
+                    "GET", _SEARCH_URL,
+                    params={
+                        "t": "general",
+                        "q": topic,
+                        "limit": str(page_size),
+                        "offset": str(page * page_size),
+                    },
+                    headers=headers,
+                    timeout=15,
+                )
+                # 200 但 data 为空也算"软失败"重试（风控期 zhihu 会返 200+空数组）
+                got_data = bool((r or {}).get("data"))
+                if got_data or page > 0:
+                    resp = r
+                    break
+                last_err = "data 为空"
+            except http.HTTPError as e:
+                last_err = f"HTTP {e.status}"
+            if attempt < 2:
+                import time as _time
+                log.source_log("zhihu", f"search 第 {attempt+1}/3 次失败（{last_err}），1s 后重试")
+                _time.sleep(1)
+        if resp is None:
+            log.source_log("zhihu", f"search 3 次都失败（{last_err}；cookies 可能失效，到 webui /feed「站点登录」tab 扫码续期）")
             break
         data = (resp or {}).get("data") or []
         if not data:
