@@ -615,7 +615,12 @@ FEED_SCRIPT = """
                         }
                     } else if(st === 'awaiting_sms'){
                         // 仅在跨态边沿（首次进入 awaiting_sms 或从 sms_submitting 失败回退）重渲染，避免抹掉用户输入
-                        if(_lastSt !== 'awaiting_sms') renderSmsForm();
+                        if(_lastSt !== 'awaiting_sms') {
+                            // 进 SMS 流程后必须停掉 QR 刷新 timer：refreshQr 守卫只看 _qrReady（已 true 不归零）不看 status，
+                            // 5s 一次的 refreshQr 会把 SMS 表单 innerHTML 直接覆盖成 QR img，用户体验上像「弹窗消失」没法填
+                            if(_qrRefreshTimer){ clearInterval(_qrRefreshTimer); _qrRefreshTimer = null; }
+                            renderSmsForm();
+                        }
                     } else if(st === 'sms_submitting'){
                         if(_lastSt !== 'sms_submitting'){
                             document.getElementById('qrModalBody').innerHTML =
