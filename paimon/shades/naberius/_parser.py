@@ -10,15 +10,22 @@ from paimon.core.authz.sensitive_tools import derive_sensitivity
 from paimon.foundation.irminsul.task import Subtask, TaskEdict
 
 
-_VALID_ARCHONS = {"草神", "雷神", "水神", "火神", "风神", "岩神", "冰神"}
-_ARCHON_TOOL_MAP = {
-    "草神": ["knowledge", "memory", "exec"],
-    "雷神": ["file_ops", "exec"],
-    "水神": ["file_ops"],
-    "火神": ["exec"],
-    "风神": ["web_fetch", "exec"],
-    "岩神": ["exec"],
-    "冰神": ["skill_manage", "exec"],
+# assignee 字段值 = stage 名，跟 paimon/shades/worker/_stages.py:ALL_STAGES 对齐
+_VALID_STAGES = {
+    "spec", "design", "code",
+    "review_spec", "review_design", "review_code",
+    "simple_code", "exec", "chat",
+}
+_STAGE_TOOL_MAP = {
+    "spec": ["file_ops"],
+    "design": ["file_ops"],
+    "code": ["file_ops", "exec"],
+    "review_spec": ["file_ops", "glob", "exec"],
+    "review_design": ["file_ops", "glob", "exec"],
+    "review_code": ["file_ops", "glob", "exec"],
+    "simple_code": ["file_ops", "exec"],
+    "exec": ["exec"],
+    "chat": ["file_ops"],
 }
 
 
@@ -86,22 +93,20 @@ def _extract_items_from_obj(obj: object) -> list[dict]:
 
 
 def _salvage_from_raw_text(raw: str, task: TaskEdict) -> list[dict]:
-    """最后兜底：从 raw 文本正则抓 "assignee":"某神" 和 "description":"..." 片段，
-    保留 LLM 意图。抓不到才降级单节点草神。
-
-    目标不是还原完整 DAG（那不可能），而是**至少不改派**——让风神任务留在风神手里。
+    """最后兜底：从 raw 文本正则抓 "assignee":"<stage>" 和 "description":"..." 片段，
+    保留 LLM 意图。抓不到才降级单节点 chat。
     """
-    # 找第一个合法 assignee
+    # 找第一个合法 assignee（stage 名）
     assignee: str | None = None
     for m in re.finditer(r'"assignee"\s*:\s*"([^"]+)"', raw):
         cand = m.group(1).strip()
-        if cand in _VALID_ARCHONS:
+        if cand in _VALID_STAGES:
             assignee = cand
             break
 
     if not assignee:
-        logger.warning("[生执·salvage] 从 raw 抓不到合法 assignee → 回退单节点草神")
-        return [{"id": "s1", "assignee": "草神",
+        logger.warning("[生执·salvage] 从 raw 抓不到合法 assignee → 回退单节点 chat")
+        return [{"id": "s1", "assignee": "chat",
                  "description": task.description, "deps": []}]
 
     # 找第一个非空 description（不强求合法 JSON 转义，尽力匹配第一个"...")
@@ -112,7 +117,7 @@ def _salvage_from_raw_text(raw: str, task: TaskEdict) -> list[dict]:
         desc_match.group(1).strip() if desc_match else task.description
     )
     logger.warning(
-        "[生执·salvage] 从 raw 抢救 assignee={} desc_len={} (不改派神)",
+        "[生执·salvage] 从 raw 抢救 assignee={} desc_len={}",
         assignee, len(description),
     )
     return [{"id": "s1", "assignee": assignee,
@@ -137,7 +142,7 @@ def _items_to_subtasks(items: list[dict], task_id: str, round: int) -> list[Subt
             raw_deps = []
         real_deps = [tmp_to_real[str(d)] for d in raw_deps if str(d) in tmp_to_real]
 
-        assignee = item.get("assignee", "草神")
+        assignee = item.get("assignee", "chat")
         description = item.get("description", "").strip()
         sensitive_ops = item.get("sensitive_ops") or []
         if not isinstance(sensitive_ops, list):
@@ -162,6 +167,6 @@ def _items_to_subtasks(items: list[dict], task_id: str, round: int) -> list[Subt
 
 
 def _infer_sensitive_ops(assignee: str) -> list[str]:
-    tools = _ARCHON_TOOL_MAP.get(assignee, [])
+    tools = _STAGE_TOOL_MAP.get(assignee, [])
     _, hits = derive_sensitivity(tools)
     return hits

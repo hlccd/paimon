@@ -1,4 +1,4 @@
-"""四影 · 裁决解析 + 状态行渲染：水神 verdict 解读、阶段进度文本。"""
+"""四影 · 裁决解析 + 状态行渲染：评审 verdict 解读、阶段进度文本。"""
 from __future__ import annotations
 
 import asyncio
@@ -22,6 +22,8 @@ from .._verdict import (
     parse_verdict,
 )
 
+_REVIEW_STAGES = {"review_spec", "review_design", "review_code"}
+
 
 class _VerdictMixin:
     def _stage_status_line(self, plan: Plan, results: dict[str, str]) -> str:
@@ -35,18 +37,15 @@ class _VerdictMixin:
             s: None for _, s in stages  # review_spec → verdict level or None
         }
         for sub in plan.subtasks:
-            if sub.assignee != "水神":
+            if sub.assignee not in _REVIEW_STAGES:
                 continue
             raw = results.get(sub.id, "").strip()
             if not raw:
                 continue
-            for _, rv in stages:
-                if sub.description.startswith(f"[STAGE:{rv}]"):
-                    try:
-                        by_stage[rv] = parse_verdict(raw).level
-                    except Exception:
-                        pass
-                    break
+            try:
+                by_stage[sub.assignee] = parse_verdict(raw).level
+            except Exception:
+                pass
 
         if all(by_stage[rv] is None for _, rv in stages):
             # 非三阶段 DAG
@@ -61,31 +60,31 @@ class _VerdictMixin:
         return " / ".join(parts)
 
     def _resolve_verdict(self, plan: Plan, results: dict[str, str]) -> ReviewVerdict:
-        """聚合"本轮实际跑过且有产物的水神节点"，取**最坏 level** 的 verdict。
+        """聚合"本轮实际跑过且有产物的评审节点"（review_spec/design/code），取**最坏 level**。
 
-        - 只看 results 有非空产物的水神节点（已实际执行）
+        - 只看 results 有非空产物的评审节点（已实际执行）
         - 从中取 level 最严重的（redo > revise > pass）
         - 三阶段 DAG 下任一 review 非 pass 都会让整轮回炉（而不是只看末尾 review）
         """
-        water_nodes_with_output = [
+        review_nodes_with_output = [
             s for s in plan.subtasks
-            if s.assignee == "水神" and results.get(s.id, "").strip()
+            if s.assignee in _REVIEW_STAGES and results.get(s.id, "").strip()
         ]
-        if not water_nodes_with_output:
+        if not review_nodes_with_output:
             if find_last_verdict_producer(plan.subtasks) is None:
                 return ReviewVerdict(
-                    level=LEVEL_PASS, summary="(无水神评审节点，默认通过)",
+                    level=LEVEL_PASS, summary="(无评审节点，默认通过)",
                 )
             return ReviewVerdict(
                 level=LEVEL_PASS,
-                summary="(水神节点无产物，跳过评审视为通过)",
+                summary="(评审节点无产物，跳过评审视为通过)",
             )
 
         # 三阶段聚合：任一 review 非 pass → 整轮非 pass；取最坏 level 的 verdict 返回。
         # 没有这个聚合会导致 review_spec redo 但 review_code pass 时错判"整轮 pass"。
         # （MVP 代价：当前 asmoday 仍会跑完所有节点再汇总；阶段门控留 Phase 2。）
         _LEVEL_RANK = {"pass": 0, "revise": 1, "redo": 2}
-        parsed_list = [parse_verdict(results[s.id]) for s in water_nodes_with_output]
+        parsed_list = [parse_verdict(results[s.id]) for s in review_nodes_with_output]
         worst = max(parsed_list, key=lambda v: _LEVEL_RANK.get(v.level, 0))
         return worst
 
@@ -109,7 +108,7 @@ class _VerdictMixin:
                 continue
             try:
                 await self._irminsul.subtask_update_verdict(
-                    sid, verdict_status=node_status, actor="水神",
+                    sid, verdict_status=node_status, actor="评审",
                 )
             except Exception as e:
                 logger.warning("[四影] 标记 verdict 失败 sub={}: {}", sid, e)

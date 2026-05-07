@@ -3,7 +3,7 @@
 管线职责：
   - review(task): 入口请求审（管线第一步）
   - scan_plan(plan): DAG 敏感操作扫描（每轮编排后、dispatch 前）
-  - review_skill_declaration(decl): 冰神热加载的新 skill 审查（外部调用）
+  - review_skill_declaration(decl): skill_loader 热加载新 skill 时的审查（外部调用）
 
 docs/aimon.md §2.4 四影路径权限流：
   生执编排 DAG → 死执扫敏感操作 → 排除已永久放行 → 派蒙批量询问 → 其余剔除
@@ -159,7 +159,7 @@ async def review_skill_declaration(
     decl: "SkillDecl",
     model: Model,
 ) -> tuple[bool, str]:
-    """审查 skill 声明（冰神运行时加载前调）。
+    """审查 skill 声明（skill_loader 运行时加载前调）。
 
     返回 (passed, reason)。LLM 调用失败时保守拒绝（不加载）。
     """
@@ -262,11 +262,9 @@ def scan_plan(
         if not ops:
             continue
 
-        # skill 粒度：用 subject=skill/<assignee> 的键查（因为目前敏感度派生在 skill 维度；
-        # 后续 todo.md 2.x 会支持工具粒度）
-        # 这里先按"节点"整体决策，subject_id 用 assignee 作为粗粒度 key
-        subject_type = "shades_node"
-        subject_id = sub.assignee  # 用中文神名做键（与派蒙天使路径的 skill 名区分）
+        # subject 用 stage 维度（assignee 字段值即 stage 名）
+        subject_type = "stage"
+        subject_id = sub.assignee  # 即 stage 名（"spec" / "code" / "review_*" 等）
 
         cached = authz_cache.get(subject_type, subject_id)
         if cached == "permanent_deny":

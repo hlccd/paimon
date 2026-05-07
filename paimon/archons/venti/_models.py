@@ -2,10 +2,10 @@
 
 新闻采集、舆情分析与追踪、推送整理。
 
-两条入口：
-1. `execute()` —— 四影管线复杂任务入口（LLM tool-loop，走 web_fetch/exec）
-2. `collect_subscription()` —— 话题订阅后台采集入口（subprocess 直调 web-search skill，
-   批量 LLM 早报，交三月响铃推送）
+⚠️ v6 解耦后单一入口：
+- `collect_subscription()` —— 话题订阅后台采集入口（subprocess 直调 web-search skill，
+  批量 LLM 早报，交三月响铃推送）
+- `execute()` 已搬到 `paimon/shades/worker/`（对应 stage=chat / exec），asmoday 不再调本节点
 """
 from __future__ import annotations
 

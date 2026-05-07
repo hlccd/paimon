@@ -22,6 +22,8 @@ from .._verdict import (
     parse_verdict,
 )
 
+_REVIEW_STAGES = {"review_spec", "review_design", "review_code"}
+
 
 class _FinalMixin:
     def _compose_final(
@@ -44,14 +46,14 @@ class _FinalMixin:
             s for s in plan.subtasks
             if s.id not in has_downstream and results.get(s.id)
         ]
-        non_water_terms = [t for t in terminals if t.assignee != "水神"]
-        water_terms = [t for t in terminals if t.assignee == "水神"]
+        non_review_terms = [t for t in terminals if t.assignee not in _REVIEW_STAGES]
+        review_terms = [t for t in terminals if t.assignee in _REVIEW_STAGES]
 
         parts: list[str] = []
-        for t in non_water_terms:
+        for t in non_review_terms:
             parts.append(results[t.id])
-        if not parts and water_terms:
-            for t in water_terms:
+        if not parts and review_terms:
+            for t in review_terms:
                 parts.append(results[t.id])
         if not parts:
             for sid, r in results.items():
@@ -76,7 +78,7 @@ class _FinalMixin:
             body += (
                 f"\n\n---\n"
                 f"⚠️ 已达最大轮次（level={verdict.level}），返回最后一轮产物。\n"
-                f"水神意见：{verdict.summary[:400]}"
+                f"评审意见：{verdict.summary[:400]}"
             )
         return body or "(产物为空)"
 

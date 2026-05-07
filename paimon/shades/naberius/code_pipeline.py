@@ -1,4 +1,4 @@
-"""代码任务专用 pipeline：草神 spec → 雷神 design+code → 水神 review 三段式。"""
+"""代码任务专用 pipeline：spec → design+code → review_* 三段式（v6 全 stage 化）。"""
 from __future__ import annotations
 
 import json
@@ -76,13 +76,17 @@ def _classify_code_task(task: TaskEdict) -> str:
     return base
 
 
+_CODE_PIPELINE_STAGES = {
+    "spec", "review_spec", "design", "review_design", "code", "review_code",
+    "simple_code",
+}
+
+
 def _is_code_pipeline_plan(plan: "Plan | None") -> bool:
-    """判断给定 plan 是否是三阶段写代码 DAG（靠节点 description 前缀识别）。"""
+    """判断给定 plan 是否是写代码 DAG（靠节点 assignee = code-pipeline stage 识别）。"""
     if plan is None or not plan.subtasks:
         return False
-    return any(
-        s.description.startswith("[STAGE:") for s in plan.subtasks
-    )
+    return any(s.assignee in _CODE_PIPELINE_STAGES for s in plan.subtasks)
 
 
 def _revise_code_pipeline(
@@ -102,16 +106,9 @@ def _revise_code_pipeline(
 
     # 收集所有节点按 stage 分组（保持原顺序）
     ordered = list(previous_plan.subtasks)
-    # 按 description 提取 stage
+    # assignee 直接就是 stage 名（v6 解耦后）
     def _stage_of(s: Subtask) -> str:
-        d = s.description
-        if d.startswith("[STAGE:spec]"): return "spec"
-        if d.startswith("[STAGE:review_spec]"): return "review_spec"
-        if d.startswith("[STAGE:design]"): return "design"
-        if d.startswith("[STAGE:review_design]"): return "review_design"
-        if d.startswith("[STAGE:code]"): return "code"
-        if d.startswith("[STAGE:review_code]"): return "review_code"
-        return "unknown"
+        return s.assignee if s.assignee in _CODE_PIPELINE_STAGES else "unknown"
 
     # 被审节点 id 集合（来自 verdict.issues）
     failed_ids = {
@@ -193,7 +190,7 @@ def _revise_code_pipeline(
             task_id=task.id,
             parent_id=None,
             assignee=assignee,
-            description=f"[STAGE:{stage}] {desc}",
+            description=desc,
             status="pending",
             result="",
             created_at=now,
@@ -206,20 +203,20 @@ def _revise_code_pipeline(
         )
 
     # stage_meta 只保留当前 plan 里实际存在的 stage，避免 simple/trivial revise
-    # 被升级成 complex 6 节点
+    # 被升级成 complex 6 节点。assignee 字段值 = stage 名（v6 解耦后的统一格式）
     _full_stage_meta = [
-        ("spec", "草神", "产出产品方案 spec.md（revise 轮）"),
-        ("review_spec", "水神", "审查 spec.md"),
-        ("design", "雷神", "产出技术方案 design.md（revise 轮）"),
-        ("review_design", "水神", "审查 design.md"),
-        ("code", "雷神", "产出代码（revise 轮，增量修改）"),
-        ("review_code", "水神", "审查 code"),
+        ("spec", "spec", "产出产品方案 spec.md（revise 轮）"),
+        ("review_spec", "review_spec", "审查 spec.md"),
+        ("design", "design", "产出技术方案 design.md（revise 轮）"),
+        ("review_design", "review_design", "审查 design.md"),
+        ("code", "code", "产出代码（revise 轮，增量修改）"),
+        ("review_code", "review_code", "审查 code"),
     ]
     stage_meta = [m for m in _full_stage_meta if m[0] in present_stages]
 
     # verdict.issues 嵌到**第一个被 redo 的生产节点** description 里——
-    # revise 轮时，上一轮水神 review 节点在新 plan 里被替换，deps 机制拿不到
-    # 其 result；用 description 内嵌作为确定性反馈通道，archon 分派时优先读。
+    # revise 轮时，上一轮 review 节点在新 plan 里被替换，deps 机制拿不到
+    # 其 result；用 description 内嵌作为确定性反馈通道，工人 stage 优先读。
     import json as _json
     issues_blob = ""
     if verdict.issues:
@@ -264,7 +261,7 @@ def _mk_code_node(
     task_id: str, assignee: str, stage: str, desc: str,
     deps: list[str], *, round: int = 1,
 ) -> Subtask:
-    """统一构造带 [STAGE:xxx] 前缀的 Subtask。各 archon execute 按前缀分派方法。"""
+    """统一构造写代码 DAG 节点的 Subtask。assignee 即 stage 名，asmoday 据此派 worker。"""
     import time
     import uuid
     now = time.time()
@@ -273,7 +270,7 @@ def _mk_code_node(
         task_id=task_id,
         parent_id=None,
         assignee=assignee,
-        description=f"[STAGE:{stage}] {desc}",
+        description=desc,
         status="pending",
         result="",
         created_at=now,
@@ -287,43 +284,41 @@ def _mk_code_node(
 
 
 def _build_code_pipeline_dag(task_id: str, level: str = "complex") -> list[Subtask]:
-    """按复杂度生成写代码 DAG。
+    """按复杂度生成写代码 DAG。assignee 字段即 stage 名（asmoday 派 worker.run_stage）。
 
-    - trivial: 1 节点（雷神 code + 自检），如"写个 hello.py"
-    - simple:  2 节点（雷神 code → 水神 review_code），单文件级改动
-    - complex: 6 节点（草神 spec → 水神 review_spec → 雷神 design → 水神 review_design
-              → 雷神 code → 水神 review_code），涉及架构决策的任务
-
-    description 前缀 `[STAGE:xxx]` 用于各 archon execute() 分派到对应方法。
+    - trivial: 1 节点（simple_code），如"写个 hello.py"
+    - simple:  2 节点（code → review_code），单文件级改动
+    - complex: 6 节点（spec → review_spec → design → review_design → code → review_code），
+              涉及架构决策的任务
     """
     if level == "trivial":
         return [_mk_code_node(
-            task_id, "雷神", "code",
-            "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [],
+            task_id, "simple_code", "simple_code",
+            "产出代码到 code/ 目录（trivial：直接 LLM 写 + 自检）", [],
         )]
 
     if level == "simple":
         n1 = _mk_code_node(
-            task_id, "雷神", "code",
+            task_id, "code", "code",
             "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [],
         )
         n2 = _mk_code_node(
-            task_id, "水神", "review_code",
+            task_id, "review_code", "review_code",
             "审查 code（对齐原始需求）", [n1.id],
         )
         return [n1, n2]
 
     # complex: 完整三阶段 6 节点
-    n1 = _mk_code_node(task_id, "草神", "spec",
+    n1 = _mk_code_node(task_id, "spec", "spec",
                        "产出产品方案 spec.md（调 requirement-spec skill）", [])
-    n2 = _mk_code_node(task_id, "水神", "review_spec",
+    n2 = _mk_code_node(task_id, "review_spec", "review_spec",
                        "审查 spec.md（调 check skill spec 模式）", [n1.id])
-    n3 = _mk_code_node(task_id, "雷神", "design",
+    n3 = _mk_code_node(task_id, "design", "design",
                        "产出技术方案 design.md（调 architecture-design skill）", [n2.id])
-    n4 = _mk_code_node(task_id, "水神", "review_design",
+    n4 = _mk_code_node(task_id, "review_design", "review_design",
                        "审查 design.md（调 check skill 对齐 spec）", [n3.id])
-    n5 = _mk_code_node(task_id, "雷神", "code",
+    n5 = _mk_code_node(task_id, "code", "code",
                        "产出代码到 code/ 目录（调 code-implementation skill + 自检）", [n4.id])
-    n6 = _mk_code_node(task_id, "水神", "review_code",
+    n6 = _mk_code_node(task_id, "review_code", "review_code",
                        "审查 code（调 check skill 对齐 design）", [n5.id])
     return [n1, n2, n3, n4, n5, n6]

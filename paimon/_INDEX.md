@@ -130,33 +130,41 @@ irminsul/
 
 ---
 
-## archons/ — 七神（业务能力）
+## archons/ — 七神（v6 解耦后：cron / 面板 / 概念归属；业务执行已转 shades/worker/）
 
-`base.py` — `Archon` ABC + `_invoke_skill_workflow`（skill 驱动的 tool loop）
+`base.py` — `Archon` ABC + `_invoke_skill_workflow`（保留：venti/zhongli digest 等内部 LLM 调用仍用）
+
+**A 类（保留非四影功能）：**
 
 | 子包/文件 | 神 | 业务 |
 |---|---|---|
-| `venti/` (1299 LOC) | 风神 | 订阅采集 → 信息流（每 ~30min subprocess 跑 web-search skill） |
-| `venti_event/` (654 LOC) | 风神 | L1 事件级舆情聚类（_LLM/_Process Mixin → EventClusterer） |
-| `zhongli/` (2835 LOC 含子包) | 岩神 | 红利股扫描 + 评分（zhongli.py + scorer/ + _zhongli/ 三层）；subprocess 跑 dividend-tracker skill |
-| `furina/` | 水神 | 成品评审（_review.py 内含 LIGHT_REVIEW prompt） |
-| `furina_game/` | 水神 | 米哈游游戏（账号/签到/便笺/抽卡）；subprocess 跑 mihoyo skill |
-| `raiden.py` | 雷神 | 写代码（subprocess 跑 ruff + python -m pytest） |
-| `mavuika.py` | 火神 | 重型工具（shell/code 执行） |
-| `nahida.py` | 草神 | 推理/文书 |
-| `tsaritsa.py` | 冰神 | skill 生态（注册 + 自举） |
+| `venti/` | 风神 | 订阅采集 cron + LLM digest（订阅型 + 事件型）+ `/feed` 面板 + 站点登录代理（_LoginMixin）；execute 内部已删 |
+| `venti_event/` | 风神 | L1 事件级舆情聚类（_LLM/_Process Mixin → EventClusterer） |
+| `zhongli/` | 岩神 | 红利股扫描 + scorer + `/wealth` cron + watchlist + dividend cron；execute 内部已删 |
+| `furina/` | 水神 | namespace 壳（archon 本体 review 段已删）；FurinaGameService 在 `furina_game/` |
+| `furina_game/` | 水神 | 米哈游游戏（账号/签到/便笺/抽卡 + 6 mixin）；保留 |
+| `nahida.py` | 草神 | namespace 壳；概念归属 `/knowledge` 面板（webui 直读 irminsul） |
+| `tsaritsa.py` | 冰神 | namespace 壳；概念归属 `/plugins` 面板（webui 直读 skill_loader） |
+
+**B 类（archon 本体暂无具体职能 / namespace 壳，待用户后续安排）：**
+
+| 文件 | 神 | 状态 |
+|---|---|---|
+| `raiden.py` | 雷神 | namespace 壳，~30 行；原写代码 4 件套已转 worker/（design / code / simple_code） |
+| `mavuika.py` | 火神 | namespace 壳，~30 行；原 exec tool-loop 已转 worker/（exec） |
 
 ---
 
-## shades/ — 四影（流程框架）
+## shades/ — 四影（流程框架）+ 工人（v6 新增）
 
 | 路径 | 影 | 职责 |
 |---|---|---|
 | `pipeline/` | — | 主控（prepare 入口审 + execute DAG 跑） |
-| `naberius/` (873 LOC) | 生执 | DAG 拆分 + 拓扑 + 多轮迭代 + saga 补偿 |
-| `jonova.py` | 死执 | 安全审 + plan 敏感扫 + 运行时 skill 审 |
-| `asmoday.py` | 空执 | 动态路由 + gather 并发 + 故障切换 |
+| `naberius/` | 生执 | DAG 拆分（assignee 字段值=stage 名）+ 拓扑 + 多轮迭代 + saga 补偿 |
+| `jonova.py` | 死执 | 安全审（subject_type="stage"）+ plan 敏感扫 + 运行时 skill 审 |
+| `asmoday.py` | 空执 | 动态路由（按 stage 派发到 `worker.run_stage`）+ gather 并发 + 故障切换 |
 | `istaroth/` | 时执 | 活跃压缩 + 生命周期清扫 + 最终归档 |
+| `worker/` | — | 9 stage 工人体系（spec/design/code/review_*/simple_code/exec/chat）；asmoday 通过 `run_stage` 派发 |
 
 ---
 

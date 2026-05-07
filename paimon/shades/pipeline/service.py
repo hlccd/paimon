@@ -85,15 +85,11 @@ class ShadesPipeline(
         """把 plan 的子任务列表格式化成面向用户的派发消息。
 
         子任务描述**完整不截断**（用户明确要求，即使很长也全列；QQ 单条消息上限
-        约 2000 字，通常远够装下 DAG）。只去掉 `[STAGE:xxx]` 内部标记前缀。
+        约 2000 字，通常远够装下 DAG）。
         """
         lines = [f"🚀 已派发 {len(plan.subtasks)} 个子任务执行："]
         for i, sub in enumerate(plan.subtasks, start=1):
             desc = (sub.description or "").strip()
-            if desc.startswith("["):
-                rb = desc.find("]")
-                if 0 < rb < 40:
-                    desc = desc[rb + 1:].strip()
             lines.append(f"  {i}. {sub.assignee} · {desc}")
         lines.append(
             "如超过几分钟未完成，可随时去 /tasks 面板或 /task-list 查看进度。"

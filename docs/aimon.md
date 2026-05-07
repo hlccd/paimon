@@ -39,14 +39,17 @@
   - **晨星**：天使体系的 leader，负责调度（assemble 召集 → dispatch+speak loop → synthesize）；本身也是天使的一员
   - **协同天使**：11 个预定义角色（结构性 5 / 评估性 4 / 对抗性 2），晨星按议题挑 3-5 个参与讨论
   - 实现：[`paimon/morningstar/`](../paimon/morningstar/)
-- **【能力】七神**（skill 调用代理 + 业务 cron + 面板）
-  - [风神·巴巴托斯](archons/venti.md)：信息采集（web-search / bili / xhs / topic）
-  - [岩神·摩拉克斯](archons/zhongli.md)：财富（dividend-tracker）
-  - [草神·纳西妲](archons/nahida.md)：智慧 + 写代码 4 件套（spec / design / code / check）
-  - [雷神·巴尔泽布](archons/raiden.md)：写代码 skill 已转草神，业务身份待定
-  - [火神·玛薇卡](archons/mavuika.md)：重型工具（exec / file_ops / web_fetch）
-  - [水神·芙宁娜](archons/furina.md)：游戏（mihoyo）
-  - [冰神·冰之女皇](archons/tsaritsa.md)：skill 生态全管
+- **【能力】七神**（v6 解耦：四影 asmoday 不再调用七神 execute；业务执行已转 `paimon/shades/worker/`）
+  - 七神 7 个 archon class 全部保留，按当前职能分类：
+  - **A 类（保留非四影功能 5 个）**：
+    - [风神·巴巴托斯](archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录
+    - [岩神·摩拉克斯](archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron
+    - [草神·纳西妲](archons/nahida.md)：`/knowledge` 面板概念归属（知识 / 偏好 / 文书归档）
+    - [水神·芙宁娜](archons/furina.md)：游戏（`/game` + 2 cron + 1 sub type）；archon 本体 review 段已移除
+    - [冰神·冰之女皇](archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace
+  - **B 类（archon 本体暂无具体职能 / namespace 壳 2 个）**：
+    - [雷神·巴尔泽布](archons/raiden.md) / [火神·玛薇卡](archons/mavuika.md)
+    - `execute` 兜底返"已解耦"；docs/archons/*.md 已标注；待用户后续安排
 - **【全局支撑层】**
   - **存储层（唯一）**：[**世界树**](foundation/irminsul.md) —— 9 个数据域统一落盘
   - **服务层（无状态）**：[**地脉**](foundation/leyline.md)（事件总线）、[**神之心**](foundation/gnosis.md)（LLM 资源池）
@@ -85,7 +88,7 @@
    │
    ├── chat       → 派蒙浅层 LLM 直答
    ├── skill      → skill 直调（topic / web-search / bili / xhs ...）
-   ├── /task      → 四影管线（死执 → 生执 → 空执 → 七神 → 时执）
+   ├── /task      → 四影管线（死执 → 生执 → 空执 → 工人 stage → 时执）
    └── /agents    → 天使体系讨论（晨星召集协同天使）
 ```
 
@@ -95,7 +98,7 @@ skill 路径**单 tool 超时**返错给 LLM 自愈、**整体超时**直接 rep
 
 ```text
 chat / skill:    LLM 输出 ───────────→ 派蒙 → channel → 用户
-/task:           七神产物 → 时执收尾 → 派蒙 → channel → 用户
+/task:           工人产物 → 时执收尾 → 派蒙 → channel → 用户
 /agents:         协同天使发言（流式）→ 晨星综合 → 派蒙 → channel → 用户
 三月提醒:        定时任务触发 → 三月 → 派蒙 → channel → 用户
 ```
@@ -110,19 +113,29 @@ chat / skill:    LLM 输出 ───────────→ 派蒙 → chan
 用户 → channel → 派蒙 → 判定复杂任务 → 进入四影
    │
 死执：深度安全审查
-生执：DAG 编排（拆子任务 + 静态依赖环检测）
-空执：把子任务路由到对应七神
+生执：DAG 编排（拆子任务 + 静态依赖环检测；assignee 字段值为 stage 名）
+空执：按子任务 stage 派发到工人（worker.run_stage）
    │
-七神能力层（多轮迭代，轮次由生执控制）
-   草神（spec / design）→ 水神（评审；不通过回草神）
-                       → 雷神（code）→ 水神（review；不通过回雷神）
+工人 stage 层（多轮迭代，轮次由生执控制）
+   spec → review_spec（不通过回 spec）
+        → design → review_design（不通过回 design）
+        → code → review_code（不通过回 code）
    （敏感操作时死执批量询问一次）
    │
 时执：最终归档 + 审计复盘 → 派蒙 → channel → 用户
 ```
 
-**分工**：派蒙只**入口/出口**；四影只**流程骨架**；七神只**业务执行**。
-固定顺序：**死执 → 生执 → 空执 → 七神 → 时执**。
+**分工**：派蒙只**入口/出口**；四影只**流程骨架**；工人 9 个 stage 落地业务执行。
+固定顺序：**死执 → 生执 → 空执 → 工人 → 时执**。
+
+**9 个 stage**：
+- `spec` / `design` / `code`（三段式编程主流程，调对应 skill workflow）
+- `review_spec` / `review_design` / `review_code`（产 .check.json，调 check skill）
+- `simple_code`（trivial 任务直接 LLM 写代码）
+- `exec`（通用 shell / 部署 / 重型工具）
+- `chat`（普通 LLM 推理任务，默认兜底）
+
+实现：`paimon/shades/worker/`
 
 ### 2.4 多视角讨论流（/agents）
 

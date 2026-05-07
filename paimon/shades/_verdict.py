@@ -1,7 +1,7 @@
-"""水神裁决协议与解析器
+"""评审裁决协议与解析器（v6 解耦后由工人 review_* stage 产出）。
 
-docs/aimon.md §2.3：水神评审三级结论 —— 通过 / 修改 / 重做。
-pipeline 在每轮 dispatch 完后，从"最后一个水神节点"的产物里解析出
+评审三级结论 —— pass（通过）/ revise（修改）/ redo（重做）。
+pipeline 在每轮 dispatch 完后，从"最后一个 review_* 节点"的产物里解析出
 ReviewVerdict 喂回生执，决定是否继续下一轮。
 
 容错原则：解析失败 → 默认 pass（防止 LLM 偶发格式错误阻塞管线）。
@@ -77,13 +77,13 @@ def _extract_json_block(text: str) -> str | None:
 
 
 def parse_verdict(raw_text: str) -> ReviewVerdict:
-    """从水神的自由产物里抽出 verdict。
+    """从评审 stage 的自由产物里抽出 verdict。
 
     LLM 可能输出：纯 JSON / code fence 包裹 / 自然语言带嵌入 JSON。
     任何解析失败都降级为 pass（容错优先，配合 audit 记录问题）。
     """
     if not raw_text:
-        return ReviewVerdict(level=LEVEL_PASS, summary="(水神产物为空，默认通过)")
+        return ReviewVerdict(level=LEVEL_PASS, summary="(评审产物为空，默认通过)")
 
     blob = _extract_json_block(raw_text)
     if not blob:
@@ -98,7 +98,7 @@ def parse_verdict(raw_text: str) -> ReviewVerdict:
     try:
         obj = json.loads(blob)
     except Exception as e:
-        logger.warning("[水神·verdict] JSON 解析失败，默认通过: {} 原文={}",
+        logger.warning("[评审·verdict] JSON 解析失败，默认通过: {} 原文={}",
                        e, blob[:200])
         return ReviewVerdict(level=LEVEL_PASS, summary=raw_text[:400])
 
@@ -121,13 +121,16 @@ def parse_verdict(raw_text: str) -> ReviewVerdict:
     return ReviewVerdict(level=level, issues=issues, summary=summary)
 
 
-def find_last_verdict_producer(subtasks: list[Subtask]) -> Subtask | None:
-    """在 plan 中找"最后一个水神节点"作为 verdict 的产出者。
+_REVIEW_STAGES = {"review_spec", "review_design", "review_code"}
 
-    约定：pipeline 把 DAG 中 assignee=水神 的节点按 created_at 取末尾。
-    没有水神节点 → 返回 None（pipeline 视为 pass）。
+
+def find_last_verdict_producer(subtasks: list[Subtask]) -> Subtask | None:
+    """在 plan 中找"最后一个评审节点"作为 verdict 的产出者。
+
+    约定：pipeline 把 DAG 中 assignee ∈ REVIEW_STAGES 的节点按 created_at 取末尾。
+    没有评审节点 → 返回 None（pipeline 视为 pass）。
     """
-    water_nodes = [s for s in subtasks if s.assignee == "水神"]
-    if not water_nodes:
+    review_nodes = [s for s in subtasks if s.assignee in _REVIEW_STAGES]
+    if not review_nodes:
         return None
-    return max(water_nodes, key=lambda s: s.created_at)
+    return max(review_nodes, key=lambda s: s.created_at)

@@ -22,14 +22,18 @@
   - **【主持·多视角讨论】晨星 + 天使**
     - **晨星**：leader 天使（召集 / 调度发言 / 判收敛 / 综合输出）
     - **天使**：协同角色，预定义 11 个池（结构性 / 评估性 / 对抗性，详 §三 /agents）
-  - **【能力】七神**（skill 调用代理 + 业务 cron + 面板，**不进 LLM 对话流**）
-    - [**风神·巴巴托斯**](archons/venti.md)：信息采集 → web-search / bili / xhs
-    - [**岩神·摩拉克斯**](archons/zhongli.md)：财富 → dividend-tracker
-    - [**草神·纳西妲**](archons/nahida.md)：智慧 + 写代码 4 件套（spec / design / code / check）
-    - [**雷神·巴尔泽布**](archons/raiden.md)：（写代码 skill 已转草神，业务身份待定）
-    - [**火神·玛薇卡**](archons/mavuika.md)：重型工具 → exec / file_ops / web_fetch
-    - [**水神·芙宁娜**](archons/furina.md)：游戏 → mihoyo
-    - [**冰神·冰之女皇**](archons/tsaritsa.md)：skill 生态管理
+  - **【能力】七神**（v6 解耦：四影业务执行已转 `paimon/shades/worker/` 9 stage；七神保留非四影功能）
+    - **A 类**（保留 cron / 面板 / 概念归属）：
+      - [**风神·巴巴托斯**](archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录
+      - [**岩神·摩拉克斯**](archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron
+      - [**草神·纳西妲**](archons/nahida.md)：`/knowledge` 面板概念归属
+      - [**水神·芙宁娜**](archons/furina.md)：游戏（`/game` + 2 cron + 1 sub type）
+      - [**冰神·冰之女皇**](archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace
+    - **B 类**（archon 本体暂无具体职能 / namespace 壳）：
+      - [**雷神·巴尔泽布**](archons/raiden.md) / [**火神·玛薇卡**](archons/mavuika.md)
+  - **【能力】工人**（v6 新增 · `paimon/shades/worker/`）
+    - 9 个 stage：`spec` / `design` / `code` / `review_spec` / `review_design` / `review_code` / `simple_code` / `exec` / `chat`
+    - 无人格化执行单元，按 stage 选 skill workflow / tool-loop
   - **【全局支撑层】**（沿用 aimon，不变）
     - [**世界树**](foundation/irminsul.md)：唯一存储层
     - [**三月女神**](foundation/march.md)：调度 + 推送响铃
@@ -40,8 +44,8 @@
 ### 出场铁律
 
 - 四影**只**在 /task；天使**只**在 /agents；两者不交叉
-- skill 调用**永远**经主管七神 `archon.call_skill()`
-- 七神**不进** LLM 对话流——只做调用代理 + cron + 面板
+- skill 调用**永远**经工人 stage（`worker.run_stage`）；asmoday 不再调七神 execute
+- 七神 archon 本体**不进** LLM 对话流——A 类做 cron + 面板 + 概念归属；B 类是 namespace 壳
 
 ### 与老架构差异
 

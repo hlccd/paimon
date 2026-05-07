@@ -102,6 +102,10 @@ _SYSTEM_PROMPT = """\
 class ZhongliArchon(_ScanMixin, _SkillMixin, _WatchMixin, _DigestMixin, Archon):
     """岩神·摩拉克斯：契约与财富——红利股扫描 + 评分 + 推送 archon。"""
 
+    name = "岩神"
+    description = "红利股扫描 + 评分 + /wealth 面板 + dividend cron"
+    allowed_tools: set[str] = set()
+
     # 最近一次扫描错误的展示窗口（超过此时间的旧错误不再返给前端）
     # e037ba1 拆子包时漏定义此属性，但 get_last_error() 引用它 → wealth_running_api 崩
     _LAST_ERROR_WINDOW_SECONDS = 3600  # 1 小时
@@ -156,36 +160,10 @@ class ZhongliArchon(_ScanMixin, _SkillMixin, _WatchMixin, _DigestMixin, Archon):
         self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
         prior_results: list[str] | None = None,
     ) -> str:
-        logger.info("[岩神] 执行子任务: {}", subtask.description[:80])
-
-        from paimon.archons.base import FINAL_OUTPUT_RULE
-        system = _SYSTEM_PROMPT
-        system += f"\n\n## 当前任务\n{task.title}\n\n## 你的子任务\n{subtask.description}"
-        if prior_results:
-            system += "\n\n## 前序子任务结果\n"
-            for i, pr in enumerate(prior_results, 1):
-                system += f"\n### 子任务 {i}\n{pr[:2000]}\n"
-        system += await self._load_feedback_memories_block(irminsul)
-        system += FINAL_OUTPUT_RULE
-
-        temp_session = Session(id=f"zhongli-{task.id[:8]}", name="岩神分析")
-        temp_session.messages.append({"role": "system", "content": system})
-
-        tools, executor = self._setup_tools(temp_session)
-        async for _ in model.chat(
-            temp_session, subtask.description,
-            tools=tools, tool_executor=executor,
-            component="岩神", purpose="理财分析",
-        ):
-            pass
-
-        result = self._extract_result(temp_session)
-        await irminsul.progress_append(
-            task_id=task.id, agent="岩神", progress_pct=100,
-            message=result[:200], subtask_id=subtask.id, actor="岩神",
-        )
-        logger.info("[岩神] 子任务完成, 结果长度={}", len(result))
-        return result
+        # v6 解耦：execute 内部"通用理财 tool-loop"已移除（搬到 paimon/shades/worker/）
+        # asmoday 不再调本节点；保留方法签名仅为满足 Archon ABC 约定
+        # 非四影功能（collect_dividend / scorer / handle_query / cron / /wealth 面板）全部保留
+        return f"[{self.name}] execute 路径已解耦（v6），请参考 docs/archons/zhongli.md"
 
     # ---------- 红利股采集主入口（cron 驱动）----------
 

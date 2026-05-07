@@ -1,6 +1,6 @@
 """活跃任务域 —— 世界树域 5
 
-唯一写入者：生执 / 空执 / 七神（各自的生命周期阶段）
+唯一写入者：生执 / 空执 / 工人（各自的生命周期阶段；v6 解耦后由 asmoday 通过 worker.run_stage 落产物）
 读取者：派蒙 / 三月面板 / 时执（归档时读出）
 
 4 张表：
@@ -39,7 +39,7 @@ class Subtask:
     id: str
     task_id: str
     parent_id: str | None
-    assignee: str                             # '草神' / '雷神' / ...
+    assignee: str                             # 工人 stage 名：'spec'/'design'/'code'/'review_*'/'simple_code'/'exec'/'chat'
     description: str
     status: str = "pending"                   # pending / running / completed / failed / skipped / superseded
     result: str = ""
@@ -49,8 +49,8 @@ class Subtask:
     deps: list[str] | None = None             # 前置子任务 id 列表；None/空表示无依赖
     round: int = 1                            # 所属轮次（每轮生成/修订 +1）
     sensitive_ops: list[str] | None = None    # 预计调用的敏感工具（供死执 scan_plan 使用）
-    verdict_status: str = ""                  # 水神裁决后打标：passed / needs_revise / needs_redo
-    compensate: str = ""                      # saga 补偿动作（自然语言；失败回滚时交火神执行）
+    verdict_status: str = ""                  # 评审 stage 裁决后打标：passed / needs_revise / needs_redo
+    compensate: str = ""                      # saga 补偿动作（自然语言；失败回滚时交工人 exec stage 执行）
 
 
 @dataclass
@@ -239,7 +239,7 @@ class TaskRepo:
     async def subtask_update_verdict(
         self, subtask_id: str, verdict_status: str, *, actor: str,
     ) -> None:
-        """水神裁决后为单个子任务打标。"""
+        """评审 stage 裁决后为单个子任务打标。"""
         now = time.time()
         await self._db.execute(
             "UPDATE task_subtasks SET verdict_status = ?, updated_at = ? WHERE id = ?",

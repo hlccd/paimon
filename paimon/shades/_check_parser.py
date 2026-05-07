@@ -3,7 +3,7 @@
 check skill 在目标路径写 `.check/candidates.jsonl`，每行一条 finding 记录；
 多轮迭代会重复记录同一 id，最后一条视为最新状态。
 
-水神（`paimon/archons/furina.py`）评审阶段 + 三月自检 Deep 档都需要同样的解析：
+工人 review_* stage（`paimon/shades/worker/_review.py`）+ 三月自检 Deep 档都需要同样的解析：
 - 按 `id` 去重保留最新
 - 过滤掉 `REJECTED` / `DEFERRED`，只保留 `CANDIDATE` / `CONFIRMED`
 - 按 severity (P0/P1/P2/P3) 统计
@@ -56,8 +56,8 @@ def parse_candidates_file(path: Path) -> list[dict]:
 def parse_candidates_tree(root: Path) -> list[dict]:
     """在 root 下递归查找所有 `.check/candidates.jsonl`，合并解析。
 
-    水神在 task workspace 下可能有多个阶段产物（spec/design/code 各自 `.check/`），
-    需要 rglob 汇总。三月自检只在项目根单层，可以直接用 `parse_candidates_file`。
+    工人 review_* stage 在 task workspace 下可能有多个阶段产物（spec/design/code 各自
+    `.check/`），需要 rglob 汇总。三月自检只在项目根单层，可以直接用 `parse_candidates_file`。
     """
     all_findings: list[dict] = []
     for cand in root.rglob(".check/candidates.jsonl"):
@@ -86,9 +86,9 @@ def sort_by_severity(findings: list[dict]) -> list[dict]:
 def findings_to_issues(
     findings: list[dict], *, subtask_id: str, limit: int = 20,
 ) -> list[dict]:
-    """把 findings 规范化成水神 ReviewVerdict.issues 结构。
+    """把 findings 规范化成 ReviewVerdict.issues 结构。
 
-    保留 Furina 历史语义：前 `limit` 条（按 severity 排序后）+ 截断字段长度。
+    前 `limit` 条（按 severity 排序后）+ 截断字段长度。
     三月自检面板可直接用 `findings` 原始列表，不需要这层。
     """
     sorted_findings = sort_by_severity(findings)

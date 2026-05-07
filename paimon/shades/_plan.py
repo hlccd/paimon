@@ -23,7 +23,7 @@ class Plan:
 
     - subtasks: 当轮的节点（含新建 + 复用的旧节点）
     - round: 轮次编号（1 起）
-    - reason: 本轮生成/修订的理由（初始编排时为空；修订时为水神意见）
+    - reason: 本轮生成/修订的理由（初始编排时为空；修订时为评审意见）
     """
     task_id: str
     round: int

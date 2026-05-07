@@ -3,7 +3,7 @@
 失败回滚采用轻量 saga 模式（不做状态快照）：
   - 每个 Subtask 可声明 `compensate` 字段（自然语言描述反向动作）
   - pipeline 失败时，对**已成功节点**按反序执行补偿
-  - 补偿交火神 archon 执行（大多数补偿是 shell/文件操作）
+  - 补偿交工人 stage="exec" 执行（大多数补偿是 shell/文件操作）
   - 补偿本身失败不递归，只写审计标 `compensate_failed`
   - 无 compensate 的节点直接跳过（大多数纯推理任务无副作用）
 
@@ -13,15 +13,11 @@ from __future__ import annotations
 
 from loguru import logger
 
-from paimon.archons.mavuika import MavuikaArchon
 from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.irminsul.task import Subtask, TaskEdict
 from paimon.llm.model import Model
-from paimon.session import Session
 
-
-# 不重复实例化火神（无状态，可复用）
-_COMPENSATOR = MavuikaArchon()
+from .worker import run_stage
 
 
 async def run_compensations(
@@ -39,7 +35,7 @@ async def run_compensations(
         task: 顶层任务
         subtasks: 本次管线所有子任务（含各轮次）
         completed_ids: 已完成的节点 id 集合（只对它们执行补偿）
-        model: LLM 句柄（火神执行补偿时用）
+        model: LLM 句柄（工人 exec stage 执行补偿时用）
         irminsul: 世界树
         trigger_reason: 触发回滚的根因（写入审计）
 
@@ -99,7 +95,7 @@ async def _compensate_one(
     model: Model,
     irminsul: Irminsul,
 ) -> dict:
-    """执行单个节点的补偿动作（火神）。"""
+    """执行单个节点的补偿动作（v6 解耦后：工人 exec stage）。"""
     compensate_desc = (sub.compensate or "").strip()
     logger.warning(
         "[四影·saga] 补偿 {} ({}) → {}",
@@ -107,12 +103,12 @@ async def _compensate_one(
     )
 
     try:
-        # 构一个专用的补偿 subtask 喂给火神
+        # 构一个专用的补偿 subtask 喂给工人 stage=exec
         synthetic = Subtask(
             id=f"compensate-{sub.id}",
             task_id=task.id,
             parent_id=sub.id,
-            assignee="火神",
+            assignee="exec",
             description=(
                 f"【Saga 补偿】回滚以下动作的副作用。\n"
                 f"原节点: {sub.assignee} - {sub.description[:200]}\n"
@@ -124,7 +120,7 @@ async def _compensate_one(
             updated_at=sub.updated_at,
             deps=[], round=sub.round,
         )
-        result = await _COMPENSATOR.execute(task, synthetic, model, irminsul)
+        result = await run_stage("exec", task, synthetic, model, irminsul)
         await irminsul.audit_append(
             event_type="saga_compensate_done",
             payload={
@@ -132,7 +128,7 @@ async def _compensate_one(
                 "compensate": compensate_desc[:400],
                 "result_preview": (result or "")[:300],
             },
-            task_id=task.id, session_id=task.session_id, actor="火神·saga",
+            task_id=task.id, session_id=task.session_id, actor="工人·saga",
         )
         return {"subtask_id": sub.id, "compensate": compensate_desc, "outcome": "done"}
 
@@ -145,6 +141,6 @@ async def _compensate_one(
                 "compensate": compensate_desc[:400],
                 "error": str(e)[:400],
             },
-            task_id=task.id, session_id=task.session_id, actor="火神·saga",
+            task_id=task.id, session_id=task.session_id, actor="工人·saga",
         )
         return {"subtask_id": sub.id, "compensate": compensate_desc, "outcome": "failed"}

@@ -14,6 +14,24 @@
   - **数据收集者角色**：向三月请求响铃或被三月按定时器唤起
 - **Web 面板**：✅ 信息流面板（`/feed` 条目级）+ ✅ 舆情看板（`/sentiment` 事件级聚合）
 
+## ⚠️ 当前状态（2026-05 解耦后）
+
+`execute()` 内部业务已移除（原"代四影通用执行"职能转 `paimon/shades/worker/`），**非四影功能完整保留**：
+
+### 保留（非四影功能）
+
+- `feed_collect` cron（订阅采集 + LLM digest）
+- `/feed` 面板 + `/sentiment` 舆情看板
+- LLM digest（订阅型 + 事件型）
+- 事件聚类（`venti_event/` 子包）
+- `_LoginMixin`（站点扫码 cookies 登录管理）
+- `is_running()` 状态查询（前端"采集中"角标 + 防并发重入）
+- 4 个 mixin：`_CollectMixin` / `_DigestMixin` / `_AlertMixin` / `_LoginMixin`
+
+### 移除
+
+- `service.py:execute()` 内部"通用采集 tool-loop"（asmoday 不再调本节点 execute）
+
 ---
 
 ## L1 事件级舆情监测

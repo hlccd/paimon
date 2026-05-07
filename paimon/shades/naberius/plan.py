@@ -16,29 +16,29 @@ from ._parser import _extract_items_from_obj, _items_to_subtasks, _salvage_from_
 from .code_pipeline import _build_code_pipeline_dag, _classify_code_task, _is_code_pipeline_plan, _revise_code_pipeline
 
 
-_SEVEN_ARCHONS_DESC = """\
-当前可用的执行者（七神）：
-- 草神 (tools: knowledge/memory/exec): 推理、知识整合、文书起草、方案分析
-- 雷神 (tools: file_ops/exec): 写代码（含自检）、代码生成、重构
-- 水神 (tools: file_ops): 评审挑刺（方案/代码/文档/架构），质量终审
-- 火神 (tools: exec): Shell/代码执行、部署，仅在用户明确要求执行时使用
-- 风神 (tools: web_fetch/exec): 新闻采集、舆情分析、信息整理
-- 岩神 (tools: exec): 理财分析、红利股、资产管理
-- 冰神 (tools: skill_manage/exec): Skill 生态管理、扫描评估
+_STAGES_DESC = """\
+当前可用的执行者（工人 stage）：
+- spec (tools: file_ops): 写产品方案 spec.md（调 requirement-spec skill）
+- design (tools: file_ops): 写技术方案 design.md（调 architecture-design skill）
+- code (tools: file_ops/exec): 写代码到 workspace/code/（调 code-implementation skill + 自检）
+- review_spec / review_design / review_code (tools: file_ops/glob/exec): 评审挑刺，输出 verdict
+- simple_code (tools: file_ops/exec): 简单代码任务，不调 skill 直接 LLM 写
+- exec (tools: exec): shell / 部署 / 重型工具
+- chat (tools: file_ops): 通用 LLM 推理 / 总结（默认兜底）
 """
 _INITIAL_PROMPT = f"""\
 你是任务编排官·纳贝里士。你的职责是把复杂任务拆分为 DAG（子任务有向无环图）。
 
-{_SEVEN_ARCHONS_DESC}
+{_STAGES_DESC}
 
 编排规则：
 1. 每个子任务必须有唯一的临时编号 id（如 "s1", "s2"）
 2. deps 是字符串数组，列出前置节点 id。无依赖则 deps=[]
-3. assignee 填中文名："草神"/"雷神"/"水神"/"火神"/"风神"/"岩神"/"冰神"
+3. assignee 填 stage 名：spec / design / code / review_spec / review_design / review_code / simple_code / exec / chat
 4. description 要具体、可执行
 5. 独立的子任务（如调研 + 起草）deps 应为空，以便并发
-6. 写代码流程：先雷神写，再水神审；草水雷可多轮（本轮先拆一版）
-7. **水神节点的位置**：若有水神评审节点，它应该是**最后一个节点**，依赖前面的产出
+6. 写代码流程：先 code 写，再 review_code 审；spec/design/code 三阶段可多轮（本轮先拆一版）
+7. **review_* 节点的位置**：评审节点应该依赖前面的产出节点
 8. 简单任务 1 个节点；复杂任务 2-6 个节点
 9. 每个子任务可声明 sensitive_ops（数组，预计调用的敏感工具名，如 ["exec","Write"]），用于权限预告；不确定时填 []
 10. **saga 补偿**（可选）：只在节点有**副作用**（写文件、修改数据库、注册定时任务、部署等）时填 compensate
@@ -51,24 +51,24 @@ _INITIAL_PROMPT = f"""\
 只输出 JSON 对象，格式严格如下（不要 markdown fence，不要解释）：
 {{
   "subtasks": [
-    {{"id": "s1", "assignee": "草神", "description": "...", "deps": [], "sensitive_ops": [], "compensate": ""}},
-    {{"id": "s2", "assignee": "雷神", "description": "...", "deps": ["s1"], "sensitive_ops": ["Write"], "compensate": "删除生成的 xxx.py"}}
+    {{"id": "s1", "assignee": "spec", "description": "...", "deps": [], "sensitive_ops": [], "compensate": ""}},
+    {{"id": "s2", "assignee": "code", "description": "...", "deps": ["s1"], "sensitive_ops": ["Write"], "compensate": "删除生成的 xxx.py"}}
   ]
 }}
 """
 _REVISE_PROMPT = f"""\
-你是任务编排官·纳贝里士。上一轮子任务已执行，但水神评审提出了修改意见，
+你是任务编排官·纳贝里士。上一轮子任务已执行，但 review 节点提出了修改意见，
 或出现了节点失败。请**仅修订有问题的节点**，保留其余节点不变。
 
-{_SEVEN_ARCHONS_DESC}
+{_STAGES_DESC}
 
 修订规则：
 1. 对每个需要改的原节点，新建一个修订节点（新 id，描述中体现改进点）
 2. 新节点的 deps 保持与原节点一致
-3. 修订后的水神节点仍放最后，依赖新修订的产出
-4. 如果水神给出 level=redo，意味整体重拆，本轮可大改
-5. **失败节点改派**：若原节点被标记为 status=failed，说明原 assignee 无法胜任。
-   请**更换 assignee**（如代码生成失败 → 草神先出方案再给雷神；执行类失败可换火神）。
+3. 修订后的 review_* 节点仍放后面，依赖新修订的产出
+4. 如果 review 给出 level=redo，意味整体重拆，本轮可大改
+5. **失败节点改派**：若原节点被标记为 status=failed，说明原 stage 无法胜任。
+   请**更换 assignee stage**（如 code 失败 → 先 spec 出方案再 code；执行类失败可换 exec）。
 6. 失败节点的下游节点若已被标 skipped，需重新纳入修订
 7. 字段要求与初始编排一致：id / assignee / description / deps / sensitive_ops / compensate
 
@@ -88,10 +88,10 @@ async def plan(
     """编排入口。
 
     round=1:             初始编排
-    round>1 + verdict:   基于水神 verdict 修订（revise/redo）
+    round>1 + verdict:   基于评审 verdict 修订（revise/redo）
 
     失败策略：
-      - LLM 异常 / JSON 损坏 → 回退为"单节点委派草神"
+      - LLM 异常 / JSON 损坏 → 回退为"单节点 chat stage"
       - 依赖环 → 线性化降级 + 审计
       - round>1 仍出环 → 抛 RuntimeError（由 pipeline 捕获进失败归档）
     """
@@ -151,7 +151,7 @@ async def plan(
 
     await irminsul.flow_append(
         task_id=task.id,
-        from_agent="水神" if round > 1 else "死执",
+        from_agent="review" if round > 1 else "死执",
         to_agent="生执",
         action=f"plan_round_{round}",
         payload={
@@ -198,10 +198,10 @@ async def _plan_revise(
     verdict: ReviewVerdict,
     round: int,
 ) -> tuple[list[Subtask], set[str]]:
-    """修订：基于水神意见改出新节点。返回 (all_subtasks, preserved_ids)。
+    """修订：基于评审意见改出新节点。返回 (all_subtasks, preserved_ids)。
 
     preserved_ids 标识"从上一轮继承到本轮"的节点（已经存在于 DB 中，不需要再 INSERT）。
-    未被标出的节点保留；水神 / 失败 / 跳过 / 有 issue 的节点作废重出。
+    未被标出的节点保留；review_* / 失败 / 跳过 / 有 issue 的节点作废重出。
     """
     prev_lines = []
     failed_lines = []
@@ -227,13 +227,13 @@ async def _plan_revise(
             f"- subtask={issue.get('subtask_id','?')} 原因={issue.get('reason','')} "
             f"建议={issue.get('suggestion','')}"
         )
-    issues_block = "\n".join(issues_lines) or "(水神未给出具体子任务的问题)"
+    issues_block = "\n".join(issues_lines) or "(评审未给出具体子任务的问题)"
 
     user_msg = (
         f"## 原任务\n{task.title}\n{task.description}\n\n"
         f"## 上一轮 plan（round {previous_plan.round}）\n{prev_block}\n\n"
         f"## 失败节点详情\n{failed_block}\n\n"
-        f"## 水神 verdict\n"
+        f"## 评审 verdict\n"
         f"level={verdict.level}\n"
         f"summary={verdict.summary}\n"
         f"issues:\n{issues_block}\n\n"
@@ -247,14 +247,14 @@ async def _plan_revise(
     ]
     items = await _call_llm_for_plan(messages, model, task, purpose="任务修订编排")
 
-    # 水神 level=redo：完全采用 LLM 新 plan（不保留任何旧节点）
+    # 评审 level=redo：完全采用 LLM 新 plan（不保留任何旧节点）
     if verdict.level == LEVEL_REDO:
         return _items_to_subtasks(items, task.id, round=round), set()
 
     # level=revise：LLM 产出的节点 + 未受影响的旧节点（按 id 去重）
     problem_ids = {i.get("subtask_id") for i in (verdict.issues or [])}
     new_subs = _items_to_subtasks(items, task.id, round=round)
-    # 把未被水神标出的原节点保留（但 deps 可能指向已失效的节点，过滤时会清）
+    # 把未被评审标出的原节点保留（但 deps 可能指向已失效的节点，过滤时会清）
     preserved = []
     preserved_ids: set[str] = set()
     for s in previous_plan.subtasks:
@@ -262,16 +262,16 @@ async def _plan_revise(
             continue
         if s.status in ("failed", "skipped"):  # 失败/被跳过的节点要重做
             continue
-        if s.assignee == "水神":  # 水神由新 plan 重出
+        # review_* stage 由新 plan 重出，不保留
+        if s.assignee in ("review_spec", "review_design", "review_code"):
             continue
         preserved.append(s)
         preserved_ids.add(s.id)
 
     # 把 round N-1 已 completed 的保留节点注入新节点 deps 头部，
-    # 让 asmoday.collect_prior_results 能拿到上轮产物作为 prior_results 喂给 archon。
-    # 否则 LLM 在 deps 里写真实 id 会被 _items_to_subtasks 过滤掉（line 558 只
-    # 识别本轮 LLM 临时 id），新节点拿不到上下文，从头重做——这就是 issue_log 里
-    # round 2 草神看不到 round 1 风神 4299 字采集结果，反而从头开始搜索的根因。
+    # 让 asmoday.collect_prior_results 能拿到上轮产物作为 prior_results 喂给工人。
+    # 否则 LLM 在 deps 里写真实 id 会被 _items_to_subtasks 过滤掉（只识别本轮 LLM
+    # 临时 id），新节点拿不到上下文，从头重做。
     preserved_completed_ids = [
         s.id for s in preserved if s.status == "completed"
     ]
@@ -298,7 +298,7 @@ async def _call_llm_for_plan(
     *,
     purpose: str,
 ) -> list[dict]:
-    """LLM 生成 plan JSON。三层兜底保证尽量保留 LLM 意图，不无脑改派草神。
+    """LLM 生成 plan JSON。三层兜底保证尽量保留 LLM 意图，不无脑改派 chat。
 
     L1: 容错解析（tolerant_json_parse）—— 常见语法修复
     L2: LLM 重试一轮 —— 把原错误+原输出回喂让它重出
@@ -309,8 +309,8 @@ async def _call_llm_for_plan(
         raw, usage = await model._stream_text(messages, component="生执", purpose=purpose)
         await model._record_primogem(task.session_id, "生执", usage, purpose=purpose)
     except Exception as e:
-        logger.warning("[生执] LLM 调用异常，回退单节点草神: {}", e)
-        return [{"id": "s1", "assignee": "草神",
+        logger.warning("[生执] LLM 调用异常，回退单节点 chat: {}", e)
+        return [{"id": "s1", "assignee": "chat",
                  "description": task.description, "deps": []}]
 
     raw = _strip_code_fence(raw or "")
@@ -363,5 +363,5 @@ async def _call_llm_for_plan(
         except Exception as e:
             logger.warning("[生执] 重试 LLM 调用异常: {} → 用原 raw 进入 salvage", e)
 
-    # L3: salvage —— 正则抢救 assignee+description，不无脑改派草神
+    # L3: salvage —— 正则抢救 assignee+description
     return _salvage_from_raw_text(raw, task)

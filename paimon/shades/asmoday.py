@@ -1,9 +1,9 @@
 """空执 · Asmoday — 动态路由
 
-管线第三步。按 DAG 拓扑分层把子任务路由到对应七神：
+管线第三步。按 DAG 拓扑分层把子任务路由到工人 stage（assignee 字段值即 stage 名）：
   - 层内节点并发（asyncio.gather）
   - 节点失败 → 传递性标记下游 skipped
-  - 未知 assignee → 回退草神
+  - 未知 stage → worker.run_stage 内部 fallback 到 chat
 """
 from __future__ import annotations
 
@@ -11,14 +11,6 @@ import asyncio
 
 from loguru import logger
 
-from paimon.archons.base import Archon
-from paimon.archons.furina import FurinaArchon
-from paimon.archons.mavuika import MavuikaArchon
-from paimon.archons.nahida import NahidaArchon
-from paimon.archons.raiden import RaidenArchon
-from paimon.archons.tsaritsa import TsaritsaArchon
-from paimon.archons.venti import VentiArchon
-from paimon.archons.zhongli import ZhongliArchon
 from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.irminsul.task import Subtask, TaskEdict
 from paimon.llm.model import Model
@@ -29,17 +21,7 @@ from ._plan import (
     mark_downstream_skipped,
     topological_layers,
 )
-
-
-_ARCHON_REGISTRY: dict[str, Archon] = {
-    "草神": NahidaArchon(),
-    "雷神": RaidenArchon(),
-    "水神": FurinaArchon(),
-    "火神": MavuikaArchon(),
-    "风神": VentiArchon(),
-    "岩神": ZhongliArchon(),
-    "冰神": TsaritsaArchon(),
-}
+from .worker import run_stage
 
 
 async def dispatch(
@@ -160,15 +142,13 @@ async def _run_one(
     首次失败立即重试 1 次（临时故障容忍，如网络抖动 / LLM 偶发拒答）。
     两次都失败时抛异常交由 dispatch 处理（标 failed + 传递 skip + 审计）。
     """
-    archon = _ARCHON_REGISTRY.get(sub.assignee)
-    if not archon:
-        logger.warning("[空执] 未知执行者 '{}', 回退到草神", sub.assignee)
-        archon = _ARCHON_REGISTRY["草神"]
+    # sub.assignee 即 stage 名，直接传给 worker.run_stage（未知值 worker 内部 fallback 到 chat）
+    stage = sub.assignee or "chat"
 
     await irminsul.flow_append(
         task_id=task.id,
         from_agent="空执",
-        to_agent=sub.assignee,
+        to_agent=stage,
         action="dispatch",
         payload={"subtask_id": sub.id, "round": sub.round},
         actor="空执",
@@ -176,7 +156,7 @@ async def _run_one(
     await irminsul.subtask_update_status(sub.id, status="running", actor="空执")
     logger.info(
         "[空执] 执行 {} (round {}) → {}",
-        sub.id, sub.round, sub.assignee,
+        sub.id, sub.round, stage,
     )
 
     prior = collect_prior_results(sub, results_so_far, by_id)
@@ -184,13 +164,13 @@ async def _run_one(
     last_err: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            result = await archon.execute(
-                task, sub, model, irminsul,
+            result = await run_stage(
+                stage, task, sub, model, irminsul,
                 prior_results=prior if prior else None,
             )
             await irminsul.subtask_update_status(
                 sub.id, status="completed",
-                result=(result or "")[:2000], actor=sub.assignee,
+                result=(result or "")[:2000], actor=stage,
             )
             if attempt > 1:
                 logger.info(

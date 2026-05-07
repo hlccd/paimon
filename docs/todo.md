@@ -141,17 +141,30 @@
 
 _迁移工作已全部完成（三频道、全部 skills、旧 workflow 引擎 → 生执）。_
 
+- [ ] **七神 B 类空壳节点新职能安排**（v6 解耦后产物，2026-05-08）
+  - **现状**：四影 / 七神解耦（v6）后，2 个节点 archon 本体暂无具体职能：
+    - `paimon/archons/raiden.py`：原写代码 4 件套已转 `paimon/shades/worker/`（stage=design/code/simple_code）
+    - `paimon/archons/mavuika.py`：原 exec tool-loop 已转 `paimon/shades/worker/`（stage=exec）
+  - **当前形态**：~30 行 namespace 壳（class + name + description + execute 兜底）
+  - **候选方向（待用户决策）**：
+    - 删除整个文件（彻底移除 namespace）
+    - 重写新职能
+    - 保留等待
+  - **关联**：A 类 5 个节点（venti / zhongli / nahida / furina / tsaritsa）保留非四影功能（cron / 面板 / 概念归属），无需处理
+
 ## 附：代码体量观察（非紧急）
 
 几个核心模块已偏大，短期尚可维护，持续扩展需要考虑拆分：
 
-- [`archons/zhongli/zhongli.py`](../paimon/archons/zhongli/zhongli.py) 1414 行
-- [`archons/venti.py`](../paimon/archons/venti/) 939 行 + [`venti_event.py`](../paimon/archons/venti_event/) 559 行
-- [`shades/naberius.py`](../paimon/shades/naberius/) 872 行
+- [`archons/zhongli/zhongli.py`](../paimon/archons/zhongli/zhongli.py)（已拆子包，但 zhongli.py 仍有 mixin 入口）
+- [`archons/venti/`](../paimon/archons/venti/) 多 mixin 子包
+- [`shades/naberius/`](../paimon/shades/naberius/) 子包
 - [`foundation/selfcheck.py`](../paimon/foundation/selfcheck/) 960 行
 - [`foundation/irminsul/irminsul.py`](../paimon/foundation/irminsul/irminsul.py) 852 行
 
 [`archons/base.py:_invoke_skill_workflow`](../paimon/archons/base.py#L175) 仍叫 `workflow`（旧引擎名），实为"skill 驱动的 tool loop"；命名残留，可择期改名。
+
+> v6 解耦后体量变化：archons/ -1300 行（七神瘦身）+ shades/worker/ +800 行（工人体系新增）= 净 -500 行。
 
 
 ---

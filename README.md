@@ -22,14 +22,17 @@
 - **【主持·多视角讨论】天使**（晨星 leader + 11 协同天使）
   - 晨星：天使体系的 leader，负责调度（召集 → 调度发言 → 综合）；本身也是天使的一员
   - 协同天使：11 个预定义角色（结构性 5 / 评估性 4 / 对抗性 2），晨星按议题挑 3-5 个参与讨论
-- **【能力】七神**（业务模块 + skill 调用代理 + 面板）
-  - [风神·巴巴托斯](docs/archons/venti.md)：信息采集（web-search / bili / xhs / topic）✅
-  - [岩神·摩拉克斯](docs/archons/zhongli.md)：财富（红利股 / 资产 / 退休规划）✅
-  - [草神·纳西妲](docs/archons/nahida.md)：智慧 + 写代码 4 件套（spec / design / code / check）✅
-  - [雷神·巴尔泽布](docs/archons/raiden.md)：写代码 skill 已转草神，业务身份待定
-  - [火神·玛薇卡](docs/archons/mavuika.md)：重型工具（exec / file_ops / web_fetch）
-  - [水神·芙宁娜](docs/archons/furina.md)：游戏（mihoyo）✅
-  - [冰神·冰之女皇](docs/archons/tsaritsa.md)：skill 生态全管 ✅
+- **【能力】七神**（v6 解耦：四影 asmoday 不再调用 execute；业务执行已转 `paimon/shades/worker/`）
+  - **A 类（保留 cron / 面板 / 概念归属 5 个）**：
+    - [风神·巴巴托斯](docs/archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录 ✅
+    - [岩神·摩拉克斯](docs/archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron ✅
+    - [草神·纳西妲](docs/archons/nahida.md)：`/knowledge` 面板概念归属 ✅
+    - [水神·芙宁娜](docs/archons/furina.md)：游戏 `/game` + 2 cron + 1 sub type ✅
+    - [冰神·冰之女皇](docs/archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace ✅
+  - **B 类（archon 本体暂无具体职能 / namespace 壳 2 个）**：
+    - [雷神·巴尔泽布](docs/archons/raiden.md) / [火神·玛薇卡](docs/archons/mavuika.md)（execute 兜底返"已解耦"，待用户后续安排）
+- **【能力】工人**（v6 新增 · 9 stage：`spec` / `design` / `code` / `review_*` / `simple_code` / `exec` / `chat`）
+  - 实现：`paimon/shades/worker/`，无人格化执行单元，按 stage 选 skill workflow / tool-loop
 - **全局支撑层**
   - [**世界树**](docs/foundation/irminsul.md)：全系统**唯一存储层**，9 个数据域（授权 / skill / 知识 / 记忆 / 任务 / token / 审计 / 理财 / 会话）
   - [**地脉**](docs/foundation/leyline.md)：事件总线

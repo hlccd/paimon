@@ -114,7 +114,9 @@ async def _ensure_hygiene_cron() -> None:
 
 
 async def _autoallow_loaded_skills_and_archons() -> None:
-    """单用户自用：已加载的 builtin skill + 7 个 archon 默认 permanent_allow。
+    """单用户自用：已加载的 builtin skill + 9 个工人 stage 默认 permanent_allow。
+
+    subject_type="stage"：四影 asmoday 通过 worker.run_stage 派发的 9 个 stage 名
 
     git review 已把过关；真破坏命令由 pre_filter 拦。运行时通过 watcher 加载的
     plugin / AI 生成 skill 不在此白名单，仍走死执 review。仅跳过用户已显式
@@ -122,10 +124,14 @@ async def _autoallow_loaded_skills_and_archons() -> None:
     """
     try:
         snapshot = await state.irminsul.authz_snapshot()
-        from paimon.shades.asmoday import _ARCHON_REGISTRY
+        _STAGE_NAMES = (
+            "spec", "design", "code",
+            "review_spec", "review_design", "review_code",
+            "simple_code", "exec", "chat",
+        )
         targets: list[tuple[str, str]] = []
         targets.extend(("skill", s.name) for s in state.skill_registry.list_all())
-        targets.extend(("shades_node", n) for n in _ARCHON_REGISTRY.keys())
+        targets.extend(("stage", n) for n in _STAGE_NAMES)
         auto_count = 0
         for subj_type, subj_id in targets:
             existing = snapshot.get((subj_type, subj_id))

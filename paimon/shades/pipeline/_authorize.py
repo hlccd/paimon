@@ -166,9 +166,9 @@ class _AuthorizeMixin:
         self, item, decision: str, *, permanent: bool,
         session_id: str, task: TaskEdict,
     ) -> None:
-        """本次 / 永久写入授权。subject=(shades_node, <assignee>) 粗粒度。"""
+        """本次 / 永久写入授权。subject=(stage, <stage_name>) 粗粒度。"""
         assert self._authz_cache is not None
-        subject_type, subject_id = "shades_node", item.assignee
+        subject_type, subject_id = "stage", item.assignee
 
         if permanent:
             perm_decision = "permanent_allow" if decision == "allow" else "permanent_deny"
