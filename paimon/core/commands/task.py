@@ -92,11 +92,52 @@ async def cmd_task(ctx: CommandContext) -> str:
 
 @command("skills")
 async def cmd_skills(ctx: CommandContext) -> str:
-    """/skills — 列出所有可用 Skill 名 + 描述。"""
+    """/skills — 列出可调 Skill。
+
+    分两段：
+    1. 用户直调（user-invocable=true）—— 可 /<name> 调用，平级展开（名 + 描述 + 例子）
+    2. 自动触发（trigger-invoke）—— 有 triggers 字段，不用敲斜杠，发关键词/链接自动走
+
+    user-invocable=false 且无 triggers 的 skill（如 code-implementation / requirement-spec /
+    architecture-design / mihoyo / dividend-tracker）是 orchestrator-only，用户调无意义，
+    /skills 不展示。
+    """
     skill_registry = state.skill_registry
     if not skill_registry or not skill_registry.skills:
         return "暂无可用 Skill"
-    lines = ["可用 Skills:"]
+
+    direct: list = []      # user-invocable=true
+    auto: list = []        # user-invocable!=true 但有 triggers
+
     for s in skill_registry.list_all():
-        lines.append(f"  /{s.name} - {s.description}")
-    return "\n".join(lines)
+        has_triggers = bool(s.triggers and s.triggers.strip())
+        if s.user_invocable:
+            direct.append(s)
+        elif has_triggers:
+            auto.append(s)
+        # 其余（orchestrator-only）不展示
+
+    out: list[str] = ["可调 Skill /skills", ""]
+
+    if direct:
+        out.append("[直接调用]")
+        for s in direct:
+            head = f"/{s.name}"
+            out.append(f"  {head}")
+            out.append(f"    {s.description}")
+            if s.triggers and s.triggers.strip():
+                kws = [t.strip() for t in s.triggers.split(",") if t.strip()][:4]
+                if kws:
+                    out.append(f"    触发词：{' / '.join(kws)}")
+            out.append("")
+
+    if auto:
+        out.append("[自动触发（无需敲斜杠）]")
+        for s in auto:
+            kws = [t.strip() for t in s.triggers.split(",") if t.strip()][:4]
+            out.append(f"  发 {' / '.join(kws)} → /{s.name}")
+            out.append(f"    {s.description}")
+            out.append("")
+
+    out.append("回标准命令：/help")
+    return "\n".join(out).rstrip() + "\n"

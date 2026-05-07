@@ -51,6 +51,14 @@ def parse_skill_metadata(skill_md: Path, dir_name: str) -> "SkillInfo":
     if isinstance(triggers, list):
         triggers = ", ".join(triggers)
 
+    # user-invocable: 缺省视为 True（老 SKILL.md 没标的默认可调）
+    # 显式 false 用于 orchestrator-only skill（code-implementation/requirement-spec/architecture-design 等）
+    raw_invocable = data.get("user-invocable", True)
+    if isinstance(raw_invocable, str):
+        user_invocable = raw_invocable.strip().lower() in ("true", "yes", "1")
+    else:
+        user_invocable = bool(raw_invocable)
+
     return SkillInfo(
         name=name,
         description=description,
@@ -58,6 +66,7 @@ def parse_skill_metadata(skill_md: Path, dir_name: str) -> "SkillInfo":
         allowed_tools=allowed_tools_list,
         skill_md_path=skill_md,
         body=body.strip(),
+        user_invocable=user_invocable,
     )
 
 

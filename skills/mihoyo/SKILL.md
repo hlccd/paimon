@@ -1,6 +1,7 @@
 ---
 name: mihoyo
 description: 米游社 I/O 客户端 — 由水神后台调用，扫码登录 / 签到 / 便笺 / 深渊 / 剧诗 / 抽卡，不含业务规则
+user-invocable: false
 license: MIT
 metadata:
   author: paimon

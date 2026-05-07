@@ -1,6 +1,7 @@
 ---
 name: dividend-tracker
 description: 红利股数据抓取（BaoStock I/O）— 由岩神后台调用，抓全 A 股行情/股息/财务，不含业务规则
+user-invocable: false
 license: MIT
 metadata:
   author: paimon

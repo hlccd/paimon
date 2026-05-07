@@ -24,6 +24,11 @@ class SkillInfo:
     # 冰神装载时自动派生（基于 allowed_tools 与工具敏感清单）
     sensitivity: str = "normal"                     # 'normal' | 'sensitive'
     sensitive_tools: list[str] = field(default_factory=list)
+    # SKILL.md frontmatter user-invocable 字段：
+    # True  = 用户可 /<name> 直调（/skills 列出 + /help 自动触发段可关联）
+    # False = orchestrator-only（四影/七神内部调，用户调无意义；/skills 不展示）
+    # 缺省 = True（向后兼容老 SKILL.md 默认可调）
+    user_invocable: bool = True
 
 
 class SkillRegistry:
