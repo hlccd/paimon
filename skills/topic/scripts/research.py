@@ -26,6 +26,7 @@ from lib.core.dates import date_window
 from lib.core.schema import Item, Report
 from lib.sources import bili as bili_mod
 from lib.sources import tieba as tieba_mod
+from lib.sources import weibo as weibo_mod
 from lib.sources import xhs as xhs_mod
 from lib.sources import zhihu as zhihu_mod
 
@@ -34,6 +35,7 @@ _SOURCE_TABLE = {
     "zhihu": zhihu_mod.collect,
     "xhs":   xhs_mod.collect,
     "tieba": tieba_mod.collect,
+    "weibo": weibo_mod.collect,
 }
 
 try:
@@ -104,8 +106,8 @@ def run(
 def main() -> int:
     ap = argparse.ArgumentParser(description="topic: 中文多源舆情调研")
     ap.add_argument("topic", help="调研主题")
-    ap.add_argument("--sources", default="bili,zhihu,xhs,tieba",
-                    help="逗号分隔的 source 列表（默认 bili,zhihu,xhs,tieba；xhs/tieba 各启一次 chromium ~3-5s）")
+    ap.add_argument("--sources", default="bili,zhihu,xhs,tieba,weibo",
+                    help="逗号分隔的 source 列表（默认 5 个；xhs/tieba/weibo 各启一次 chromium ~3-5s）")
     ap.add_argument("--days", type=int, default=30, help="时间窗（天），默认 30")
     ap.add_argument("--emit", choices=("md", "json", "both"), default="md",
                     help="标准输出格式：md / json / both")

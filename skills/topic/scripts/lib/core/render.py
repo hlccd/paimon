@@ -23,6 +23,7 @@ def _fmt_engagement(item: Item) -> str:
     if (v := item.engagement.get("favorite")): parts.append(f"藏 {v:,}")
     if (v := item.engagement.get("coin")):     parts.append(f"币 {v:,}")
     if (v := item.engagement.get("share")):    parts.append(f"转 {v:,}")
+    if (v := item.engagement.get("repost")):   parts.append(f"转 {v:,}")
     if (v := item.engagement.get("reply")):    parts.append(f"回 {v:,}")
     if (v := item.engagement.get("thanks")):   parts.append(f"谢 {v:,}")
     if (v := item.engagement.get("follower")): parts.append(f"关 {v:,}")

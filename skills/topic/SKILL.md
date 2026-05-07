@@ -184,7 +184,7 @@ def collect(topic: str, range_from: str, range_to: str, *, limit: int) -> list[I
 | **小红书** | ✅ 已接入 | ★★★ 中难 | playwright headless + cookies + DOM 解析；MVP 不抓发布日期 |
 | **贴吧** | ✅ 已接入 | ★★ 中 | playwright headless + 百度 BDUSS cookies + DOM 解析（匿名 403 跳百度安全验证）|
 | **虎扑** | TODO | ★★ 中 | `bbs.hupu.com/search` 网页搜索；登录后反爬宽松 |
-| **微博** | TODO | ★★★ 难 | `s.weibo.com/weibo?q=` 需 cookies；防风控较严 |
+| **微博** | ✅ 已接入 | ★★★ 难 | playwright headless + cookies + 解析 s.weibo.com 搜索页 DOM；selector 待 user 实测调 |
 | **TapTap** | TODO | ★★ 中 | webapi 搜索；游戏话题用 |
 | **GitHub** | TODO | ★ 易 | 公开 search API，免登录；技术话题补充 |
 

@@ -52,9 +52,15 @@ SITE_CONFIG: dict[str, dict] = {
     "weibo": {
         "display_name": "微博",
         "requires_login": True,
-        "login_url": "https://weibo.com/login.php",
+        # 实测 2026-05-07：weibo.com/login.php 重定向到主页不弹登录浮层；
+        # 真正的登录页是 passport.weibo.com/sso/signin
+        "login_url": "https://passport.weibo.com/sso/signin",
         "success_cookie": "SUB",
-        "qr_selectors": [".qrcode_box", ".LoginCard_pic_3i6_M", ".qr-pic"],
+        # 默认 tab 是"短信验证登录"（这就是之前 SMS 误判根因！手机+短信 tab 不是 QR），
+        # 必须 click "扫码登录" 切到 QR tab
+        "qr_tab_selectors": ["text=扫码登录"],
+        # QR 是 img[src*='qr.weibo.cn/inf/gen']，140x140
+        "qr_selectors": ["img[src*='qr.weibo']", "img[src*='qr']"],
     },
     "tieba": {
         "display_name": "贴吧",
@@ -62,20 +68,6 @@ SITE_CONFIG: dict[str, dict] = {
         "login_url": "https://passport.baidu.com/v2/?login&u=https%3A%2F%2Ftieba.baidu.com%2F",
         "success_cookie": "BDUSS",
         "qr_selectors": [".tang-pass-userlogin-qrcode", "#TANGRAM__PSP_3__qrcodeImg", ".qrcode-img"],
-    },
-    "hupu": {
-        "display_name": "虎扑",
-        "requires_login": True,
-        "login_url": "https://passport.hupu.com/pc/login",
-        "success_cookie": "u",
-        "qr_selectors": [".qr-code", ".qrcode", ".scan-login"],
-    },
-    "taptap": {
-        "display_name": "TapTap",
-        "requires_login": True,
-        "login_url": "https://www.taptap.cn/login",
-        "success_cookie": "_xsrf",
-        "qr_selectors": [".tap-login-qr", ".qr-code", ".qrcode"],
     },
 }
 
@@ -366,29 +358,46 @@ class LoginSession:
                                 logger.info("[浏览器·登录] {} 成功 cookies 落盘（{}）", self.site, reason)
                                 return
 
-                        # 判定 2：扫码后跳到 SMS 验证页（仅在 qr_ready 阶段检测，避免重复进入）
-                        # 严格条件：必须**同时**有验证码 input + 「获取/发送验证码」按钮
-                        # （图形验证码 / 滑块验证码也有 input 但没有"获取验证码"按钮——只用 input 检测会误报，
-                        #   实测 2026-05-07 贴吧扫码进百度登录页就因 input[placeholder*='验证码'] 命中误进 SMS 流）
+                        # 判定 2：扫码后跳到 SMS 验证页（仅在 qr_ready 阶段检测）
+                        # 三层判定（必须**全满足**才算真 SMS 流程）：
+                        #   ① QR 不再 visible —— 用户已被推离扫码 tab（**强约束**，区分 weibo SPA tab 共存场景）
+                        #   ② SMS input is_visible —— 不只是 DOM 存在（weibo 默认扫码 tab 时 SMS input 在
+                        #      DOM 里但 hidden，is_visible() 会返回 false 自然过滤掉）
+                        #   ③ SMS button is_visible —— 同 ②；**不**要求 enabled，因为 xhs 已经发过短信
+                        #      时按钮变"重新发送（60s 倒计时）"是 disabled 状态，但仍是真 SMS 流程
                         if self.status == "qr_ready":
-                            sms_input_found = False
-                            for sel in _SMS_FORM_DETECT_SELECTORS:
+                            # ① QR 还可见 = 用户还在扫码，绝不算 SMS 流程
+                            qr_still_visible = False
+                            for sel in (qr_selectors + _GENERIC_QR_SELECTORS):
                                 try:
-                                    if await page.locator(sel).count() > 0:
-                                        sms_input_found = True
+                                    if await page.locator(sel).first.is_visible(timeout=500):
+                                        qr_still_visible = True
                                         break
                                 except Exception:
                                     pass
-                            sms_button_found = False
-                            if sms_input_found:
-                                for sel in _SMS_GET_BUTTON_SELECTORS:
+
+                            sms_detected = False
+                            if not qr_still_visible:
+                                # ② SMS input is_visible（is_visible 会过滤 display:none / visibility:hidden 的 DOM）
+                                sms_input_visible = False
+                                for sel in _SMS_FORM_DETECT_SELECTORS:
                                     try:
-                                        if await page.locator(sel).count() > 0:
-                                            sms_button_found = True
+                                        if await page.locator(sel).first.is_visible(timeout=500):
+                                            sms_input_visible = True
                                             break
                                     except Exception:
                                         pass
-                            sms_detected = sms_input_found and sms_button_found
+                                # ③ SMS button is_visible（不要求 enabled，xhs 倒计时按钮 disabled 也算真 SMS）
+                                sms_button_visible = False
+                                if sms_input_visible:
+                                    for sel in _SMS_GET_BUTTON_SELECTORS:
+                                        try:
+                                            if await page.locator(sel).first.is_visible(timeout=500):
+                                                sms_button_visible = True
+                                                break
+                                        except Exception:
+                                            pass
+                                sms_detected = sms_input_visible and sms_button_visible
                             if sms_detected:
                                 logger.info("[浏览器·登录] {} 检测到 SMS 验证页 url={}", self.site, page.url)
                                 # DOM dump 前 2KB 进 paimon.log，云端遇到时把日志贴回来调 selector
