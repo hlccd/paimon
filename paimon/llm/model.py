@@ -180,8 +180,15 @@ class Model:
     def _build_runtime_messages(self, session: Session) -> list[dict[str, Any]]:
         # filter 非 LLM 标准 role：notice 等扩展条目仅用于前端展示，不喂给 LLM
         # （OpenAI/Anthropic 都不认 role='notice'，直接 400 / 静默扔掉）
+        # 同时 filter meta.skip_llm：天使 skill 调用产生的「指令记录」条目仅 UI 可见，
+        # LLM 上下文里隐藏避免下次主对话被前面的 skill 调用污染（详见 _dispatch.py
+        # _invoke_skill 的 ephemeral + merge 设计）。老 messages 无 meta 字段视为 False
         _LLM_ROLES = {"system", "user", "assistant", "tool"}
-        msgs = [m for m in session.messages if m.get("role") in _LLM_ROLES]
+        msgs = [
+            m for m in session.messages
+            if m.get("role") in _LLM_ROLES
+            and not (m.get("meta") or {}).get("skip_llm")
+        ]
         self._normalize_reasoning_passthrough(msgs)
         memory_prompt = self._build_memory_prompt(session)
         if not memory_prompt:

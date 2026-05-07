@@ -258,7 +258,12 @@ async def handle_chat(
 
         session_mgr.save_session(session)
 
-    user_msgs = [m for m in session.messages if m.get("role") == "user"]
+    # 标题基于"真对话第一条 user 消息"生成 —— filter meta.skip_llm（skill 指令记录）
+    # 避免标题被「/topic xxx」这种指令绑架，期望命中后续真正闲聊的首句
+    user_msgs = [
+        m for m in session.messages
+        if m.get("role") == "user" and not (m.get("meta") or {}).get("skip_llm")
+    ]
     if len(user_msgs) == 1 and session.name.startswith("s-"):
         logger.debug("[派蒙·对话] 自动生成标题 {}（后台）", session.id)
         # fire-and-forget：title 生成 LLM 调用 10-20s，若 await 会阻塞 SSE 'done'

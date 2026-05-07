@@ -91,9 +91,15 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
             # 不 return，继续后续流程
 
     from paimon.core.commands import dispatch_command
+    from paimon.core.commands._dispatch import SKILL_HANDLED_SENTINEL
 
     reply_text = await dispatch_command(msg, channel)
     if reply_text is not None:
+        # skill 兜底分支已在 _invoke_skill 内 ephemeral 跑 + merge 主 session 带 meta
+        # 这里跳过 msg.reply（避免推空 frame）和 _persist_turn（避免 user 文本无 meta
+        # 写主 session 反而污染 LLM）；dispatch 的纯命令路径 reply_text 是真字符串照常落盘
+        if reply_text == SKILL_HANDLED_SENTINEL:
+            return
         await msg.reply(reply_text)
         # 去重交给 _persist_turn（/task 经 enter_shades_pipeline_background 已落一份）
         await _persist_turn(channel_key, msg.text, reply_text)
@@ -148,7 +154,14 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
             await reply.notice(f"🎯 走 {intent.skill_name} —— {desc[:60]}", kind="milestone")
         except Exception:
             pass
-        await run_session_chat(msg, channel, session, skill_name=intent.skill_name)
+        # 意图路由 skill 跟 /<skill> 兜底语义一致：ephemeral 跑 + merge 主 session 带 meta
+        # 跳过 _persist_turn（_run_skill_isolated 内部已落盘带 meta 的两条）
+        from paimon.core.commands._dispatch import _run_skill_isolated
+        await _run_skill_isolated(
+            skill_name=intent.skill_name, skill_msg=msg,
+            channel=channel, main_session=session,
+            main_user_text=msg.text,
+        )
     else:
         await run_session_chat(msg, channel, session)
 

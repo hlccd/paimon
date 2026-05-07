@@ -34,6 +34,10 @@ class Session:
     # 时执压缩熔断相关（docs/shades/istaroth.md §压缩失败熔断）
     compression_failures: int = 0
     auto_compact_disabled: bool = False
+    # 临时执行容器标记：天使路径 skill 调用时 create_ephemeral() 建一个，跑完丢弃
+    # 不入 SessionManager.sessions、不落世界树、不绑 channel_key，save 入口 short-circuit
+    # 仅内存字段，不写 SessionRecord
+    ephemeral: bool = False
 
 
 class SessionManager:
@@ -105,7 +109,14 @@ class SessionManager:
 
     # ---------- 对外 API（保持原同名同语义）----------
     def save_session(self, s: Session) -> None:
-        """同步入口：旧代码大量使用。内部 schedule 异步落盘任务。"""
+        """同步入口：旧代码大量使用。内部 schedule 异步落盘任务。
+
+        ephemeral session（天使 skill 路径用）入口拦截，全局 short-circuit：
+        不落盘 / 不入 self.sessions / 不绑 channel_key —— handle_chat 内部多处
+        save_session 不必散点判 ephemeral。
+        """
+        if s.ephemeral:
+            return
         import asyncio
         from paimon.foundation.bg import bg
         s.updated_at = time.time()
@@ -122,6 +133,8 @@ class SessionManager:
 
     async def save_session_async(self, s: Session) -> None:
         """显式异步入口，供新代码使用。"""
+        if s.ephemeral:
+            return
         s.updated_at = time.time()
         self.sessions[s.id] = s
         await self._save(s)
@@ -138,6 +151,26 @@ class SessionManager:
         self.sessions[sid] = s
         self.save_session(s)
         logger.info("[派蒙·会话] 新建会话: {}", sid)
+        return s
+
+    def create_ephemeral(self) -> Session:
+        """建一个临时执行容器：天使 skill 调用用 —— 不入 self.sessions、不落世界树、
+        不绑 channel_key。跑完直接丢弃，handle_chat 在它身上跑工具循环不污染主 session。
+
+        UI 看见的「指令记录」由调用方跑完后单独 append 两条带 meta=skip_llm 的条目
+        到主 session（user 文本 + final assistant 文本），中间工具循环产物丢弃。
+        """
+        sid = "eph-" + uuid4().hex[:8]
+        now = time.time()
+        s = Session(
+            id=sid,
+            name=f"ephemeral-{sid}",
+            created_at=now,
+            updated_at=now,
+            ephemeral=True,
+        )
+        # 故意不入 self.sessions / 不调 save_session（save 入口也会 short-circuit）
+        logger.debug("[派蒙·会话] 新建临时容器: {}", sid)
         return s
 
     def switch(self, channel_key: str, sid: str) -> Session | None:

@@ -113,7 +113,17 @@ async def compress(
     if keep_start <= non_system_start:
         return False
 
-    archived = session.messages[non_system_start:keep_start]
+    # 拆分压缩段：meta.skip_llm 条目（天使 skill 调用产生的「指令记录」）只用于 UI 展示，
+    # 不进 LLM 上下文 / 不进 summary —— 压缩时拣出保留，正常对话条目才喂 LLM 生成 summary
+    raw_archived = session.messages[non_system_start:keep_start]
+    archived = [
+        m for m in raw_archived
+        if not (m.get("meta") or {}).get("skip_llm")
+    ]
+    preserved_skill_msgs = [
+        m for m in raw_archived
+        if (m.get("meta") or {}).get("skip_llm")
+    ]
     if not archived:
         return False
 
@@ -145,8 +155,12 @@ async def compress(
     if summary not in session.session_memory:
         session.session_memory.append(summary)
 
+    # 重组 messages：system + 保留下来的 skill 指令记录条目（UI 时序显示）+ keep 段
+    # 指令记录被集中塞到压缩边界后，时序略有偏差但 UI 渲染按列表顺序、LLM 又看不到，可接受
     session.messages = (
-        session.messages[:non_system_start] + session.messages[keep_start:]
+        session.messages[:non_system_start]
+        + preserved_skill_msgs
+        + session.messages[keep_start:]
     )
     session.last_compressed_at = time.time()
     session.compressed_rounds += 1
