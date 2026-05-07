@@ -14,6 +14,7 @@ from ._dispatch import CommandContext, command
 _TOP_LEVEL: list[tuple[str, str]] = [
     ("/session", "会话管理"),
     ("/task", "任务"),
+    ("/agents", "多视角讨论"),
     ("/subscribe", "订阅 / 记忆"),
     ("/dividend", "红利股追踪"),
     ("/skills", "Skill 列表（含自动识别）"),
