@@ -115,6 +115,8 @@ async def _capture_qr(page, qr_selectors: list[str]) -> bytes:
     """尽力只截 QR 区域；selector 全部 miss 才 fallback 到整页截图。
 
     selector 试 site 配置 → 通用候选 → 整页。
+    img 元素被 CSS 拉伸时（naturalSize vs renderedSize 差异 > 10%）
+    自动 fallback 截父容器——避免 QR 模糊扫不出来（实测贴吧百度登录页 QR img 被拉伸）。
     """
     candidates = list(qr_selectors) + _GENERIC_QR_SELECTORS
     for sel in candidates:
@@ -128,7 +130,32 @@ async def _capture_qr(page, qr_selectors: list[str]) -> bytes:
                 await loc.wait_for(state="visible", timeout=2000)
             except Exception:
                 pass
-            shot = await loc.screenshot()
+
+            # img 元素被拉伸检测：自然尺寸 vs 渲染尺寸偏差 > 10% 视为拉伸 → 截父容器更清晰
+            target = loc
+            try:
+                meta = await loc.evaluate("""el => {
+                    const tag = el.tagName.toLowerCase();
+                    if (tag !== 'img') return { tag, stretched: false };
+                    const nw = el.naturalWidth, nh = el.naturalHeight;
+                    const rect = el.getBoundingClientRect();
+                    if (nw === 0 || nh === 0) return { tag, stretched: false };
+                    const dx = Math.abs(rect.width - nw) / nw;
+                    const dy = Math.abs(rect.height - nh) / nh;
+                    return { tag, stretched: dx > 0.1 || dy > 0.1, naturalW: nw, renderedW: rect.width };
+                }""")
+                if meta and meta.get("stretched"):
+                    parent = loc.locator("xpath=..").first
+                    if await parent.count() > 0:
+                        target = parent
+                        logger.debug(
+                            "[浏览器·QR] {} 被拉伸 ({}px → {}px)，截父容器",
+                            sel, meta.get("naturalW"), meta.get("renderedW"),
+                        )
+            except Exception:
+                pass
+
+            shot = await target.screenshot()
             if shot and len(shot) > 800:   # 太小（几十字节）肯定是空 canvas，跳过
                 logger.debug("[浏览器·QR] 命中 selector: {}", sel)
                 return shot
@@ -340,15 +367,28 @@ class LoginSession:
                                 return
 
                         # 判定 2：扫码后跳到 SMS 验证页（仅在 qr_ready 阶段检测，避免重复进入）
+                        # 严格条件：必须**同时**有验证码 input + 「获取/发送验证码」按钮
+                        # （图形验证码 / 滑块验证码也有 input 但没有"获取验证码"按钮——只用 input 检测会误报，
+                        #   实测 2026-05-07 贴吧扫码进百度登录页就因 input[placeholder*='验证码'] 命中误进 SMS 流）
                         if self.status == "qr_ready":
-                            sms_detected = False
+                            sms_input_found = False
                             for sel in _SMS_FORM_DETECT_SELECTORS:
                                 try:
                                     if await page.locator(sel).count() > 0:
-                                        sms_detected = True
+                                        sms_input_found = True
                                         break
                                 except Exception:
                                     pass
+                            sms_button_found = False
+                            if sms_input_found:
+                                for sel in _SMS_GET_BUTTON_SELECTORS:
+                                    try:
+                                        if await page.locator(sel).count() > 0:
+                                            sms_button_found = True
+                                            break
+                                    except Exception:
+                                        pass
+                            sms_detected = sms_input_found and sms_button_found
                             if sms_detected:
                                 logger.info("[浏览器·登录] {} 检测到 SMS 验证页 url={}", self.site, page.url)
                                 # DOM dump 前 2KB 进 paimon.log，云端遇到时把日志贴回来调 selector

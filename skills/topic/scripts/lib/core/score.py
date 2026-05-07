@@ -35,6 +35,7 @@ _ENGAGEMENT_WEIGHTS: dict[str, dict[str, float]] = {
         "follower": 0.3, "answer": 2.0, "view": 0.05,                  # question 类型
     },
     "weibo": {"view": 0.5, "repost": 5.0, "comment": 3.0, "like": 1.0},
+    "tieba": {"reply": 5.0, "view": 0.3, "like": 1.0},   # 贴吧主要 engagement 是回复数
 }
 
 
