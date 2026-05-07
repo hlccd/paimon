@@ -92,52 +92,64 @@ async def cmd_task(ctx: CommandContext) -> str:
 
 @command("skills")
 async def cmd_skills(ctx: CommandContext) -> str:
-    """/skills — 列出可调 Skill。
+    """/skills — 列出可调 Skill（精简 markdown）。
 
     分两段：
-    1. 用户直调（user-invocable=true）—— 可 /<name> 调用，平级展开（名 + 描述 + 例子）
-    2. 自动触发（trigger-invoke）—— 有 triggers 字段，不用敲斜杠，发关键词/链接自动走
+    1. 直调（user-invocable=true）—— `/<name>` 直接调用
+    2. 自动识别 —— 凡有 triggers 的 skill（含 user-invocable=true 的 + 仅 trigger-invoke 的）
 
-    user-invocable=false 且无 triggers 的 skill（如 code-implementation / requirement-spec /
-    architecture-design / mihoyo / dividend-tracker）是 orchestrator-only，用户调无意义，
-    /skills 不展示。
+    orchestrator-only / io-only（user-invocable=false 且无 triggers）的 skill 不展示。
     """
     skill_registry = state.skill_registry
     if not skill_registry or not skill_registry.skills:
         return "暂无可用 Skill"
 
-    direct: list = []      # user-invocable=true
-    auto: list = []        # user-invocable!=true 但有 triggers
-
+    direct: list = []
+    triggered: list = []
     for s in skill_registry.list_all():
-        has_triggers = bool(s.triggers and s.triggers.strip())
         if s.user_invocable:
             direct.append(s)
-        elif has_triggers:
-            auto.append(s)
-        # 其余（orchestrator-only）不展示
+        if s.triggers and s.triggers.strip():
+            # 自动识别段含所有有 triggers 的（即便 user_invocable=true 也列，用作"无需斜杠"提示）
+            triggered.append(s)
 
-    out: list[str] = ["可调 Skill /skills", ""]
+    blocks: list[str] = []
 
     if direct:
-        out.append("[直接调用]")
+        lines = ["**直调**"]
         for s in direct:
-            head = f"/{s.name}"
-            out.append(f"  {head}")
-            out.append(f"    {s.description}")
-            if s.triggers and s.triggers.strip():
-                kws = [t.strip() for t in s.triggers.split(",") if t.strip()][:4]
-                if kws:
-                    out.append(f"    触发词：{' / '.join(kws)}")
-            out.append("")
+            lines.append(f"- `/{s.name}` — {_short_desc(s.description)}")
+        blocks.append("\n".join(lines))
 
-    if auto:
-        out.append("[自动触发（无需敲斜杠）]")
-        for s in auto:
-            kws = [t.strip() for t in s.triggers.split(",") if t.strip()][:4]
-            out.append(f"  发 {' / '.join(kws)} → /{s.name}")
-            out.append(f"    {s.description}")
-            out.append("")
+    if triggered:
+        lines = ["**自动识别（无需斜杠）**"]
+        for s in triggered:
+            kws = [t.strip() for t in s.triggers.split(",") if t.strip()][:3]
+            kws_str = " / ".join(f"`{k}`" for k in kws)
+            lines.append(f"- {kws_str} → `/{s.name}`")
+        blocks.append("\n".join(lines))
 
-    out.append("回标准命令：/help")
-    return "\n".join(out).rstrip() + "\n"
+    blocks.append("> 标准命令：`/help`")
+    return "\n\n".join(blocks)
+
+
+def _short_desc(desc: str, max_chars: int = 40) -> str:
+    """精简 skill description：按多种分隔符切首段，取**位置最早**的分隔符。
+
+    SKILL.md 作者写的 description 常见模式：
+    - "短描述。详细说明…"   → 截 "短描述"
+    - "短描述（细节）…"     → 截 "短描述"
+    - "短描述 - 详细说明"   → 截 "短描述"
+    都没匹配则字符截。
+    """
+    if not desc:
+        return ""
+    desc = desc.strip()
+    candidates = []
+    for sep in ("。", " - ", " — ", "（", ". "):
+        idx = desc.find(sep)
+        if 0 < idx <= max_chars:
+            candidates.append(idx)
+    if candidates:
+        return desc[:min(candidates)]
+    return desc[:max_chars] + ("…" if len(desc) > max_chars else "")
