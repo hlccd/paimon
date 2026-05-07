@@ -26,13 +26,13 @@ def _parse_subscribe_args(args: str) -> tuple[str, str, str] | str:
       "<query> | <cron> | <engine>"     → 全指定
     """
     if not args or not args.strip():
+        # 无参 = 订阅 / 记忆领域聚合 help（不只是 /subscribe 自己用法）
         return (
-            "用法: /subscribe <关键词> [| <cron表达式>] [| <engine>]\n"
-            "例: /subscribe Claude 4.7\n"
-            "    /subscribe 小米 SU7 | 0 10 * * *\n"
-            "    /subscribe 大模型 | */6 * * * * | bing\n"
-            f"默认 cron: {_DEFAULT_SUBSCRIBE_CRON} (每日 7 点)\n"
-            "engine 可选: baidu / bing / 留空=双引擎"
+            "- `/subscribe <关键词> [| <cron>] [| <engine>]` 创建订阅 ← **带参数才创建**\n"
+            "- `/subs` 订阅管理（list/rm/on/off/run）\n"
+            "- `/remember <内容>` 跨会话记忆\n"
+            "\n"
+            f"默认 cron: `{_DEFAULT_SUBSCRIBE_CRON}` (每日 7 点)　|　engine: `baidu` / `bing` / 留空=双引擎"
         )
 
     parts = [p.strip() for p in args.split("|")]

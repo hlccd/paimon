@@ -6,6 +6,20 @@ from paimon.state import state
 from ._dispatch import CommandContext, command
 
 
+@command("session")
+async def cmd_session(ctx: CommandContext) -> str:
+    """/session — 会话领域命令清单（纯 help 入口；具体命令各自调）。"""
+    return (
+        "- `/new` 新建会话\n"
+        "- `/sessions` 列出会话\n"
+        "- `/switch <ID>` 切换会话\n"
+        "- `/rename <名>` 重命名会话\n"
+        "- `/delete [ID]` 删除会话\n"
+        "- `/clear` 清空当前会话\n"
+        "- `/stop` 停止生成"
+    )
+
+
 @command("new")
 async def cmd_new(ctx: CommandContext) -> str:
     """新建会话并切到它（当前 channel）。"""

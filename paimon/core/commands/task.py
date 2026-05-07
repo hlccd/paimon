@@ -50,11 +50,22 @@ async def cmd_tasks(ctx: CommandContext) -> str:
     return "\n".join(lines)
 
 
+_TASK_DOMAIN_HELP = (
+    "- `/task <描述>` 发起一个复杂任务 ← **带参数才开启任务**\n"
+    "- `/tasks` 定时任务列表\n"
+    "- `/task-list` 历史任务\n"
+    "- `/task-index [N]` 任务详情\n"
+    "- `/task-merge <id>` 合并任务产物\n"
+    "- `/task-discard <id>` 丢弃任务工作区\n"
+    "- `/task-summary [id]` 任务总结"
+)
+
+
 @command("task")
 async def cmd_task(ctx: CommandContext) -> str:
-    """/task <描述> — 强制走四影管线处理复杂任务（绕过意图分类）。"""
+    """/task <描述> — 发起复杂任务；无参时返任务领域 help。"""
     if not ctx.args:
-        return "用法: /task <任务描述>\n强制走四影管线处理复杂任务"
+        return _TASK_DOMAIN_HELP
 
     session_mgr = state.session_mgr
     if not session_mgr:
@@ -129,7 +140,6 @@ async def cmd_skills(ctx: CommandContext) -> str:
             lines.append(f"- {kws_str} → `/{s.name}`")
         blocks.append("\n".join(lines))
 
-    blocks.append("> 标准命令：`/help`")
     return "\n\n".join(blocks)
 
 
