@@ -108,15 +108,22 @@ class _LoginMixin:
         return sess.submit_sms(code)
 
     def login_overview(self) -> list[dict]:
-        """所有支持站点的 cookies 状态总览（前端登录区表格用）。"""
+        """所有支持站点的 cookies 状态总览（前端登录区表格用）。
+
+        免登录站点（requires_login=False，如 B 站）也列出，前端按字段渲染：
+        - requires_login=True：显示 cookies 状态 + 扫码登录按钮
+        - requires_login=False：标"无需 cookies"，无按钮
+        """
         result: list[dict] = []
         for site, cfg in SITE_CONFIG.items():
+            requires_login = cfg.get("requires_login", True)
             row: dict = {
                 "site": site,
                 "display_name": cfg["display_name"],
-                "configured": cookies_exists(site),
+                "requires_login": requires_login,
+                "configured": cookies_exists(site) if requires_login else None,
             }
-            if row["configured"]:
+            if requires_login and row["configured"]:
                 age = cookies_age_days(site)
                 row["age_days"] = round(age, 1) if age is not None else None
             result.append(row)

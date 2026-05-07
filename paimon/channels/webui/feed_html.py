@@ -512,18 +512,23 @@ FEED_SCRIPT = """
                 var sites = data.sites || [];
                 if(!sites.length){ el.innerHTML='<div class="empty-state">无站点</div>'; return; }
                 el.innerHTML = sites.map(function(s){
-                    var statusHtml;
-                    if(s.configured){
+                    var statusHtml, actionHtml;
+                    if(s.requires_login === false){
+                        // 免登录站点（B 站走官方 search API 不需要 cookies）
+                        statusHtml = '<span class="site-status ok">🌐 无需 cookies（公开 API）</span>';
+                        actionHtml = '<span style="color:var(--text-muted);font-size:12px">已支持</span>';
+                    } else if(s.configured){
                         var age = s.age_days != null ? s.age_days : '?';
                         statusHtml = '<span class="site-status ok">✅ 已配置　<small>' + age + ' 天前</small></span>';
+                        actionHtml = '<button onclick="startSiteLogin(\\'' + s.site + '\\',\\'' + esc(s.display_name) + '\\')">续期</button>';
                     } else {
                         statusHtml = '<span class="site-status warn">⚪ 未配置</span>';
+                        actionHtml = '<button onclick="startSiteLogin(\\'' + s.site + '\\',\\'' + esc(s.display_name) + '\\')">扫码登录</button>';
                     }
-                    var btnText = s.configured ? '续期' : '扫码登录';
                     return '<div class="site-row">' +
                         '<div class="site-name">' + esc(s.display_name) + '</div>' +
                         '<div class="site-status">' + statusHtml + '</div>' +
-                        '<div class="site-action"><button onclick="startSiteLogin(\\'' + s.site + '\\',\\'' + esc(s.display_name) + '\\')">' + btnText + '</button></div>' +
+                        '<div class="site-action">' + actionHtml + '</div>' +
                         '</div>';
                 }).join('');
             } catch(e){

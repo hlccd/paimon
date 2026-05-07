@@ -10,6 +10,7 @@ chromium 二进制需手动一次：`playwright install chromium`。
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from typing import Optional
@@ -24,43 +25,57 @@ from .site_cookies import COOKIES_BASE, cookies_exists, cookies_path
 _GENERIC_QR_SELECTORS = ["canvas", "img[src*='qr']", "img[alt*='二维码']", "img[alt*='扫码']"]
 
 SITE_CONFIG: dict[str, dict] = {
+    # 顺序 = 风神面板展示顺序（按 collector 实装优先级 / 用户使用频率排）
+    "bili": {
+        "display_name": "B 站",
+        "requires_login": False,  # 走官方 search API，免 cookies；列在面板里只是提示已支持
+    },
     "zhihu": {
         "display_name": "知乎",
+        "requires_login": True,
         "login_url": "https://www.zhihu.com/signin?next=%2F",
         "success_cookie": "z_c0",
         "qr_selectors": [".SignContainer-qrcode", "[class*='QrCode']", "[class*='Qrcode']"],
     },
+    "xhs": {
+        "display_name": "小红书",
+        "requires_login": True,
+        "login_url": "https://www.xiaohongshu.com/explore",
+        "success_cookie": "web_session",
+        "qr_selectors": [".qrcode-img", ".login-qrcode", "[class*='qrcode']"],
+        # explore 页登录浮层默认手机号 tab，需 click 切到扫码 tab；selector 候选试错命中第一个就 click
+        "qr_tab_selectors": ["text=扫码登录", "text=二维码登录", "text=扫一扫", "[class*='qrcode-tab']", "[class*='qr-tab']"],
+        # SMS 流程站点特化 selector：xhs 登录浮层提交按钮 ID 实测稳定；
+        # 优先于通用 fallback 试，命中率高，避免 click 撞 detach
+        "sms_submit_selectors": ["#login-btn"],
+    },
     "weibo": {
         "display_name": "微博",
+        "requires_login": True,
         "login_url": "https://weibo.com/login.php",
         "success_cookie": "SUB",
         "qr_selectors": [".qrcode_box", ".LoginCard_pic_3i6_M", ".qr-pic"],
     },
     "tieba": {
         "display_name": "贴吧",
+        "requires_login": True,
         "login_url": "https://passport.baidu.com/v2/?login&u=https%3A%2F%2Ftieba.baidu.com%2F",
         "success_cookie": "BDUSS",
         "qr_selectors": [".tang-pass-userlogin-qrcode", "#TANGRAM__PSP_3__qrcodeImg", ".qrcode-img"],
     },
     "hupu": {
         "display_name": "虎扑",
+        "requires_login": True,
         "login_url": "https://passport.hupu.com/pc/login",
         "success_cookie": "u",
         "qr_selectors": [".qr-code", ".qrcode", ".scan-login"],
     },
     "taptap": {
         "display_name": "TapTap",
+        "requires_login": True,
         "login_url": "https://www.taptap.cn/login",
         "success_cookie": "_xsrf",
         "qr_selectors": [".tap-login-qr", ".qr-code", ".qrcode"],
-    },
-    "xhs": {
-        "display_name": "小红书",
-        "login_url": "https://www.xiaohongshu.com/explore",
-        "success_cookie": "web_session",
-        "qr_selectors": [".qrcode-img", ".login-qrcode", "[class*='qrcode']"],
-        # explore 页登录浮层默认手机号 tab，需 click 切到扫码 tab；selector 候选试错命中第一个就 click
-        "qr_tab_selectors": ["text=扫码登录", "text=二维码登录", "text=扫一扫", "[class*='qrcode-tab']", "[class*='qr-tab']"],
     },
 }
 
@@ -86,8 +101,9 @@ _SMS_CODE_INPUT_SELECTORS = [
     "input[name*='verify']",
     "input[name*='code']",
 ]
-_SMS_SUBMIT_SELECTORS = [
-    "#login-btn",                  # 小红书登录浮层提交按钮的实测 ID（log 已确认）
+# 通用 SMS 提交按钮 fallback——所有站点都会试这些（在 site 特有 sms_submit_selectors 之后）
+# 站特化 selector 配在 SITE_CONFIG[<site>].sms_submit_selectors（优先试）
+_GENERIC_SMS_SUBMIT_SELECTORS = [
     "button:has-text('登录')",
     "button:has-text('确定')",
     "button:has-text('提交')",
@@ -166,11 +182,18 @@ class LoginSession:
         if site not in SITE_CONFIG:
             raise ValueError(f"未知站点 '{site}'，支持：{list(SITE_CONFIG.keys())}")
         cfg = SITE_CONFIG[site]
+        if not cfg.get("requires_login", True):
+            raise ValueError(f"站点 '{site}' 免登录（{cfg.get('display_name', site)}），不需要扫码")
         self.session_id: str = uuid.uuid4().hex[:12]
         self.site: str = site
         self.display_name: str = cfg["display_name"]
         self.login_url: str = cfg["login_url"]
         self.success_cookie: str = cfg["success_cookie"]
+        # SMS 提交按钮 selector：站特有 + 通用 fallback。后续给其他站复用直接在 SITE_CONFIG 加
+        # `sms_submit_selectors` 即可，不动核心代码
+        self._sms_submit_selectors: list[str] = (
+            list(cfg.get("sms_submit_selectors") or []) + _GENERIC_SMS_SUBMIT_SELECTORS
+        )
         self.timeout_seconds: int = timeout_seconds or self.DEFAULT_TIMEOUT
         self.started_at: float = time.time()
         # pending / baseline / qr_ready / awaiting_sms / sms_submitting / success / timeout / failed
@@ -383,49 +406,111 @@ class LoginSession:
                                 except Exception:
                                     pass
                             else:
-                                # fill 6 位验证码后小红书前端可能已自动触发提交（form input change → submit）；等 1s 让 JS 处理
-                                # 之后尝试 click 提交按钮：force=True 跳过 visibility 检查（小红书 button 在 form 提交瞬间 not visible/被 detach）
-                                # click 失败 fallback 到在 input 上 press Enter
-                                # 不论 click/Enter 是否成功，都等 5s 看 cookies——fill 本身就可能已经触发提交
-                                await asyncio.sleep(1)
-                                clicked = False
-                                for sel in _SMS_SUBMIT_SELECTORS:
+                                # 实测（2026-05-06 云端日志）：xhs 在 fill 6 位验证码后会
+                                # **前端自动 submit form**——button 进入 loading 状态被 hide/detach。
+                                # 这时 click button 必然撞 not-visible/detached，retry 多少次都没用。
+                                # 正确逻辑：
+                                #   1. fill 后等 0.5s 让 fill 事件传播
+                                #   2. 看 button 当前状态：可点 → 主动触发；不可点 → 已被自动触发，不再多此一举
+                                #   3. polling 等 cookies（cookies 一到立即返回，最多 30s）
+                                #      ——比 sleep(5) 一次性查更抗慢响应 + 失败时 user 体验更好
+                                await asyncio.sleep(0.5)
+
+                                # 检查 button 状态：detach / hidden / disabled = fill 已自动触发 submit
+                                # selector 列表来自 SITE_CONFIG[site].sms_submit_selectors（站特化）+ 通用 fallback
+                                # 这样后续给贴吧/虎扑/微博/TapTap 复用时只需在 SITE_CONFIG 加一行 sms_submit_selectors
+                                # 不动核心代码
+                                sels_json = json.dumps(self._sms_submit_selectors)
+                                button_clickable = False
+                                try:
+                                    state = await page.evaluate(f"""() => {{
+                                        const sels = {sels_json};
+                                        for (const s of sels) {{
+                                            const el = document.querySelector(s);
+                                            if (!el) continue;
+                                            const rect = el.getBoundingClientRect();
+                                            const visible = rect.width > 0 && rect.height > 0 && el.offsetParent !== null;
+                                            const enabled = !el.disabled;
+                                            return {{ selector: s, visible, enabled }};
+                                        }}
+                                        return null;
+                                    }}""")
+                                    if state and state.get("visible") and state.get("enabled"):
+                                        button_clickable = True
+                                except Exception as e:
+                                    logger.debug("[浏览器·登录] {} button 状态检查失败: {}", self.site, e)
+
+                                triggers: list[str] = []
+                                if not button_clickable:
+                                    # button 不可点 = fill 已自动触发了 submit（xhs 实测路径，未来其他站可能不一样）
+                                    logger.info("[浏览器·登录] {} fill 已自动触发 submit（button detach/hidden/disabled）", self.site)
+                                    triggers.append("fill-auto")
+                                else:
+                                    # button 仍可点 = fill 没自动触发，需要主动 click（三管齐下保险）
+                                    # ① Enter（最稳，不依赖 button DOM）
+                                    if code_input_loc is not None:
+                                        try:
+                                            await code_input_loc.press("Enter", timeout=2000)
+                                            triggers.append("Enter")
+                                        except Exception as e:
+                                            logger.debug("[浏览器·登录] {} press Enter 失败: {}", self.site, e)
+                                    # ② JS click（绕过 playwright visibility/detach 检测）
                                     try:
-                                        loc = page.locator(sel).first
-                                        if await loc.count() > 0:
-                                            await loc.click(timeout=2000, force=True)
-                                            clicked = True
-                                            logger.info("[浏览器·登录] {} 已 click 提交（force）selector={}",
-                                                        self.site, sel)
-                                            break
+                                        js_result = await page.evaluate(f"""() => {{
+                                            const sels = {sels_json};
+                                            for (const s of sels) {{
+                                                const btn = document.querySelector(s);
+                                                if (btn) {{ btn.click(); return s; }}
+                                            }}
+                                            for (const btn of document.querySelectorAll('button')) {{
+                                                const t = (btn.innerText || '').trim();
+                                                if (/^(登录|确定|提交)$/.test(t)) {{ btn.click(); return 'text:' + t; }}
+                                            }}
+                                            return null;
+                                        }}""")
+                                        if js_result:
+                                            triggers.append(f"JS:{js_result}")
                                     except Exception as e:
-                                        logger.debug("[浏览器·登录] {} 提交 selector {} 失败: {}",
-                                                     self.site, sel, e)
-                                if not clicked and code_input_loc is not None:
-                                    try:
-                                        await code_input_loc.press("Enter", timeout=2000)
-                                        clicked = True
-                                        logger.info("[浏览器·登录] {} fallback：input press Enter 触发提交",
-                                                    self.site)
-                                    except Exception as e:
-                                        logger.debug("[浏览器·登录] {} press Enter 失败: {}", self.site, e)
-                                # 等 5s 看 cookies（即使 click/Enter 都失败，fill 6 位也可能已自动提交）
-                                await asyncio.sleep(5)
-                                cookies_after = await context.cookies()
-                                after_names = {c.get("name", "") for c in cookies_after}
-                                after_ok = (
-                                    bool(after_names - baseline_names) if success_in_baseline
-                                    else (self.success_cookie in after_names)
-                                )
-                                if after_ok:
+                                        logger.debug("[浏览器·登录] {} JS click 失败: {}", self.site, e)
+                                    # ③ playwright force click（兜底，selector 列表同上）
+                                    for sel in self._sms_submit_selectors:
+                                        try:
+                                            loc = page.locator(sel).first
+                                            if await loc.count() > 0:
+                                                await loc.click(timeout=2000, force=True)
+                                                triggers.append(f"PW:{sel}")
+                                                break
+                                        except Exception as e:
+                                            logger.debug("[浏览器·登录] {} PW click {} 失败: {}",
+                                                         self.site, sel, e)
+                                logger.info("[浏览器·登录] {} 触发提交: {}", self.site, triggers)
+
+                                # polling 等 cookies——每秒查 1 次，最多 30s
+                                # （vs 旧 sleep(5)：xhs 后端慢响应 / 用户验证码输错时体验差距巨大；
+                                #   polling 模式下 cookies 一到立即返回，且 30s 窗口比 5s 更宽容）
+                                poll_start = time.time()
+                                ok_after_seconds: int | None = None
+                                while time.time() - poll_start < 30:
+                                    cookies_after = await context.cookies()
+                                    after_names = {c.get("name", "") for c in cookies_after}
+                                    after_ok = (
+                                        bool(after_names - baseline_names) if success_in_baseline
+                                        else (self.success_cookie in after_names)
+                                    )
+                                    if after_ok:
+                                        ok_after_seconds = int(time.time() - poll_start)
+                                        break
+                                    await asyncio.sleep(1)
+
+                                if ok_after_seconds is not None:
                                     await context.storage_state(path=str(cookies_path(self.site)))
                                     self.status = "success"
-                                    logger.info("[浏览器·登录] {} SMS 提交后成功 cookies 落盘（click/Enter 触发={})",
-                                                self.site, clicked)
+                                    logger.info("[浏览器·登录] {} SMS 提交 {}s 后拿到登录态 cookies 落盘",
+                                                self.site, ok_after_seconds)
                                     return
-                                # 失败回 awaiting_sms 让用户重输（可能验证码错误/过期/风控加强）
-                                logger.warning("[浏览器·登录] {} SMS 提交后未拿到登录态（click/Enter 触发={}），"
-                                               "回退 awaiting_sms", self.site, clicked)
+                                # 30s 超时回 awaiting_sms（验证码错误/过期/风控加强；让用户重输）
+                                logger.warning("[浏览器·登录] {} SMS 提交后 30s 未拿到登录态，"
+                                               "回退 awaiting_sms 等用户重输", self.site)
                                 self.status = "awaiting_sms"
                                 try:
                                     self.sms_form_image = await page.screenshot(full_page=False)
