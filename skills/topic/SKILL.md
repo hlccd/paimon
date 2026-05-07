@@ -16,67 +16,79 @@ allowed-tools: Bash
 
 > 注：跨轮污染由代码层 ephemeral session + meta.skip_llm 解决（详见
 > `paimon/core/commands/_dispatch.py:_run_skill_isolated`），LLM 上下文里看不到
-> 之前的调研历史。本节只剩输出格式 / 章节名 / Top 数量等"格式"约束。
+> 之前的调研历史。本节定义输出格式 / 章节名 / Top 数量 / 摘要长度等约束。
 
 ### 标准输出结构（结构固定，内容动态）
 
 ```markdown
 调研完成。
 
+## 综合 Top {N}
+1. **[<标题原文>](<url>)** _(<源中文名>)_ — <≤50 字摘要>
+2. **[<标题原文>](<url>)** _(<源中文名>)_ — <≤50 字摘要>
+...（{N} 是 stdout `## 综合 Top N` 段的实际条数，最多 10）
+（摘要从 stdout「各源原始素材」段提取；缺失时降级为 `**[标题](url)** _(源)_`，不强加 "—"）
+
 ## 各源讨论重点
-- **<源中文名>**: <1-2 句基于本源笔记标题/摘要的事实归纳>
-- **<源中文名>**: <同上>
+- **<源中文名>**：<1-2 句基于本源 top 5 实际内容的事实归纳>
+- **<源中文名>**：<同上>
 （**只列本次实际采集到 ≥1 条数据的源**；0 条的源**不列**；
-  N 个源就 N 条 bullet，不固定 3 条）
+  正负分化（≥2 正 + ≥2 负）的源用「主流认为 X，反方认为 Y」保留双方）
 
 ## 情绪分析
-- 正面: <1-2 句基于实际笔记内容>
-- 负面: <1-2 句>
-- 中性 / 信息向: <1-2 句>
+- 正面：<1-2 句基于实际笔记内容>
+- 负面：<1-2 句>
+- 中性 / 信息向：<1-2 句>
 （如某维度本次完全没有，就**省略那条 bullet**；不脑补）
 
-## 综合 Top 15
-
-<从 stdout 的「## 综合 Top N」段截**前 15 条**原样输出>
-<格式：每条标题超链接 + 平台·日期·engagement·score，原文不动>
-
-完整报告（含各平台全部条目 + JSON）已落盘 `.paimon/skills/topic/cache/<slug>/report.md`
+完整报告（含各平台全部条目 + engagement 数字 + JSON）已落盘 `.paimon/skills/topic/cache/<slug>/report.md`
 ```
 
 ### 违规模式（看到这些立即重写，不要发送）
 
 - 顶部加 emoji / 角色扮演开场白：`🔥 调研结果来啦~` / `旅行者，派蒙这就帮你跑`
 - 自创章节名：`## 核心发现` / `## 热点话题` / `## 整体风向` / `## 关键事件` / `## 舆情速览` / `## 关键人物`
-- Top 数量错：列 5 条 / 10 条 / 20 条 都不对，**只能 15 条**
-- 章节名错：`## 热度 Top X` / `## 综合 Top N` 数字不对
+- Top 数量错：列 12 / 15 / 20 都不对，**最多 10 条**（stdout `## 综合 Top N` N 是实际条数；ranked 不足 10 时按实际条数照搬，**不要**强凑 10 条）
+- 章节名变体错：标准是 `## 综合 Top {数字}`，不要写成 `## 热度 Top X` / `## 综合榜` / `## TOP10` 等
 - 输出分源明细块：`## B 站（N 条）` / `## 知乎（N 条）` / `## 小红书（N 条）` —— 这些只在落盘文件里
+- 在 reply 里保留 engagement 数字：`播放 1.2M · 赞 50K · 评 3K · score 0.85` —— 全部去掉，只留 标题 + 链接 + 源标记 + 摘要
+- 摘要超 50 字 / 摘要里塞观点：`这条很火` / `值得一看` 等评价 —— 必须是事实摘要，限 50 字内
 - 主观评价词：`封神` / `评价极高` / `热度可观` / `值得关注` / `值得期待` / `凶猛` / `亮眼` / `炸裂`
 - 改写笔记标题（翻译 / 缩短 / 拼接）—— 必须原文
 
-### 输出前 Self-Check（必过）
+### 输出前 Self-Check（必过，**md 格式必须正确**）
 
 发送 reply 前，逐条核对：
 
 1. [ ] 顶部第一行是 "调研完成。"，没有 emoji / 角色扮演开场？
 2. [ ] **没有** `## B 站(N 条)` / `## 知乎(N 条)` / `## 小红书(N 条)` 段？
 3. [ ] **没有** `## 核心发现` / `## 热点话题` / `## 整体风向` / `## 关键事件` / `## 舆情速览` 等自创章节？
-4. [ ] Top **正好 15 条**（不是 5 / 10 / 20）？
+4. [ ] Top **≤ 10 条**（ranked 满 10 就是 10；不足时按 stdout `## 综合 Top N` 的 N 照搬，不强凑）？
 5. [ ] Top 的笔记标题原文输出，**没改写、没翻译、没缩短**？
-6. [ ] 「各源讨论重点」只列**本次实际有数据的源**，0 条源**没出现**？
-7. [ ] 「情绪分析」是事实归纳，**没有** "封神 / 评价极高 / 热度可观 / 值得关注 / 值得期待 / 凶猛" 这类评价词？
-8. [ ] 全文无 emoji（🔥 / 😊 / 💬 / 📊 / 🎯 / ✨ / ⭐）？
-9. [ ] 总长度 < 1500 token / 6000 字符（QQ 单条限制）？
+6. [ ] **每条 Top 格式严格符合** `1. **[标题](url)** _(源)_ — 摘要`：
+   - markdown 链接 `[标题](url)` 中括号 / 圆括号配对，url 不带空格
+   - 加粗 `**` / 斜体 `_..._` 配对（不要漏一边）
+   - 摘要前的 ` — ` 是「空格 + em-dash + 空格」（U+2014），不是 `--` 或 `-`
+   - 摘要 ≤ 50 字（中文字符计数；超出截断加 `...`）
+7. [ ] 摘要缺失（body 空）的条目降级为 `**[标题](url)** _(源)_` 单行，**没**强加 "— "
+8. [ ] **没有** engagement 数字（播放 / 赞 / 评 / 收藏 / score / 日期）混进 reply
+9. [ ] 「各源讨论重点」只列**本次实际有数据的源**，0 条源**没出现**？
+10. [ ] 「情绪分析」是事实归纳，**没有** `封神 / 评价极高 / 热度可观 / 值得关注 / 值得期待 / 凶猛` 这类评价词？
+11. [ ] 全文无 emoji（🔥 / 😊 / 💬 / 📊 / 🎯 / ✨ / ⭐）？
+12. [ ] 章节顺序严格 `综合 Top {N}` → `各源讨论重点` → `情绪分析`（不调换、不删减）
+13. [ ] 总长度 < 1500 token / 6000 字符（QQ 单条限制）？
 
 任何一条 ❌ → 立刻重写，不要发出去。
 
 ### Token 预算
 
 - 单次 reply 硬上限：**1500 token**（约 6000 中文字符）
-- 一旦超 2000 token → **必然违规**（多半是塞了分源明细 / Top 超 15 / 自创总结段）→ 重写
+- 估算：Top 10（≈ 1500 字符）+ 各源讨论重点（≈ 350 字）+ 情绪分析（≈ 200 字）≈ 2000 字符 ≈ 1100 token，安全
+- 一旦超 2000 token → **必然违规**（多半是塞了分源明细 / Top 超 10 / 摘要超 50 / 自创总结段）→ 重写
 
 ## 使用方式
 
-### 默认（B 站 + 知乎 + 小红书）
+### 默认（B 站 + 知乎 + 小红书 + 贴吧 + 微博，5 源全跑）
 
 ```bash
 python3 skills/topic/scripts/research.py "Claude 4.7" --emit md
@@ -109,12 +121,13 @@ python3 skills/topic/scripts/research.py "OpenAI" --days 14 --emit json
 | 参数 | 默认 | 含义 |
 |---|---|---|
 | `topic` | （必需） | 调研主题 |
-| `--sources` | `bili,zhihu,xhs` | 逗号分隔的源列表（支持 `bili` / `zhihu` / `xhs`；xhs 启 chromium 多 3-5s）|
+| `--sources` | `bili,zhihu,xhs,tieba,weibo` | 逗号分隔的源列表（支持 `bili` / `zhihu` / `xhs` / `tieba` / `weibo`；xhs/tieba/weibo 各启一次 chromium ~3-5s）|
 | `--days` | `30` | 时间窗（天）|
 | `--emit` | `md` | 标准输出格式：`md` / `json` / `both` |
 | `--output-dir` | `<默认缓存>` | 产物落盘目录 |
 | `--discover-limit` | `20` | 每源 web-search 候选数 |
 | `--enrich-limit` | `15` | 每源真正 enrich 的上限 |
+| `--top-n` | `10` | brief 版 stdout 输出的 Top N 条数 |
 
 ## 架构
 
@@ -131,7 +144,13 @@ topic → bili.collect()   ─┐
 - **B 站**：官方 search API（免签名免登录），返回 bvid / title / view / danmaku / favorites / pubdate
 - **知乎**：search v3 API（`/api/v4/search_v3`），需要 cookies（playwright 登录后 storage_state）；处理 question / answer / article 三种 hit 类型，拿点赞 / 评论 / 收藏 / 感谢
 - **小红书**：playwright sync_api 启 headless chromium → 加载 cookies → goto 搜索页 → page.evaluate 解析 DOM 拿 title/url/作者/点赞；每次 collect 冷启动 chromium ~3-5s（单用户低频可接受）；published_at 用 range_to 占位（搜索列表卡片无日期）
-- 计分：`recency × 0.3 + engagement × 0.5 + relevance × 0.2`（engagement 同源内 log 缩放归一化）
+- 计分：平台特性化（`scripts/lib/core/score.py`）—— 各源专属 engagement 公式 + 同源 P90 归一化，最终 `0.25·recency + 0.5·engagement + 0.25·relevance`：
+  - **B 站**：`0.4·log10(view) + 0.3·log10(favorite) + 0.3·log10(danmaku)`
+  - **知乎**：`0.5·log10(voteup) + 0.3·log10(thanks) + 0.1·log10(comment) + 0.1·log10(favorite)`
+  - **小红书**：`log10(like)`（搜索列表 only-like，favorite/comment 缺失走兜底）
+  - **贴吧**：`log10(reply)` 主信号，view 有则加权 0.7/0.3
+  - **微博**：`0.4·log10(repost) + 0.3·log10(comment) + 0.3·log10(like)`
+- 排序：diversity rank（每源至少 1 无条件上榜；剩余名额按全局 score 降序填；源数 > top_n 时按各源 top 1 score 截前 top_n 个）
 
 ## 目录结构
 
@@ -145,8 +164,10 @@ skills/topic/
         └── sources/        # 各 source collector
             ├── bili.py     # ✅ 走官方 search API，免登录
             ├── zhihu.py    # ✅ search v3 + cookies
-            ├── xhs.py      # ✅ playwright headless 解析 DOM
-            └── ...         # 后续 tieba / hupu / weibo / taptap / github
+            ├── xhs.py      # ✅ playwright headless + cookies + DOM
+            ├── tieba.py    # ✅ playwright + 百度 BDUSS cookies + DOM
+            ├── weibo.py    # ✅ playwright + cookies + s.weibo.com DOM
+            └── ...         # 后续 GitHub（公开 search API，技术话题补充）
 ```
 
 每个 source collector 必须暴露统一签名：
@@ -177,9 +198,7 @@ def collect(topic: str, range_from: str, range_to: str, *, limit: int) -> list[I
 | **知乎** | ✅ 已接入 | ★★ 中 | search v3 API + cookies；首次去 webui /feed「站点登录」tab 扫码 |
 | **小红书** | ✅ 已接入 | ★★★ 中难 | playwright headless + cookies + DOM 解析；MVP 不抓发布日期 |
 | **贴吧** | ✅ 已接入 | ★★ 中 | playwright headless + 百度 BDUSS cookies + DOM 解析（匿名 403 跳百度安全验证）|
-| **虎扑** | TODO | ★★ 中 | `bbs.hupu.com/search` 网页搜索；登录后反爬宽松 |
 | **微博** | ✅ 已接入 | ★★★ 难 | playwright headless + cookies + 解析 s.weibo.com 搜索页 DOM；selector 待 user 实测调 |
-| **TapTap** | TODO | ★★ 中 | webapi 搜索；游戏话题用 |
 | **GitHub** | TODO | ★ 易 | 公开 search API，免登录；技术话题补充 |
 
 各站 cookies 失效后，回 webui /feed「站点登录」tab 扫码续期。

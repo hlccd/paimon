@@ -59,6 +59,7 @@ def run(
     output_dir: Path,
     discover_limit: int = 20,
     enrich_limit: int = 15,
+    top_n: int = 10,
 ) -> Report:
     range_from, range_to = date_window(days)
     log.info(f"topic={topic!r} sources={sources} 窗口={range_from}~{range_to}")
@@ -81,8 +82,12 @@ def run(
             items_by_source[src] = []
             errors[src] = f"{type(e).__name__}: {e}"
 
-    score_mod.score_items(items_by_source, range_from, range_to)
-    ranked = score_mod.rank(items_by_source, top_n=30)
+    score_mod.score_items(items_by_source, range_from, range_to, topic=topic)
+    # diversity rank：每源至少 1 上榜（前提 source top 1 ≥ 全局 P50），剩余按 score 填
+    # top_n 跟 brief reply 输出契约严格对齐：rank top_n 必须 = brief top_n
+    # —— 否则 diversity_picks 进了 ranked 但 brief 截前 N 时会被挤出去，diversity 失效
+    # 落盘 full 看 ranked 也是这 N 条 top（下方分源明细全量补足"完整报告"语义）
+    ranked = score_mod.rank(items_by_source, top_n=top_n)
 
     report = Report(
         topic=topic,
@@ -97,7 +102,9 @@ def run(
     output_dir.mkdir(parents=True, exist_ok=True)
     md_path = output_dir / "report.md"
     json_path = output_dir / "report.json"
-    md_path.write_text(render_mod.to_markdown(report), encoding="utf-8")
+    # 落盘 full 版（含 engagement 数字 / 分源明细 / score）；stdout reply 走 brief 版
+    # full 的 top_n 跟 ranked 容量一致（不会超过 ranked 实际长度）
+    md_path.write_text(render_mod.to_markdown_full(report, top_n=top_n), encoding="utf-8")
     json_path.write_text(render_mod.to_json(report), encoding="utf-8")
     log.info(f"产物: {md_path} / {json_path}")
     return report
@@ -115,6 +122,8 @@ def main() -> int:
                     help="产物落盘目录（默认 ~/.paimon/skills/topic/cache/<slug>/）")
     ap.add_argument("--discover-limit", type=int, default=20)
     ap.add_argument("--enrich-limit", type=int, default=15)
+    ap.add_argument("--top-n", type=int, default=10,
+                    help="brief 版 stdout 输出的 Top N 条数（默认 10，跟 SKILL.md 输出契约对齐）")
     args = ap.parse_args()
 
     sources = [s.strip() for s in args.sources.split(",") if s.strip()]
@@ -125,10 +134,13 @@ def main() -> int:
     report = run(
         args.topic, sources, args.days, output_dir,
         discover_limit=args.discover_limit, enrich_limit=args.enrich_limit,
+        top_n=args.top_n,
     )
 
+    # stdout 走 brief 版（精简 Top N + 各源原始素材给 LLM 写最终输出契约用）；
+    # 落盘 full 版含完整 engagement / 分源明细，由 run() 写到 report.md
     if args.emit in ("md", "both"):
-        sys.stdout.write(render_mod.to_markdown(report))
+        sys.stdout.write(render_mod.to_markdown_brief(report, top_n=args.top_n))
     if args.emit == "json":
         sys.stdout.write(render_mod.to_json(report))
     elif args.emit == "both":
