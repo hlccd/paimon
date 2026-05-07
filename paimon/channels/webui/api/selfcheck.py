@@ -375,6 +375,39 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
         })
 
 
+async def restart_api(channel, request: web.Request) -> web.Response:
+    """重启 paimon 进程（不拉新代码）—— 调 trigger_upgrade_exit 让 watchdog 拉起当前代码。
+
+    适用场景：改了 .env / 手动 git pull 后想生效 / 状态异常想清空内存重启。
+    跟 upgrade trigger 区别：不调 git pull / 不查落后，直接退出 100 即可。
+
+    与 upgrade 互斥：复用 `_upgrade_lock.locked()` 做 best-effort 检查。已知 race window：
+      restart return 后 0.5s 内 upgrade 进入 acquire lock 开始 git pull，但 0.5s 后
+      SystemExit 触发让进程退出，git pull 可能半完成。watchdog 拉起后若代码语法 broken，
+      连续启动失败 3 次会自动 rollback（详见 run_with_watchdog.sh）。单用户场景概率极低，
+      不做更严格的同步以免增加复杂度。
+    """
+    from paimon.channels.webui.api import check_confirm, confirm_required_response
+    if not check_confirm(request):
+        return confirm_required_response()
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    from paimon.__main__ import trigger_upgrade_exit
+
+    if _upgrade_lock.locked():
+        return web.json_response(
+            {"ok": False, "error": "已有升级 / 重启任务进行中"}, status=409,
+        )
+
+    logger.info("[重启] 收到 webui 重启请求 → 0.5s 后退出码 100 让 watchdog 拉起")
+    trigger_upgrade_exit()
+    return web.json_response({
+        "ok": True,
+        "message": "重启请求已接受，进程将在 1 秒内重启。前端会暂时无响应，请等 5-10 秒后刷新。",
+    })
+
+
 async def upgrade_rollback_status_api(channel, request: web.Request) -> web.Response:
     """读 .paimon/last_rollback（watchdog 触发回退时写入）→ 返回 JSON 给前端展示警示条。
 
@@ -433,5 +466,6 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_post("/api/selfcheck/deep/run", lambda r, ch=channel: selfcheck_deep_run_api(ch, r))
     app.router.add_get("/api/selfcheck/upgrade/check", lambda r, ch=channel: upgrade_check_api(ch, r))
     app.router.add_post("/api/selfcheck/upgrade/trigger", lambda r, ch=channel: upgrade_trigger_api(ch, r))
+    app.router.add_post("/api/selfcheck/restart", lambda r, ch=channel: restart_api(ch, r))
     app.router.add_get("/api/selfcheck/upgrade/rollback_status", lambda r, ch=channel: upgrade_rollback_status_api(ch, r))
     app.router.add_post("/api/selfcheck/upgrade/rollback_ack", lambda r, ch=channel: upgrade_rollback_ack_api(ch, r))

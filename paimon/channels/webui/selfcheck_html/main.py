@@ -48,6 +48,7 @@ SELFCHECK_BODY = """
             <div class="upgrade-actions">
                 <button id="btnUpgradeCheck" class="btn">🔄 检查更新</button>
                 <button id="btnUpgradeApply" class="btn btn-primary" style="display:none">⬇️ 拉取并重启</button>
+                <button id="btnRestart" class="btn">♻️ 重启</button>
             </div>
         </div>
         <div id="upgradeCommits" class="upgrade-commits" style="display:none"></div>

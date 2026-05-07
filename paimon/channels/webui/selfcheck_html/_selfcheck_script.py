@@ -575,6 +575,38 @@ SELFCHECK_SCRIPT = """
             }
         });
 
+        // ========== 重启按钮（不拉新代码，仅退出 100 让 watchdog 拉起当前代码）==========
+
+        document.getElementById('btnRestart').addEventListener('click', async function(){
+            if(!confirm('确认重启 paimon？\\n\\n用当前代码重启，不拉取更新。\\n前端会暂时无响应（5-10 秒），重启后页面会自动刷新。')) return;
+            var btn = this;
+            btn.disabled = true;
+            btn.textContent = '重启中...';
+            try{
+                var r = await fetch('/api/selfcheck/restart', {
+                    method: 'POST',
+                    headers: { 'X-Confirm': 'yes' },
+                });
+                var d = await r.json();
+                if(!d.ok){
+                    alert('重启失败：' + (d.error || '未知'));
+                    btn.disabled = false;
+                    btn.textContent = '♻️ 重启';
+                    return;
+                }
+                var html = '<div class="upgrade-status success">'
+                    + '✅ ' + escapeHtml(d.message || '已触发重启')
+                    + '</div>';
+                document.getElementById('upgradeCommits').innerHTML = html;
+                document.getElementById('upgradeCommits').style.display = '';
+                setTimeout(function(){ location.reload(); }, 10000);
+            }catch(e){
+                alert('请求失败：' + e.message);
+                btn.disabled = false;
+                btn.textContent = '♻️ 重启';
+            }
+        });
+
         // ========== 回退警示条（watchdog 触发回退后展示，用户点「我知道了」清掉）==========
 
         async function loadRollbackStatus(){
