@@ -84,7 +84,6 @@ class _FinalMixin:
         self,
         user_input: str,
         session_id: str,
-        escalation_reason: str | None = None,
     ) -> TaskEdict:
         # LLM 生成短标题供 ack / notice / task-list 显示。
         # 失败降级为 user_input 截断；慢任务多这一次 LLM 调用不影响整体耗时。
@@ -98,16 +97,8 @@ class _FinalMixin:
         if not title:
             title = user_input.strip().replace("\n", " ")[:60]
 
-        if escalation_reason:
-            description = (
-                f"{user_input}\n"
-                f"---\n"
-                f"[魔女会转交] 天使路径失败原因：{escalation_reason}"
-            )
-            creator = "派蒙·魔女会"
-        else:
-            description = user_input
-            creator = "派蒙"
+        description = user_input
+        creator = "派蒙"
         task = TaskEdict(
             id=uuid4().hex[:12],
             title=title,

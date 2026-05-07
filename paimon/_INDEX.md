@@ -160,14 +160,24 @@ irminsul/
 
 ---
 
-## angels/ — 天使（skill 调度）
+## skill_loader/ — Skill 加载器
 
 | 文件 | 职责 |
 |---|---|
 | `registry.py` | skill 注册器（装载时 grep allowed_tools 派生 sensitivity） |
 | `parser.py` | SKILL.md frontmatter 解析 |
 | `watcher.py` | watchdog 热重载（默认关，`SKILLS_HOT_RELOAD=true` 启用） |
-| `nicole.py` | 魔女会兜底（天使路径失败 → 询问用户 → 转四影） |
+
+---
+
+## morningstar/ — 天使体系（多视角讨论）
+
+| 文件 | 职责 |
+|---|---|
+| `morningstar.py` | /agents 主入口：流式 reply + merge 主 session |
+| `council.py` | 讨论循环：assemble → dispatch+speak loop → synthesize；含上限 / 死锁检测 |
+| `roles.py` | 11 个协同天使 system prompt（结构性 5 / 评估性 4 / 对抗性 2） |
+| `prompts.py` | 晨星 4 个 prompt：assemble / dispatch / speak / synthesize |
 
 ---
 

@@ -110,7 +110,7 @@ async def create_app(cfg: Config) -> list[Channel]:
 
     from pathlib import Path
     from paimon.tools.registry import ToolRegistry
-    from paimon.angels.registry import SkillRegistry
+    from paimon.skill_loader.registry import SkillRegistry
 
     project_root = Path(__file__).parent.parent.parent
     state.tool_registry = ToolRegistry.load(project_root / "tools")
@@ -122,7 +122,7 @@ async def create_app(cfg: Config) -> list[Channel]:
     # 冰神 B-2：skill 目录热加载（docs/angels/angels.md §热加载）
     state.skill_hot_loader = None
     if cfg.skills_hot_reload:
-        from paimon.angels.watcher import SkillHotLoader
+        from paimon.skill_loader.watcher import SkillHotLoader
         state.skill_hot_loader = SkillHotLoader(
             state.skill_registry, state.irminsul, state.model,
         )

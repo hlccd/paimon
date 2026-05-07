@@ -14,7 +14,7 @@ from enum import Enum
 
 from loguru import logger
 
-from paimon.angels.registry import SkillInfo, SkillRegistry
+from paimon.skill_loader.registry import SkillInfo, SkillRegistry
 from paimon.channels.base import Channel
 from paimon.foundation.irminsul import Irminsul
 from paimon.session import Session

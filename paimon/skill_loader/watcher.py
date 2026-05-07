@@ -28,7 +28,7 @@ except ImportError:
     _WATCHDOG_OK = False
 
 if TYPE_CHECKING:
-    from paimon.angels.registry import SkillRegistry
+    from paimon.skill_loader.registry import SkillRegistry
     from paimon.foundation.irminsul import Irminsul
     from paimon.llm.model import Model
 

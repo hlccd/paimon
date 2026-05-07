@@ -1,12 +1,13 @@
-"""天使（多视角讨论的角色）系统提示词池。
+"""协同天使（多视角讨论的协同角色）系统提示词池。
 
-11 个预定义角色（按 docs/world_formula.md §3.4 分 3 类）：
+11 个预定义协同天使（按 docs/world_formula.md §3.4 分 3 类）：
 - 结构性 5：requirement / architecture / implementation / test / review
 - 评估性 4：finance / risk / user_voice / history
 - 对抗性 2：challenger / proposer
 
-每个角色 = 一个 system prompt 模板。讨论时晨星 dispatch 选定角色，把对应 prompt
-注入 LLM call；同 history 共享给所有角色（每次发言看上文 6 条避免 token 爆炸）。
+注：晨星是天使体系的 leader（也是天使一员）但不在此池中——晨星负责调度，
+协同天使负责发言。讨论时晨星 dispatch 选定协同天使，把对应 prompt 注入 LLM call；
+同 history 共享给所有协同（每次发言看上文 6 条避免 token 爆炸）。
 """
 from __future__ import annotations
 

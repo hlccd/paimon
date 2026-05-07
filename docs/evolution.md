@@ -152,7 +152,7 @@ irminsul/memory/
 
 冰神（AI 自举生成）：
    └─ 生成 skill 代码 + manifest（含 sensitivity 字段）
-       → 魔女会 → 死执审查 → 通过 → 冰神写世界树 + 四影通知派蒙
+       → 死执审查 → 通过 → 冰神写世界树 + 四影通知派蒙
 
 拒绝路径：
    死执拒绝 → 冰神不装载 + 记录 memory/feedback（避免反复提案同一被拒设计）

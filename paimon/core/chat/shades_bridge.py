@@ -21,8 +21,6 @@ async def run_shades_pipeline(
     msg: IncomingMessage,
     channel: Channel,
     session: Session,
-    *,
-    escalation_reason: str | None = None,
 ):
     """全程同步等四影 pipeline 完成；过程中状态 generating / 完成 completed / 中断 interrupted。"""
     cfg, session_mgr, model = _require_runtime()
@@ -54,7 +52,6 @@ async def run_shades_pipeline(
 
             result = await pipeline.run(
                 msg.text, session_id=session.id,
-                escalation_reason=escalation_reason,
             )
         except asyncio.CancelledError:
             # 外部 cancel（如用户 /stop）：不把异常吞掉，但先把收尾做完
@@ -86,9 +83,7 @@ async def run_shades_pipeline(
         except Exception:
             pass
 
-        # 会话状态补录：
-        #   complex 直送路径下主会话完全没过 model.chat，需要手动补 user+assistant
-        #   魔女会路径下 model.chat 已经 append 过 user message（甚至 assistant buf）
+        # 会话状态补录：complex 直送路径下主会话完全没过 model.chat，需要手动补 user+assistant
         # cancelled 时不强求补产物（可能不完整），但 response_status 仍要复位
         if not cancelled:
             try:

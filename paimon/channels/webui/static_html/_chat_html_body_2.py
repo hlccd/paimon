@@ -134,8 +134,8 @@ CHAT_HTML_BODY_2 = """
                                     }
                                     if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'question') {
-                                    // 权限/魔女会询问作为独立气泡。
-                                    // 若当前气泡已有正文（例如天使已回了一段再触发魔女会询问），
+                                    // 权限询问作为独立气泡。
+                                    // 若当前气泡已有正文（例如已回了一段再触发权限询问），
                                     // 必须新建气泡，不能覆盖原内容。
                                     const q = '🛡️ **权限询问**\\n\\n' + (data.content || '') +
                                         '\\n\\n*直接在下方输入回复即可。默认 30 秒无答复视为拒绝。*';

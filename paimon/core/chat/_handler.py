@@ -1,7 +1,7 @@
 """派蒙主对话 handler：构造 prompt → model.chat 流式输出 → 工具调用 → 压缩 / 标题。
 
-`handle_chat` 是天使路径 + 闲聊路径共用的入口；run_session_chat 通过 asyncio.create_task
-拉它起来。包含天使工具超时阈值 + 二次超时升级到魔女会的逻辑。
+`handle_chat` 是 skill 路径 + 闲聊路径共用的入口；run_session_chat 通过 asyncio.create_task
+拉它起来。skill 工具超时仅返错给 LLM 自愈，不再升级到四影。
 """
 from __future__ import annotations
 
@@ -25,8 +25,6 @@ async def handle_chat(
     skill_name: str = "",
 ):
     """派蒙主对话循环：装 system prompt + 工具集 → model.chat 流式 → 压缩+标题收尾。"""
-    from paimon.angels.nicole import AngelFailure
-
     start_time = time.time()
     cfg, session_mgr, model = _require_runtime()
 
@@ -43,9 +41,8 @@ async def handle_chat(
     component = skill_name or "chat"
     purpose = skill_name or "闲聊"
 
-    # 天使路径才启用单 tool 超时（闲聊工具如 knowledge/memory 不套）
+    # skill 路径才启用单 tool 超时（闲聊工具如 knowledge/memory 不套）
     tool_timeout = cfg.angel_tool_timeout_seconds if skill_name else None
-    angel_tool_timeouts = 0
 
     if state.tool_registry:
         from paimon.tools.base import ToolContext
@@ -59,8 +56,10 @@ async def handle_chat(
         _SLOW_TOOLS = {"web_fetch", "video_process", "audio_process", "subscribe"}
 
         async def _execute_tool(name: str, arguments: str) -> str:
-            """单工具调用包装器：慢工具发 notice + 单调用超时 + 第 2 次超时升级 AngelFailure。"""
-            nonlocal angel_tool_timeouts
+            """单工具调用包装器：慢工具发 notice + 单调用超时 → 返错给 LLM 自愈。
+
+            超时不再升级到四影；返错字符串让 LLM 看到后自己决定换工具 / 告诉用户。
+            """
             # 慢工具在调用前推一条 tool notice，避免静默超过 watchdog 阈值
             # QQ 上此类 notice 会被渠道层丢弃（seq 不值当），Web 上渲染为浅灰小字
             if name in _SLOW_TOOLS:
@@ -71,26 +70,6 @@ async def handle_chat(
             if tool_timeout is None:
                 return await state.tool_registry.execute(name, arguments, tool_ctx)
 
-            def _trip_timeout(actual_elapsed: float | None = None) -> None:
-                """命中超时一次：累加计数，第 2 次抛 AngelFailure。"""
-                nonlocal angel_tool_timeouts
-                angel_tool_timeouts += 1
-                if actual_elapsed is not None:
-                    logger.warning(
-                        "[天使·超时] [{}] 工具 {} 耗时 {:.1f}s > 阈值 {}s（第 {} 次）",
-                        session.id[:8], name, actual_elapsed, tool_timeout, angel_tool_timeouts,
-                    )
-                else:
-                    logger.warning(
-                        "[天使·超时] [{}] 工具 {} 在 {}s 内未返回（第 {} 次）",
-                        session.id[:8], name, tool_timeout, angel_tool_timeouts,
-                    )
-                if angel_tool_timeouts >= 2:
-                    raise AngelFailure(
-                        reason=f"工具连续 {angel_tool_timeouts} 次超时（阈值 {tool_timeout}s）",
-                        stage="tool_timeout",
-                    )
-
             t0 = time.time()
             try:
                 result = await asyncio.wait_for(
@@ -98,19 +77,25 @@ async def handle_chat(
                     timeout=tool_timeout,
                 )
             except asyncio.TimeoutError:
-                _trip_timeout()
+                logger.warning(
+                    "[skill·超时] [{}] 工具 {} 在 {}s 内未返回",
+                    session.id[:8], name, tool_timeout,
+                )
                 return (
-                    f"[天使·超时] 工具 {name} 在 {tool_timeout}s 内未返回。"
-                    "请改换方式，或直接告诉用户当前任务超出天使能力范围。"
+                    f"[超时] 工具 {name} 在 {tool_timeout}s 内未返回。"
+                    "请改换方式或告诉用户当前任务超出 skill 能力范围。"
                 )
             # 工具"正常返回"但实际耗时超阈值：常见于工具内部自捕获超时并返错字符串
             # （例如 video_process / audio_process 内嵌 subprocess timeout），或工具同步
             # 阻塞事件循环导致 asyncio cancel 无效。按墙钟耗时兜底判定。
             elapsed = time.time() - t0
             if elapsed >= tool_timeout:
-                _trip_timeout(actual_elapsed=elapsed)
+                logger.warning(
+                    "[skill·超时] [{}] 工具 {} 耗时 {:.1f}s > 阈值 {}s",
+                    session.id[:8], name, elapsed, tool_timeout,
+                )
                 return (
-                    f"[天使·超时提醒] 工具 {name} 实际耗时 {elapsed:.1f}s，"
+                    f"[超时提醒] 工具 {name} 实际耗时 {elapsed:.1f}s，"
                     f"超过 {tool_timeout}s 阈值。工具原始结果：\n{result}"
                 )
             return result
@@ -143,8 +128,6 @@ async def handle_chat(
     buf = ""
     any_text_sent = False
     interrupted = False
-    angel_failed = False
-    angel_failure_exc: "BaseException | None" = None
 
     session.response_status = "generating"
     try:
@@ -165,17 +148,8 @@ async def handle_chat(
     except (asyncio.CancelledError, ConnectionResetError, ConnectionError):
         interrupted = True
         logger.info("[派蒙·对话] 会话{}回复中断", session.id)
-    except AngelFailure as e:
-        # 魔女会信号：延后到 finally 之后再 raise，保证清理一致性
-        angel_failed = True
-        angel_failure_exc = e
-        logger.info(
-            "[派蒙·对话] 会话{}天使失败，将转交魔女会: {}",
-            session.id, e.reason,
-        )
     finally:
-        # 魔女会路径：跳过"(空回复)"+花费条，仅 flush 已发内容
-        if not interrupted and not angel_failed:
+        if not interrupted:
             try:
                 if not any_text_sent:
                     await reply.send("(空回复)")
@@ -197,7 +171,7 @@ async def handle_chat(
         except Exception:
             pass
 
-        if (interrupted or angel_failed) and buf:
+        if interrupted and buf:
             # 跳过 notice 等扩展 role 的尾部条目，只看最后一条 LLM 标准 role
             from ._persist import _meaningful_tail
             tail = _meaningful_tail(session.messages, 1)
@@ -205,10 +179,7 @@ async def handle_chat(
             if last.get("role") != "assistant":
                 session.messages.append({"role": "assistant", "content": buf})
 
-        if angel_failed:
-            session.response_status = "interrupted"
-        else:
-            session.response_status = "interrupted" if interrupted else "completed"
+        session.response_status = "interrupted" if interrupted else "completed"
         if buf:
             elapsed = time.time() - start_time
             if elapsed < 60:
@@ -223,11 +194,6 @@ async def handle_chat(
         except Exception as e:
             # OBS-002：旧版静默吞，回复完成态保存失败 user 不可知（下次进会话状态错乱）
             logger.warning("[派蒙·会话] 回复完成态保存失败: {}", e)
-
-    if angel_failed:
-        # 魔女会路径：跳过压缩/标题生成，把 AngelFailure 抛给 run_session_chat
-        assert angel_failure_exc is not None
-        raise angel_failure_exc
 
     if not interrupted:
         total_tokens, ratio = model.update_session_context_stats(

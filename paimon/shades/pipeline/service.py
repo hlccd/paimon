@@ -126,7 +126,6 @@ class ShadesPipeline(
         self,
         user_input: str,
         session_id: str = "",
-        escalation_reason: str | None = None,
     ) -> "PrepareResult":
         """前台同步跑：create_task → 入口审 → round-1 plan → 批量授权。
 
@@ -134,10 +133,8 @@ class ShadesPipeline(
         返回 PrepareResult：成功时 (task, plan) 可交给 execute() 后台跑；
         失败时 msg 就是给用户看的最终字符串。
         """
-        task = await self._create_task(user_input, session_id, escalation_reason)
+        task = await self._create_task(user_input, session_id)
         self.last_task_id = task.id
-        if escalation_reason:
-            logger.info("[四影·prepare] 魔女会转入 task={} reason={}", task.id, escalation_reason)
         logger.info("[四影·prepare] task={} title={}", task.id, task.title[:60])
 
         # ack：任务已登录 + 短标题已生成，此刻推最即时的回执。
@@ -207,10 +204,9 @@ class ShadesPipeline(
         self,
         user_input: str,
         session_id: str = "",
-        escalation_reason: str | None = None,
     ) -> str:
         """兼容入口：prepare + execute 一把梭（前台全跑，不分前后台）。"""
-        prep = await self.prepare(user_input, session_id, escalation_reason)
+        prep = await self.prepare(user_input, session_id)
         if not prep.ok:
             return prep.msg
         return await self.execute(prep.task, prep.plan, session_id)

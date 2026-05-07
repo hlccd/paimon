@@ -168,8 +168,7 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
 
 async def enter_shades_pipeline_background(
     msg: IncomingMessage, channel: Channel, session: Session,
-    *, escalation_reason: str | None = None,
-    persist_user_text: str | None = None,
+    *, persist_user_text: str | None = None,
 ) -> str:
     """前台同步跑 prepare（入口审 + round-1 plan + 批量授权），execute 按渠道分流。
 
@@ -216,7 +215,7 @@ async def enter_shades_pipeline_background(
     try:
         # 前台：入口审 + plan + 批量授权（SSE 必须活跃）
         prep = await pipeline.prepare(
-            text, session_id=session.id, escalation_reason=escalation_reason,
+            text, session_id=session.id,
         )
     except BaseException:
         # prepare 抛出（含 /stop 触发的 CancelledError）→ 兜底清理后透传

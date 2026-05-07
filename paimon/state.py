@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from paimon.angels.registry import SkillRegistry
-    from paimon.angels.watcher import SkillHotLoader
+    from paimon.skill_loader.registry import SkillRegistry
+    from paimon.skill_loader.watcher import SkillHotLoader
     from paimon.archons.furina_game import FurinaGameService
     from paimon.archons.venti import VentiArchon
     from paimon.archons.zhongli import ZhongliArchon

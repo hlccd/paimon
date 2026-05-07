@@ -72,9 +72,9 @@ class Config(BaseSettings):
     context_compress_threshold_pct: float = 75.0
     context_keep_recent_messages: int = 12
 
-    # 天使超时 + 魔女会桥（docs/angels/angels.md §运作方式）
-    # 单次 tool call 超时 → 第一次自愈（返错误给模型）、连续 2 次触发魔女会
-    # 整体任务超时（仅 skill 路径）→ 直接触发魔女会
+    # skill 路径超时
+    # 单次 tool call 超时 → 返错给 LLM 自愈
+    # 整体任务超时（仅 skill 路径）→ 直接 reply 错误终止
     angel_tool_timeout_seconds: int = 300
     angel_total_timeout_seconds: int = 600
 

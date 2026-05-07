@@ -101,7 +101,7 @@ def _persist_shades_turn(
 ) -> None:
     """把四影一轮的 user/assistant 消息补进 session.messages。
 
-    幂等：若最后一条已是当前 user_text（说明魔女会路径的 model.chat 已 append 过），
+    幂等：若最后一条已是当前 user_text（入口可能已 append user 占位），
     就不重复 append user；assistant 则按需追加。
     """
     # 取最后一条 LLM 标准 role 消息做 last 检查（跳过 notice 等扩展条目）

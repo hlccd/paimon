@@ -231,13 +231,8 @@ async def chat_impl(
             try:
                 result = await tool_executor(fn["name"], fn["arguments"])
             except Exception as e:
-                # 魔女会信号：让 AngelFailure 穿过 tool-call 异常兜底，
-                # 由 run_session_chat 接住并转交四影。
-                from paimon.angels.nicole import AngelFailure
-                if isinstance(e, AngelFailure):
-                    raise
                 result = f"工具执行错误: {e}"
-                logger.error("[天使·工具调用] {} 失败: {}", fn["name"], e)
+                logger.error("[skill·工具调用] {} 失败: {}", fn["name"], e)
             session.messages.append({
                 "role": "tool",
                 "tool_call_id": tc_id,
