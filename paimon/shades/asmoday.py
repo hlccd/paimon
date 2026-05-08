@@ -27,19 +27,22 @@ from ._plan import (
     topological_layers,
 )
 from ._helpers.stages import ALL_STAGES, get_display_name
-from . import naberius
+from . import jonova, naberius
 
 
 # Stage → 影路由表（v8）
 # 生执管"生"（凝练提案 + 兜底）；死执管"审"（提案质量审）。
-# 批 1（本批）：只接通 chat / exec 兜底；propose_skill / review_proposal 在批 2 接通。
 _STAGE_ROUTER: dict = {
+    # 生执
+    "propose_skill": naberius.propose_skill,
     "exec": lambda task, sub, model, irm, prior: naberius.simple_run(
         "exec", task, sub, model, irm, prior,
     ),
     "chat": lambda task, sub, model, irm, prior: naberius.simple_run(
         "chat", task, sub, model, irm, prior,
     ),
+    # 死执
+    "review_proposal": jonova.review_proposal,
 }
 
 
