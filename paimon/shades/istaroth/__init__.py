@@ -1,9 +1,10 @@
-"""时执 · Istaroth — 生命周期管理子包
+"""时执 · Istaroth — 收（任务尾声善后 + 生命周期）
 
-docs/shades/istaroth.md 职责：
+v7 职责：
   - 运行中：活跃会话上下文压缩（_compress.compress）
-  - 结束后 · 归档：任务归档 + 审计（_archive.archive）
+  - 结束后 · 归档：任务归档 + 审计 + summary.md（_archive.archive）
   - 结束后 · 经验提取：跨会话记忆抽取（_experience.extract_experience）
+  - 失败后 · saga 补偿：反向回滚已成功节点（saga.run_compensations，调生执 exec）
 
 参考 claude-code-deep-dive 的压缩设计：
   1. 阈值考虑 max_output_tokens + safety_buffer（调用方 chat.py 负责计算）
@@ -29,10 +30,12 @@ _compress.extract_experience = _experience.extract_experience
 from ._archive import archive
 from ._compress import MAX_CONSECUTIVE_COMPACT_FAILURES, compress
 from ._experience import extract_experience
+from .saga import run_compensations
 
 __all__ = [
     "MAX_CONSECUTIVE_COMPACT_FAILURES",
     "archive",
     "compress",
     "extract_experience",
+    "run_compensations",
 ]

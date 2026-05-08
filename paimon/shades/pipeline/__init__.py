@@ -13,7 +13,7 @@
 [环3·归档] 时执·archive（成功/失败都进；失败先跑 saga 补偿）
 ```
 
-环 2 的核心是"spec/design/code + review_* 多轮循环"（v6：工人 stage 派发）。
+环 2 的核心是"spec/design/code + review_* 多轮循环"（v7：四影各 stage 派发）。
 
 子模块（mixin 模式）：
 - _execute.py    —— execute 主循环（_ExecuteMixin）

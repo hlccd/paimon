@@ -14,7 +14,7 @@
 archon 本体 `execute()` 跟四影解耦后**内部业务已移除**，但**保留概念归属**：
 
 - 移除：`execute()` 内部 `[STAGE:spec]` 路由 + `write_spec` + 通用 tool-loop + `_extract_issues_*` helpers
-- 已搬到：`paimon/shades/worker/`（stage=`spec` / `chat`）和 `_revise_helpers.py`
+- 已搬到：`paimon/shades/{naberius,jonova}/`（stage=`spec` / `chat`）和 `_revise_helpers.py`
 - **保留概念归属**：草神语义负责 `/knowledge` 面板（知识 / 偏好 / 文书归档），代码层 webui 直读 irminsul **不经过本实例**——但**语义上**归草神
 
 **待用户后续安排**：是否给草神实例挂新职能（如 webui 改成走草神实例做面板代理）。

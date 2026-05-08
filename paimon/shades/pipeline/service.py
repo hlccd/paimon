@@ -13,7 +13,8 @@ from paimon.core.authz.cache import AuthzCache
 from paimon.foundation.irminsul import Irminsul
 from paimon.foundation.irminsul.task import TaskEdict
 from paimon.llm.model import Model
-from paimon.shades import istaroth, jonova, naberius
+from paimon.core.safety import task_review as _task_review
+from paimon.shades import istaroth, naberius
 
 from .._plan import Plan
 from ._authorize import _AuthorizeMixin
@@ -142,7 +143,7 @@ class ShadesPipeline(
         )
 
         try:
-            safe, reason = await jonova.review(task, self._model, self._irminsul)
+            safe, reason = await _task_review(task, self._model, self._irminsul)
             if not safe:
                 await self._irminsul.task_update_status(task.id, status="rejected", actor="死执")
                 await istaroth.archive(

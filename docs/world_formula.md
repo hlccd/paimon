@@ -14,15 +14,17 @@
     - 自动路由：按三维度任务特征分流到 4 出口（详 §二）
     - 闲聊响应：浅层 LLM 直答
     - 出口人格化：所有产物经派蒙回 channel
-  - **【主持·多节点任务】四影**（流程骨架，不做业务）
-    - [**死执·若纳瓦**](shades/jonova.md)：入口审（合规 / 越权）+ DAG 敏感扫描 + 批量授权
-    - [**生执·纳贝里士**](shades/naberius.md)：DAG 拆分 + revise 重写（cap=3）+ 失败回滚
-    - [**空执·阿斯莫代**](shades/asmoday.md)：拓扑分层 dispatch + 节点并发 + saga
-    - [**时执·伊斯塔露**](shades/istaroth.md)：归档 + 审计 + 生命周期
-  - **【主持·多视角讨论】晨星 + 天使**
+  - **【落地引擎】四影**（生 / 审 / 派 / 收 — 复杂任务落地引擎）
+    - [**生执·纳贝里士**](shades/naberius.md)：**生** — DAG 编排 + 产出工程产物（spec/design/code/simple_code/exec/chat）
+    - [**死执·若纳瓦**](shades/jonova.md)：**审** — 评审循环（review_spec/design/code）+ 静态自检
+    - [**空执·阿斯莫代**](shades/asmoday.md)：**派** — 拓扑分层 dispatch + stage 路由表 + 失败重试
+    - [**时执·伊斯塔露**](shades/istaroth.md)：**收** — 归档 + summary.md + saga 补偿（调生执 exec）+ 生命周期
+    - 9 个 stage（assignee 字段值）：spec / design / code / review_spec / review_design / review_code / simple_code / exec / chat
+  - **【议事辅助】晨星 + 天使**（不落地，只出纪要）
+    - **职能定位**：分析 / 调研 / 决策辅助
     - **晨星**：leader 天使（召集 / 调度发言 / 判收敛 / 综合输出）
-    - **天使**：协同角色，预定义 11 个池（结构性 / 评估性 / 对抗性，详 §三 /agents）
-  - **【能力】七神**（v6 解耦：四影业务执行已转 `paimon/shades/worker/` 9 stage；七神保留非四影功能）
+    - **天使**：协同角色，预定义 11 个池（结构性 / 评估性 / 对抗性）
+  - **【值班模块】七神**（cron + 面板 + 概念归属，跟 /task 主链路无关）
     - **A 类**（保留 cron / 面板 / 概念归属）：
       - [**风神·巴巴托斯**](archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录
       - [**岩神·摩拉克斯**](archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron
@@ -31,9 +33,6 @@
       - [**冰神·冰之女皇**](archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace
     - **B 类**（archon 本体暂无具体职能 / namespace 壳）：
       - [**雷神·巴尔泽布**](archons/raiden.md) / [**火神·玛薇卡**](archons/mavuika.md)
-  - **【能力】工人**（v6 新增 · `paimon/shades/worker/`）
-    - 9 个 stage：`spec` / `design` / `code` / `review_spec` / `review_design` / `review_code` / `simple_code` / `exec` / `chat`
-    - 无人格化执行单元，按 stage 选 skill workflow / tool-loop
   - **【全局支撑层】**（沿用 aimon，不变）
     - [**世界树**](foundation/irminsul.md)：唯一存储层
     - [**三月女神**](foundation/march.md)：调度 + 推送响铃
@@ -44,7 +43,7 @@
 ### 出场铁律
 
 - 四影**只**在 /task；天使**只**在 /agents；两者不交叉
-- skill 调用**永远**经工人 stage（`worker.run_stage`）；asmoday 不再调七神 execute
+- skill 调用走四影内部各影（生执 produce_* 调对应 skill workflow；死执 review 走 light/check skill）；asmoday 通过 `_STAGE_ROUTER` 路由表派各影
 - 七神 archon 本体**不进** LLM 对话流——A 类做 cron + 面板 + 概念归属；B 类是 namespace 壳
 
 ### 与老架构差异

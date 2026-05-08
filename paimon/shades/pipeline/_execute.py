@@ -11,10 +11,10 @@ from loguru import logger
 from paimon.config import config
 from paimon.core.authz.keywords import classify_batch_reply
 from paimon.foundation.irminsul.task import TaskEdict
-from paimon.shades import asmoday, istaroth, jonova, naberius
+from paimon.shades import asmoday, istaroth, naberius
 
 from .._plan import Plan, mark_downstream_skipped
-from .._saga import run_compensations
+from ..istaroth import run_compensations
 from .._verdict import (
     LEVEL_PASS,
     ReviewVerdict,

@@ -160,7 +160,7 @@ class ZhongliArchon(_ScanMixin, _SkillMixin, _WatchMixin, _DigestMixin, Archon):
         self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
         prior_results: list[str] | None = None,
     ) -> str:
-        # v6 解耦：execute 内部"通用理财 tool-loop"已移除（搬到 paimon/shades/worker/）
+        # v6 解耦：execute 内部"通用理财 tool-loop"已移除（搬到 paimon/shades/naberius/produce.py）
         # asmoday 不再调本节点；保留方法签名仅为满足 Archon ABC 约定
         # 非四影功能（collect_dividend / scorer / handle_query / cron / /wealth 面板）全部保留
         return f"[{self.name}] execute 路径已解耦（v6），请参考 docs/archons/zhongli.md"

@@ -10,11 +10,15 @@ from loguru import logger
 
 from paimon.config import config
 from paimon.core.authz.keywords import classify_batch_reply
+from paimon.core.safety import (
+    format_scan_prompt as _format_scan_prompt,
+    scan_plan as _scan_plan,
+)
 from paimon.foundation.irminsul.task import TaskEdict
-from paimon.shades import asmoday, istaroth, jonova, naberius
+from paimon.shades import asmoday, istaroth, naberius
 
 from .._plan import Plan, mark_downstream_skipped
-from .._saga import run_compensations
+from ..istaroth import run_compensations
 from .._verdict import (
     LEVEL_PASS,
     ReviewVerdict,
@@ -36,7 +40,7 @@ class _AuthorizeMixin:
         if self._channel is None or self._authz_cache is None:
             return True
 
-        scan = jonova.scan_plan(
+        scan = _scan_plan(
             plan, self._authz_cache,
             user_id=self._user_id, session_id=session_id,
         )
@@ -50,7 +54,7 @@ class _AuthorizeMixin:
             return True
 
         # 询问用户
-        prompt = jonova.format_scan_prompt(scan.items_to_ask)
+        prompt = _format_scan_prompt(scan.items_to_ask)
         total = len(scan.items_to_ask)
 
         try:

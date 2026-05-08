@@ -13,7 +13,7 @@
 archon 本体 `execute()` 跟四影解耦后**内部业务已移除**，但**保留概念归属**：
 
 - 移除：`execute()` 内部 `skill_manage` tool-loop / 通用 exec 推理
-- 已搬到：`paimon/shades/worker/`（stage=`exec` / `chat`）
+- 已搬到：`paimon/shades/{naberius,jonova}/`（stage=`exec` / `chat`）
 - **保留概念归属**：冰神语义负责 `/plugins` 面板（skill 生态管理 / AI 自举），代码层 webui 直读 `skill_loader` **不经过本实例**——但**语义上**归冰神
 
 **待用户后续安排**：是否给冰神实例挂新职能（如 webui 改成走冰神实例做面板代理）。

@@ -17,7 +17,7 @@ from .code_pipeline import _build_code_pipeline_dag, _classify_code_task, _is_co
 
 
 _STAGES_DESC = """\
-当前可用的执行者（工人 stage）：
+当前可用的执行者（四影 stage）：
 - spec (tools: file_ops): 写产品方案 spec.md（调 requirement-spec skill）
 - design (tools: file_ops): 写技术方案 design.md（调 architecture-design skill）
 - code (tools: file_ops/exec): 写代码到 workspace/code/（调 code-implementation skill + 自检）
@@ -269,7 +269,7 @@ async def _plan_revise(
         preserved_ids.add(s.id)
 
     # 把 round N-1 已 completed 的保留节点注入新节点 deps 头部，
-    # 让 asmoday.collect_prior_results 能拿到上轮产物作为 prior_results 喂给工人。
+    # 让 asmoday.collect_prior_results 能拿到上轮产物作为 prior_results 喂给四影。
     # 否则 LLM 在 deps 里写真实 id 会被 _items_to_subtasks 过滤掉（只识别本轮 LLM
     # 临时 id），新节点拿不到上下文，从头重做。
     preserved_completed_ids = [

@@ -6,7 +6,7 @@
 - 保留：水神·游戏（FurinaGameService，详 archons/furina_game/）— /game 面板 + 2 cron + 1 sub type
 - 移除：水神·评审 archon 本体（review_spec / review_design / review_code）
   - `_review.py` 删除（420 行）
-  - 已搬到：`paimon/shades/worker/_review.py`
+  - 已搬到：`paimon/shades/jonova/review.py`
 
 archon 本体（FurinaArchon）当前是 namespace 壳：
 - 移除：execute() 内部评审路由 + ReviewMixin

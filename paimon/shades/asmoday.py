@@ -1,9 +1,13 @@
-"""空执 · Asmoday — 动态路由
+"""空执 · Asmoday — 派（调度 + 路由）
 
-管线第三步。按 DAG 拓扑分层把子任务路由到工人 stage（assignee 字段值即 stage 名）：
+管线第三步。按 DAG 拓扑分层 + stage 路由表把子任务派给对应影：
   - 层内节点并发（asyncio.gather）
-  - 节点失败 → 传递性标记下游 skipped
-  - 未知 stage → worker.run_stage 内部 fallback 到 chat
+  - 节点失败 → 重试 1 次 → 传递性标记下游 skipped
+  - stage 路由表（_STAGE_ROUTER）：
+      spec / design / code / simple_code / exec / chat → 生执 produce_* / simple_run
+      review_spec / review_design / review_code        → 死执 review
+
+未知 stage 兜底走 chat。saga 触发由 pipeline 层（_authorize / _execute）调时执 run_compensations。
 """
 from __future__ import annotations
 
@@ -21,7 +25,65 @@ from ._plan import (
     mark_downstream_skipped,
     topological_layers,
 )
-from .worker import run_stage
+from ._helpers.stages import ALL_STAGES, get_display_name
+from . import jonova, naberius
+
+
+# Stage → 影路由表
+# 生执管"生"（产物 + 调度元任务）；死执管"审"（评审循环）。
+_STAGE_ROUTER = {
+    # 生执 produce
+    "spec": naberius.produce_spec,
+    "design": naberius.produce_design,
+    "code": naberius.produce_code,
+    "simple_code": lambda task, sub, model, irm, prior: naberius.simple_run(
+        "simple_code", task, sub, model, irm, prior,
+    ),
+    "exec": lambda task, sub, model, irm, prior: naberius.simple_run(
+        "exec", task, sub, model, irm, prior,
+    ),
+    "chat": lambda task, sub, model, irm, prior: naberius.simple_run(
+        "chat", task, sub, model, irm, prior,
+    ),
+    # 死执 review
+    "review_spec": lambda task, sub, model, irm, prior: jonova.review(
+        "review_spec", task, sub, model, irm, prior,
+    ),
+    "review_design": lambda task, sub, model, irm, prior: jonova.review(
+        "review_design", task, sub, model, irm, prior,
+    ),
+    "review_code": lambda task, sub, model, irm, prior: jonova.review(
+        "review_code", task, sub, model, irm, prior,
+    ),
+}
+
+
+async def _route_stage(
+    stage: str,
+    task: TaskEdict,
+    sub: Subtask,
+    model: Model,
+    irminsul: Irminsul,
+    prior_results: list[str] | None,
+) -> str:
+    """按 stage 找对应影执行。未知 stage → chat 兜底。"""
+    if stage not in ALL_STAGES:
+        logger.warning("[空执] 未知 stage={}，回退 chat", stage)
+        stage = "chat"
+    handler = _STAGE_ROUTER[stage]
+    display = get_display_name(stage)
+    logger.info("[{}] 执行子任务: {}", display, sub.description[:80])
+    result = await handler(task, sub, model, irminsul, prior_results)
+    # 进度落盘（统一）
+    try:
+        await irminsul.progress_append(
+            task_id=task.id, agent=display, progress_pct=100,
+            message=(result or "")[:200], subtask_id=sub.id, actor=display,
+        )
+    except Exception as e:
+        logger.debug("[{}] progress_append 失败: {}", display, e)
+    logger.info("[{}] 子任务完成, 结果长度={}", display, len(result or ""))
+    return result or ""
 
 
 async def dispatch(
@@ -142,7 +204,7 @@ async def _run_one(
     首次失败立即重试 1 次（临时故障容忍，如网络抖动 / LLM 偶发拒答）。
     两次都失败时抛异常交由 dispatch 处理（标 failed + 传递 skip + 审计）。
     """
-    # sub.assignee 即 stage 名，直接传给 worker.run_stage（未知值 worker 内部 fallback 到 chat）
+    # sub.assignee 即 stage 名，由 _route_stage 通过 _STAGE_ROUTER 派给对应影
     stage = sub.assignee or "chat"
 
     await irminsul.flow_append(
@@ -164,7 +226,7 @@ async def _run_one(
     last_err: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            result = await run_stage(
+            result = await _route_stage(
                 stage, task, sub, model, irminsul,
                 prior_results=prior if prior else None,
             )

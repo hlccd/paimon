@@ -216,7 +216,7 @@ def _revise_code_pipeline(
 
     # verdict.issues 嵌到**第一个被 redo 的生产节点** description 里——
     # revise 轮时，上一轮 review 节点在新 plan 里被替换，deps 机制拿不到
-    # 其 result；用 description 内嵌作为确定性反馈通道，工人 stage 优先读。
+    # 其 result；用 description 内嵌作为确定性反馈通道，四影 stage 优先读。
     import json as _json
     issues_blob = ""
     if verdict.issues:
@@ -284,7 +284,7 @@ def _mk_code_node(
 
 
 def _build_code_pipeline_dag(task_id: str, level: str = "complex") -> list[Subtask]:
-    """按复杂度生成写代码 DAG。assignee 字段即 stage 名（asmoday 派 worker.run_stage）。
+    """按复杂度生成写代码 DAG。assignee 字段即 stage 名（asmoday 通过 _STAGE_ROUTER 派各影）。
 
     - trivial: 1 节点（simple_code），如"写个 hello.py"
     - simple:  2 节点（code → review_code），单文件级改动

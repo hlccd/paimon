@@ -1,10 +1,13 @@
-"""工人运行时的基础 helper（独立实现，不依赖 archons.base）。
+"""四影管线公共运行时 helper（无主，各影共享）。
 
-跟 archons/base.py 同等功能，但作为四影的内部工具，跟七神解耦：
+跟七神解耦的独立实现：
 - read_skill_body：读 SKILL.md 正文 + ${CLAUDE_SKILL_DIR} 替换
 - setup_tools：构造 (tools list, executor)
 - extract_result：5 级 fallback 抓 LLM 末轮文本
 - load_feedback_memories_block：拉 feedback 类记忆
+- invoke_skill_workflow：统一 skill 驱动工作流入口
+
+使用方：生执 produce_*（spec/design/code/_simple）+ 死执 review。
 """
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ def read_skill_body(skill_name: str) -> str:
     """
     if skill_name in _SKILL_BODY_CACHE:
         return _SKILL_BODY_CACHE[skill_name]
-    # paimon/shades/worker/_runner_helpers.py → project_root = paimon/../..
+    # paimon/shades/_helpers/runner_helpers.py → project_root = paimon/../..
     project_root = Path(__file__).resolve().parent.parent.parent.parent
     skill_dir = project_root / "skills" / skill_name
     skill_path = skill_dir / "SKILL.md"
@@ -98,7 +101,7 @@ def extract_result(session: "Session") -> str:
             content = (msg.get("content") or "").strip()
             if content:
                 logger.warning(
-                    "[worker.extract_result] fallback L2: 末轮 LLM 没有纯 final，用 tool_calls 同消息 content (len={})",
+                    "[shades.extract_result] fallback L2: 末轮 LLM 没有纯 final，用 tool_calls 同消息 content (len={})",
                     len(content),
                 )
                 return content
@@ -109,7 +112,7 @@ def extract_result(session: "Session") -> str:
             reasoning = (msg.get("reasoning_content") or "").strip()
             if reasoning:
                 logger.warning(
-                    "[worker.extract_result] fallback L3: 末轮仅 reasoning_content (len={})",
+                    "[shades.extract_result] fallback L3: 末轮仅 reasoning_content (len={})",
                     len(reasoning),
                 )
                 return f"[LLM 在思考流输出，未给出 final content]\n{reasoning[:2000]}"
@@ -120,14 +123,14 @@ def extract_result(session: "Session") -> str:
             content = (msg.get("content") or "").strip()
             if content:
                 logger.warning(
-                    "[worker.extract_result] fallback L4: 末轮无 LLM 产出，回退末条 tool result",
+                    "[shades.extract_result] fallback L4: 末轮无 LLM 产出，回退末条 tool result",
                 )
                 return f"[来自工具调用结果，LLM 未做最终总结]\n{content[:2500]}"
 
     # 5: 全空
     roles = [m.get("role") for m in session.messages]
     logger.warning(
-        "[worker.extract_result] 全部 fallback 落空 session={} msgs={} roles={}",
+        "[shades.extract_result] 全部 fallback 落空 session={} msgs={} roles={}",
         session.id, len(session.messages), roles[-10:],
     )
     return ""
@@ -148,7 +151,7 @@ async def load_feedback_memories_block(
     try:
         metas = await irminsul.memory_list(mem_type="feedback", limit=limit)
     except Exception as e:
-        logger.debug("[worker.feedback] 读记忆失败（忽略）: {}", e)
+        logger.debug("[shades.feedback] 读记忆失败（忽略）: {}", e)
         return ""
     if not metas:
         return ""
@@ -195,13 +198,13 @@ async def invoke_skill_workflow(
     """统一 skill 驱动工作流：读 SKILL.md body 作为 system prompt，启动 tool-loop。
 
     跟 archons/base.py:_invoke_skill_workflow 等价（独立实现，不继承）。
-    用于 stage = spec / design / code / review_*（review 在 _review.py 中调用）。
+    使用方：生执 produce_*（spec/design/code）+ 死执 review。
     """
     from paimon.session import Session
     try:
         skill_body = read_skill_body(skill_name)
     except FileNotFoundError as e:
-        logger.error("[worker.invoke_skill_workflow] {}", e)
+        logger.error("[shades.invoke_skill_workflow] {}", e)
         return f"skill {skill_name} 不存在"
 
     system = skill_body
@@ -209,7 +212,7 @@ async def invoke_skill_workflow(
         system += "\n\n---\n\n" + framing
 
     temp_session = Session(
-        id=f"{skill_name}-{session_name}", name=f"工人·{skill_name}",
+        id=f"{skill_name}-{session_name}", name=f"四影·{skill_name}",
     )
     temp_session.messages.append({"role": "system", "content": system})
 

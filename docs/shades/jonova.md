@@ -1,31 +1,46 @@
 # 死执·若纳瓦
 
-> 隶属：[神圣规划](../aimon.md) / 第二轨 · 四影
-> 整体调用顺序：**死执 → 生执 → 空执 → 七神 → 时执**
+> 隶属：[神圣规划](../aimon.md) / 四影 — **审**（评审 + 自检）
+> 调用关系：生执出产物 → 死执审 verdict → 不通过 → 生执 revise
 
-**定位**：原初四影之死执，执掌审判与裁决，对应深度安全审查与合规。
+**定位**：v7 起转岗为"质量审" — 给生执的产物（spec / design / code）打 verdict。
+原"安全审"职能（task review / scan plan / skill review）已上提派蒙 [`paimon/core/safety/`](../../paimon/core/safety/)。
 
 ## 核心能力
 
-- **全量敏感内容审查**：重型模型做内容审核
-- **越权操作拦截**：删除系统文件、修改核心配置等高危操作
-- **规则合规校验**：流程是否符合执行协议
-- **批量敏感操作扫描**（复杂任务专属）：
-  - 启动时从世界树读画像到本地缓存
-  - 生执编排出 DAG 后，死执扫描整个 DAG 涉及的所有敏感操作
-  - 查**本地缓存**，排除已被"永久放行"的项
-  - 剩余敏感项**一次性**打包为待确认清单（经派蒙转达用户，获得"逐项选择 / 全部同意 / 拒绝"之一）
-  - 避免执行中反复打断用户
-- **新 skill / plugin 上线审查**（冰神动态新增的才过审）：
-  - 接收冰神提交的权限声明 → 审查 → 返回**通过 / 拒绝**
-  - 启动扫的 builtin skill 靠 git 代码审查把关，不走运行时审查
-  - **`skills_hot_reload=true` 的热重载路径需要过审**（SKILL.md 变更在 git commit 之前，review 前提不成立）
-  - 接口：[`paimon.shades.jonova.review_skill_declaration(decl, model) -> (passed, reason)`](../../paimon/shades/jonova.py)
-  - 审查维度：description 与 allowed_tools 是否匹配、description 有无恶意语义、最小权限原则、triggers 是否过于宽泛
-  - LLM 调用异常 → 保守拒绝
-  - 审查后续动作由冰神和四影负责，详见 [权限与契约](../permissions.md)
+### 1. 评审循环（review_spec / review_design / review_code）
+
+为生执的产物打 verdict（pass / revise / redo），驱动多轮迭代。
+
+- **轻量路径**：产物小（spec/design < 2000 字，code < 200 行）→ 一次 LLM JSON 调用，按 P0/P1/P2/P3 分级
+- **重型路径**：产物大 → 调 [`check`](../../skills/check/) skill，解析 `.check/candidates.jsonl` → ReviewVerdict
+
+输出 schema：`{level: pass|revise|redo, summary: str, issues: list[{subtask_id, reason, suggestion}]}`
+
+实现：[`paimon/shades/jonova/review.py`](../../paimon/shades/jonova/review.py)
+
+### 2. 静态自检（self_check）
+
+py_compile + ruff + pytest 三件套，写 `self-check.log`。
+
+调用方：
+- 生执 produce_code 跑完 skill 后**即时调一次**（自调，给 LLM 反馈让它继续修）
+- 死执 review_code 重型路径里也间接通过 check skill 调
+
+实现：[`paimon/shades/jonova/self_check.py`](../../paimon/shades/jonova/self_check.py)
+
+## v7 转岗变化
+
+**移除**（→ 派蒙 [`paimon/core/safety/`](../../paimon/core/safety/)）：
+- `task_review`：入口任务级安全审
+- `scan_plan`：DAG 敏感操作扫描 + 批量授权
+- `review_skill_declaration`：skill 热加载审
+
+**保留 + 新增**：
+- `review`（统一入口，按 stage 路由到 review_spec/design/code）
+- `run_self_check`（静态质量门）
 
 ## 与派蒙的边界
 
-- **派蒙**：关键词 / 格式级轻量拦截 + 天使路径的单项权限询问
-- **死执**：LLM 级深度审查 + 合规校验 + 复杂任务的批量权限确认 + 新 skill 上线审查
+- **派蒙**（[paimon/core/safety/](../../paimon/core/safety/)）：所有"安全审" — task / DAG / skill 三个时点
+- **死执**（本节点）：所有"质量审" — 评审产物 + 静态自检

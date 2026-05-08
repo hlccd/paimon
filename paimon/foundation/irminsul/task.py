@@ -1,6 +1,6 @@
 """活跃任务域 —— 世界树域 5
 
-唯一写入者：生执 / 空执 / 工人（各自的生命周期阶段；v6 解耦后由 asmoday 通过 worker.run_stage 落产物）
+唯一写入者：生执 / 空执 / 各影（各自的生命周期阶段；v6 解耦后由 asmoday 通过 _STAGE_ROUTER 派各影落产物）
 读取者：派蒙 / 三月面板 / 时执（归档时读出）
 
 4 张表：
@@ -39,7 +39,7 @@ class Subtask:
     id: str
     task_id: str
     parent_id: str | None
-    assignee: str                             # 工人 stage 名：'spec'/'design'/'code'/'review_*'/'simple_code'/'exec'/'chat'
+    assignee: str                             # 四影 stage 名：'spec'/'design'/'code'/'review_*'/'simple_code'/'exec'/'chat'
     description: str
     status: str = "pending"                   # pending / running / completed / failed / skipped / superseded
     result: str = ""
@@ -50,7 +50,7 @@ class Subtask:
     round: int = 1                            # 所属轮次（每轮生成/修订 +1）
     sensitive_ops: list[str] | None = None    # 预计调用的敏感工具（供死执 scan_plan 使用）
     verdict_status: str = ""                  # 评审 stage 裁决后打标：passed / needs_revise / needs_redo
-    compensate: str = ""                      # saga 补偿动作（自然语言；失败回滚时交工人 exec stage 执行）
+    compensate: str = ""                      # saga 补偿动作（自然语言；失败回滚时交生执 exec stage 执行）
 
 
 @dataclass

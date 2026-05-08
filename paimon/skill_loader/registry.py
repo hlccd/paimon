@@ -100,8 +100,8 @@ class SkillRegistry:
         - parse 失败 → 日志 + 返回 False
         """
         from paimon.core.authz.sensitive_tools import derive_sensitivity
+        from paimon.core.safety import review_skill_declaration
         from paimon.foundation.irminsul.skills import SkillDecl
-        from paimon.shades import jonova
 
         skill_md = self.skills_dir / skill_dir_name / "SKILL.md"
         if not skill_md.exists():
@@ -127,8 +127,8 @@ class SkillRegistry:
             sensitive_tools=list(info.sensitive_tools or []),
         )
 
-        # 热重载必过死执审查（docs/aimon.md §2.5 + 用户确认）
-        passed, reason = await jonova.review_skill_declaration(decl, model)
+        # 热重载必过派蒙安全审查（v7：审查从死执上提派蒙）
+        passed, reason = await review_skill_declaration(decl, model)
 
         if not passed:
             # 拒绝：写 audit，保留旧版本（如果存在）

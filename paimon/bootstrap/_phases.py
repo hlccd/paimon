@@ -114,9 +114,9 @@ async def _ensure_hygiene_cron() -> None:
 
 
 async def _autoallow_loaded_skills_and_archons() -> None:
-    """单用户自用：已加载的 builtin skill + 9 个工人 stage 默认 permanent_allow。
+    """单用户自用：已加载的 builtin skill + 9 个四影 stage 默认 permanent_allow。
 
-    subject_type="stage"：四影 asmoday 通过 worker.run_stage 派发的 9 个 stage 名
+    subject_type="stage"：四影 asmoday 通过 _STAGE_ROUTER 派发到对应影的 9 个 stage 名
 
     git review 已把过关；真破坏命令由 pre_filter 拦。运行时通过 watcher 加载的
     plugin / AI 生成 skill 不在此白名单，仍走死执 review。仅跳过用户已显式

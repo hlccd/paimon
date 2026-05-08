@@ -11,8 +11,8 @@
 本节点 archon 本体跟四影解耦后**暂无具体职能**：
 
 - 移除：`execute()` 内部 exec tool-loop
-- 已搬到：`paimon/shades/worker/`（stage = `exec`）
-- 已搬到：`paimon/shades/_saga.py:_compensate_one`（saga 补偿器从 `MavuikaArchon()` 改用 `worker.run_stage("exec")`）
+- 已搬到：`paimon/shades/{naberius,jonova}/`（stage = `exec`）
+- 已搬到：`paimon/shades/istaroth/saga.py:_compensate_one`（saga 补偿器从 `MavuikaArchon()` 改用 `asmoday._STAGE_ROUTER("exec")`）
 - 保留：class `MavuikaArchon` + `name` + `description` + `execute` 兜底（namespace 壳）
 
 **待用户后续安排**：删除整个文件 / 重写新职能 / 保留等待。

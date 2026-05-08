@@ -3,7 +3,7 @@
 ⚠️ 当前状态（2026-05 解耦后）：
 本节点 archon 本体跟四影解耦后**暂无具体职能**：
 - 移除：execute() / write_design / write_code / _write_code_simple / self_check 全部业务
-- 已搬到：`paimon/shades/worker/`（stage=design / code / simple_code / review_code）
+- 已搬到：`paimon/shades/naberius/produce.py + jonova/review.py`
 - 保留：class + name + description（namespace 壳）
 
 待用户后续安排：删除整个文件 / 重写新职能 / 保留等待（详见 docs/todo.md）。

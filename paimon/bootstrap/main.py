@@ -184,7 +184,7 @@ async def create_app(cfg: Config) -> list[Channel]:
         state.authz_cache, state.irminsul, state.skill_registry,
     )
 
-    # 启动时自动放行 builtin skill + 9 个工人 stage
+    # 启动时自动放行 builtin skill + 9 个四影 stage
     await _autoallow_loaded_skills_and_archons()
 
     # 三月·自检服务（docs/foundation/march.md §自检体系）

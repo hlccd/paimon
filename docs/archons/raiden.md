@@ -11,7 +11,7 @@
 本节点 archon 本体跟四影解耦后**暂无具体职能**：
 
 - 移除：`execute()` 内部业务 / `write_design` / `write_code` / `_write_code_simple` / `self_check`
-- 已搬到：`paimon/shades/worker/`（stage = `design` / `code` / `simple_code`）
+- 已搬到：`paimon/shades/{naberius,jonova}/`（stage = `design` / `code` / `simple_code`）
 - 保留：class `RaidenArchon` + `name` + `description` + `execute` 兜底（namespace 壳）
 
 **待用户后续安排**：删除整个文件 / 重写新职能 / 保留等待。

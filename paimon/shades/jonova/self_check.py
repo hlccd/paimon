@@ -1,7 +1,9 @@
-"""self-check 三件套（py_compile + ruff + pytest），写 self-check.log。
+"""死执·self_check — 静态质量门（py_compile + ruff + pytest），写 self-check.log。
 
-跟 archons/raiden.py:self_check 等价实现（独立模块函数版）。
-仅在 stage=code / simple_code 路径用。
+stage 归属：自检本身不是独立 stage，是 produce_code / simple_run(simple_code) 路径
+内部调用的"即时反馈"（生执自调），同时 review_code 时死执也独立调一次（独立判定）。
+
+概念上归死执（"质量门"），代码层无主公共 helper。
 """
 from __future__ import annotations
 

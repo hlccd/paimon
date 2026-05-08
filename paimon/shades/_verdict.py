@@ -1,4 +1,4 @@
-"""评审裁决协议与解析器（v6 解耦后由工人 review_* stage 产出）。
+"""评审裁决协议与解析器（v6 解耦后由死执 review_* stage 产出）。
 
 评审三级结论 —— pass（通过）/ revise（修改）/ redo（重做）。
 pipeline 在每轮 dispatch 完后，从"最后一个 review_* 节点"的产物里解析出

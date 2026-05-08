@@ -12,17 +12,21 @@
 - [**向导·派蒙**](docs/paimon/paimon.md) — 统一入口（WebUI / Telegram / QQ），意图分类 + 4 出口路由 + 出口人格化
   - `chat` 闲聊（派蒙浅层 LLM 直答）
   - `skill` 单一任务（直调 [skills/](skills/) 目录下的 skill：topic / web-search / bili / xhs / check ...）
-  - `/task` 复杂任务（四影管线，写代码 / 落产物）
-  - `/agents` 多视角讨论（天使体系，决策 / 选型 / 复盘）
-- **【主持·多节点任务】四影**（流程骨架）
-  - [**死执·若纳瓦**](docs/shades/jonova.md)：入口审 + DAG 敏感扫描 + 批量授权
-  - [**生执·纳贝里士**](docs/shades/naberius.md)：DAG 拆分 + revise 重写（cap=3）+ 失败回滚
-  - [**空执·阿斯莫代**](docs/shades/asmoday.md)：拓扑分层 dispatch + 节点并发 + saga
-  - [**时执·伊斯塔露**](docs/shades/istaroth.md)：归档 + 审计 + 生命周期
-- **【主持·多视角讨论】天使**（晨星 leader + 11 协同天使）
-  - 晨星：天使体系的 leader，负责调度（召集 → 调度发言 → 综合）；本身也是天使的一员
-  - 协同天使：11 个预定义角色（结构性 5 / 评估性 4 / 对抗性 2），晨星按议题挑 3-5 个参与讨论
-- **【能力】七神**（v6 解耦：四影 asmoday 不再调用 execute；业务执行已转 `paimon/shades/worker/`）
+  - `/task` **复杂任务落地**（四影管线 — 写 skill / 写代码 / 改代码 / 修 bug 等工程产物）
+  - `/agents` **分析 / 调研 / 决策辅助**（天使多视角讨论，输出纪要不落地）
+- **【守门 + 路由 + 出口 + 全程安全闸】派蒙**
+  - 安全闸（v7 起从死执上提，[paimon/core/safety/](paimon/core/safety/)）：`task_review` / `scan_plan` / `review_skill_declaration` / `detect_sensitive`
+- **【落地引擎】四影**（生 / 审 / 派 / 收 — 复杂任务落地引擎）
+  - [**生执·纳贝里士**](docs/shades/naberius.md)：**生** — DAG 编排 + 产出工程产物（spec/design/code/simple_code/exec/chat 6 个动作）
+  - [**死执·若纳瓦**](docs/shades/jonova.md)：**审** — 评审循环（review_spec/design/code）+ 静态自检（py_compile/ruff/pytest）
+  - [**空执·阿斯莫代**](docs/shades/asmoday.md)：**派** — 拓扑分层 dispatch + stage 路由表 + 失败重试
+  - [**时执·伊斯塔露**](docs/shades/istaroth.md)：**收** — 归档 + summary.md + saga 补偿（调生执 exec）+ 生命周期
+  - 9 个 stage（assignee 字段值）：spec / design / code / review_spec / review_design / review_code / simple_code / exec / chat
+- **【议事辅助】天使**（晨星 leader + 11 协同天使，**不落地，只出纪要**）
+  - 职能：分析 / 调研 / 决策辅助（"该不该做 X" / "选 A 还是 B" / "评估这个方案"）
+  - 晨星调度（assemble → dispatch+speak loop → synthesize），按议题挑 3-5 个协同天使参与
+  - 11 角色池：结构性 5 / 评估性 4 / 对抗性 2
+- **【值班模块】七神**（cron + 面板 + 概念归属，**跟 /task 主链路无关**）
   - **A 类（保留 cron / 面板 / 概念归属 5 个）**：
     - [风神·巴巴托斯](docs/archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录 ✅
     - [岩神·摩拉克斯](docs/archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron ✅
@@ -31,8 +35,6 @@
     - [冰神·冰之女皇](docs/archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace ✅
   - **B 类（archon 本体暂无具体职能 / namespace 壳 2 个）**：
     - [雷神·巴尔泽布](docs/archons/raiden.md) / [火神·玛薇卡](docs/archons/mavuika.md)（execute 兜底返"已解耦"，待用户后续安排）
-- **【能力】工人**（v6 新增 · 9 stage：`spec` / `design` / `code` / `review_*` / `simple_code` / `exec` / `chat`）
-  - 实现：`paimon/shades/worker/`，无人格化执行单元，按 stage 选 skill workflow / tool-loop
 - **全局支撑层**
   - [**世界树**](docs/foundation/irminsul.md)：全系统**唯一存储层**，9 个数据域（授权 / skill / 知识 / 记忆 / 任务 / token / 审计 / 理财 / 会话）
   - [**地脉**](docs/foundation/leyline.md)：事件总线

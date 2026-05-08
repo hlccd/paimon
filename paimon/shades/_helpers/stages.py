@@ -1,10 +1,15 @@
-"""9 个 stage 的配置：(skill_name, allowed_tools, system_prompt_template)。
+"""四影 9 个 stage 的配置（公共，各影按需引用）。
 
-stage → 处理函数的路由由 runner.run_stage 按下表分派。
+stage 归属：
+- 生执 produce：spec / design / code / simple_code / exec / chat
+- 死执 review： review_spec / review_design / review_code
+
+asmoday 用 ALL_STAGES + 内部路由表派活给各影。
 """
 from __future__ import annotations
 
-# 工人产物输出契约（所有 stage 的 system prompt 末尾追加）
+
+# 产物 stage 输出契约（所有 LLM tool-loop 路径的 system prompt 末尾追加）
 FINAL_OUTPUT_RULE = """
 ⚠️ 输出契约（硬性要求）：
 - 无论你是否调用了工具，**最后一轮必须输出一段中文文字**，作为对当前子任务的最终回答或总结。
@@ -14,7 +19,7 @@ FINAL_OUTPUT_RULE = """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Skill 驱动 stage 的配置（spec / design / code → 调 skill workflow）
+# Skill 驱动 stage（生执 produce_spec / produce_design / produce_code）
 # ─────────────────────────────────────────────────────────────────────────────
 
 SKILL_STAGES = {
@@ -22,33 +27,33 @@ SKILL_STAGES = {
         "skill": "requirement-spec",
         "allowed_tools": {"file_ops"},
         "purpose": "写产品方案",
-        "display_name": "工人·spec",
+        "display_name": "生执·spec",
     },
     "design": {
         "skill": "architecture-design",
         "allowed_tools": {"file_ops"},
         "purpose": "写技术方案",
-        "display_name": "工人·design",
+        "display_name": "生执·design",
     },
     "code": {
         "skill": "code-implementation",
         "allowed_tools": {"file_ops", "exec"},
         "purpose": "代码实现",
-        "display_name": "工人·code",
+        "display_name": "生执·code",
     },
 }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Review stage（review_spec / review_design / review_code）
-# 走 _review.py 内部的 light + check skill 双路径，不在此处简单配置
+# Review stage（死执 review_*）
+# 走 jonova/review.py 内部的 light + check skill 双路径
 # ─────────────────────────────────────────────────────────────────────────────
 
 REVIEW_STAGES = ("review_spec", "review_design", "review_code")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 纯 LLM tool-loop stage（无 skill）
+# 纯 LLM tool-loop stage（生执 _simple，无 skill）
 # ─────────────────────────────────────────────────────────────────────────────
 
 SIMPLE_CODE_PROMPT = """\
@@ -88,25 +93,25 @@ SIMPLE_STAGES = {
         "prompt": SIMPLE_CODE_PROMPT,
         "allowed_tools": {"file_ops", "exec"},
         "purpose": "代码生成(简易)",
-        "display_name": "工人·simple_code",
+        "display_name": "生执·simple_code",
     },
     "exec": {
         "prompt": EXEC_PROMPT,
         "allowed_tools": {"exec"},
         "purpose": "shell 执行",
-        "display_name": "工人·exec",
+        "display_name": "生执·exec",
     },
     "chat": {
         "prompt": CHAT_PROMPT,
         "allowed_tools": {"file_ops"},
         "purpose": "通用推理",
-        "display_name": "工人·chat",
+        "display_name": "生执·chat",
     },
 }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 全部 stage 名（供 naberius _VALID_STAGES 引用）
+# 全部 stage 名（asmoday + naberius._parser 引用）
 # ─────────────────────────────────────────────────────────────────────────────
 
 ALL_STAGES = (
@@ -117,11 +122,11 @@ ALL_STAGES = (
 
 
 def get_display_name(stage: str) -> str:
-    """stage → 工人显示名。日志 / audit / flow_append 用这个标识 from_agent。"""
+    """stage → 显示名。日志 / audit / flow_append 用这个标识 from_agent。"""
     if stage in SKILL_STAGES:
         return SKILL_STAGES[stage]["display_name"]
     if stage in SIMPLE_STAGES:
         return SIMPLE_STAGES[stage]["display_name"]
     if stage in REVIEW_STAGES:
-        return f"工人·{stage}"
-    return f"工人·{stage}"
+        return f"死执·{stage}"
+    return f"四影·{stage}"

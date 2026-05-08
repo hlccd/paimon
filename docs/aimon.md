@@ -22,30 +22,38 @@
 
 ### 模块层级
 
-- **入口·派蒙**（[paimon/paimon.md](paimon/paimon.md)）
+- **入口·派蒙**（[paimon/paimon.md](paimon/paimon.md)）— **守门 + 路由 + 出口 + 全程安全闸**
   - 接入：WebUI / Telegram / QQ
-  - 轻鉴权 + 轻量安全 + 意图分类 + 路由 + 出口人格化
+  - 意图分类 + 4 出口路由 + 出口人格化
+  - **安全闸**（v7 起从死执上提，[paimon/core/safety/](../paimon/core/safety/)）
+    - `task_review`：入口任务级审（pipeline 第一步）
+    - `scan_plan`：DAG 敏感操作扫描 + 批量授权（生执编排后调）
+    - `review_skill_declaration`：skill 热加载审（skill_loader 调）
+    - `detect_sensitive`：敏感串过滤（memory / 知识库写入路径）
 - **4 个出口**（按任务类型路由）
   - `chat` —— 闲聊、单问单答（派蒙浅层 LLM 直答）
-  - `skill` —— 信息采集 / 单一任务（直调 skill：[topic / web-search / bili / xhs / check ...](../skills/)）
-  - `/task` —— 复杂任务（四影管线，写代码 / 落产物）
-  - `/agents` —— 多视角讨论（天使体系，决策 / 选型 / 复盘）
-- **【主持·多节点任务】四影**（流程骨架，不做业务）
-  - [**死执·若纳瓦**](shades/jonova.md)：入口审 + DAG 敏感扫描 + 批量授权
-  - [**生执·纳贝里士**](shades/naberius.md)：DAG 拆分 + revise 重写（cap=3）+ 失败回滚
-  - [**空执·阿斯莫代**](shades/asmoday.md)：拓扑分层 dispatch + 节点并发 + saga
-  - [**时执·伊斯塔露**](shades/istaroth.md)：归档 + 审计 + 生命周期
-- **【主持·多视角讨论】天使**（晨星 leader + 11 协同天使）
-  - **晨星**：天使体系的 leader，负责调度（assemble 召集 → dispatch+speak loop → synthesize）；本身也是天使的一员
+  - `skill` —— 单步任务（直调 skill：[topic / web-search / bili / xhs / check ...](../skills/)）
+  - `/task` —— **复杂任务落地**（四影管线，写 skill / 写代码 / 改代码 / 修 bug 等工程产物）
+  - `/agents` —— **分析 / 调研 / 决策辅助**（天使多视角讨论，输出纪要不落地）
+- **【落地引擎】四影**（生 / 审 / 派 / 收 — 复杂任务落地引擎）
+  - [**生执·纳贝里士**](shades/naberius.md)：**生** — DAG 编排 + 产出工程产物（spec/design/code/simple_code/exec/chat 6 个动作）
+  - [**死执·若纳瓦**](shades/jonova.md)：**审** — 评审循环（review_spec/design/code）+ 静态自检（py_compile/ruff/pytest）
+  - [**空执·阿斯莫代**](shades/asmoday.md)：**派** — 拓扑分层 dispatch + stage 路由表 + 失败重试 + 触发 saga
+  - [**时执·伊斯塔露**](shades/istaroth.md)：**收** — 归档 + summary.md + saga 补偿执行（调生执 exec）+ 生命周期清扫
+  - 9 个 stage（assignee 字段值）：spec / design / code / review_spec / review_design / review_code / simple_code / exec / chat
+- **【议事辅助】天使**（晨星 leader + 11 协同天使，**不落地，只出纪要**）
+  - **职能定位**：分析 / 调研 / 决策辅助（"该不该做 X" / "选 A 还是 B" / "评估这个方案"）
+  - **晨星**：天使体系的 leader，调度（assemble → dispatch+speak loop → synthesize）；本身也是天使的一员
   - **协同天使**：11 个预定义角色（结构性 5 / 评估性 4 / 对抗性 2），晨星按议题挑 3-5 个参与讨论
   - 实现：[`paimon/morningstar/`](../paimon/morningstar/)
-- **【能力】七神**（v6 解耦：四影 asmoday 不再调用七神 execute；业务执行已转 `paimon/shades/worker/`）
-  - 七神 7 个 archon class 全部保留，按当前职能分类：
-  - **A 类（保留非四影功能 5 个）**：
+- **【值班模块】七神**（cron + 面板 + 概念归属，**跟 /task 主链路无关**）
+  - **职能定位**：定时业务模块 + Web 面板代理 + 语义归属（不进 LLM 对话流）
+  - 7 个 archon class 全部保留，按当前职能分类：
+  - **A 类（保留 cron / 面板 / 概念归属 5 个）**：
     - [风神·巴巴托斯](archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录
     - [岩神·摩拉克斯](archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron
     - [草神·纳西妲](archons/nahida.md)：`/knowledge` 面板概念归属（知识 / 偏好 / 文书归档）
-    - [水神·芙宁娜](archons/furina.md)：游戏（`/game` + 2 cron + 1 sub type）；archon 本体 review 段已移除
+    - [水神·芙宁娜](archons/furina.md)：游戏（`/game` + 2 cron + 1 sub type）
     - [冰神·冰之女皇](archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace
   - **B 类（archon 本体暂无具体职能 / namespace 壳 2 个）**：
     - [雷神·巴尔泽布](archons/raiden.md) / [火神·玛薇卡](archons/mavuika.md)
@@ -84,11 +92,11 @@
 
 ```text
 用户 → channel（WebUI / TG / QQ）→ 派蒙
-  （轻鉴权 + 轻量安全 + 意图分类）
+  （安全审 + 意图分类）
    │
    ├── chat       → 派蒙浅层 LLM 直答
    ├── skill      → skill 直调（topic / web-search / bili / xhs ...）
-   ├── /task      → 四影管线（死执 → 生执 → 空执 → 工人 stage → 时执）
+   ├── /task      → 四影管线（生执编排 → [派蒙批量授权] → 空执派发 → 生执/死执 → 时执归档）
    └── /agents    → 天使体系讨论（晨星召集协同天使）
 ```
 
@@ -98,44 +106,55 @@ skill 路径**单 tool 超时**返错给 LLM 自愈、**整体超时**直接 rep
 
 ```text
 chat / skill:    LLM 输出 ───────────→ 派蒙 → channel → 用户
-/task:           工人产物 → 时执收尾 → 派蒙 → channel → 用户
+/task:           四影产物 → 时执收尾 → 派蒙 → channel → 用户
 /agents:         协同天使发言（流式）→ 晨星综合 → 派蒙 → channel → 用户
 三月提醒:        定时任务触发 → 三月 → 派蒙 → channel → 用户
 ```
 
-**派蒙是唯一出入口**——三月 / 七神 / 死执 / 晨星等都不直接调 channel；派蒙挂掉时三月只做拉起 + 暂存，绝不代发。
+**派蒙是唯一出入口**——三月 / 七神 / 四影 / 晨星等都不直接调 channel；派蒙挂掉时三月只做拉起 + 暂存，绝不代发。
 
 ### 2.3 典型复杂任务流（/task）
 
 以"帮我写一个 XX 功能"为例：
 
 ```text
-用户 → channel → 派蒙 → 判定复杂任务 → 进入四影
+用户 → channel → 派蒙
    │
-死执：深度安全审查
-生执：DAG 编排（拆子任务 + 静态依赖环检测；assignee 字段值为 stage 名）
-空执：按子任务 stage 派发到工人（worker.run_stage）
+派蒙·安全审 task_review（入口审）
    │
-工人 stage 层（多轮迭代，轮次由生执控制）
-   spec → review_spec（不通过回 spec）
-        → design → review_design（不通过回 design）
-        → code → review_code（不通过回 code）
-   （敏感操作时死执批量询问一次）
+[四影管线 round 循环]
    │
-时执：最终归档 + 审计复盘 → 派蒙 → channel → 用户
+生执·plan → DAG（节点带 stage 标签）
+   │
+派蒙·安全审 scan_plan + 批量授权（询问敏感操作）
+   │
+空执·dispatch（按 _STAGE_ROUTER 路由到各影）
+   ├→ 生执·produce_*  （spec/design/code/simple_code/exec/chat）
+   └→ 死执·review_*   （review_spec/design/code）
+   │
+死执 verdict ≠ pass → 回 round 2，生执·plan revise
+   │
+全部 round 完或 round_cap_hit
+   │
+[失败路径] 时执·saga（反序补偿，调生执 exec 反向执行）
+   │
+时执·archive（成功/失败都归档 + summary.md + 审计）
+   │
+派蒙出口人格化送达 → channel → 用户
 ```
 
-**分工**：派蒙只**入口/出口**；四影只**流程骨架**；工人 9 个 stage 落地业务执行。
-固定顺序：**死执 → 生执 → 空执 → 工人 → 时执**。
+**分工铁律**：
+- **派蒙** = 守门 + 路由 + 出口 + 全程安全闸（任务审 / DAG 审 / skill 审）
+- **四影** = 复杂任务落地引擎（生 / 审 / 派 / 收）
+- **天使** = 议事辅助（不落地，只出纪要）
+- **七神** = 值班模块（cron / 面板 / 概念归属，跟 /task 主链路无关）
 
-**9 个 stage**：
-- `spec` / `design` / `code`（三段式编程主流程，调对应 skill workflow）
-- `review_spec` / `review_design` / `review_code`（产 .check.json，调 check skill）
-- `simple_code`（trivial 任务直接 LLM 写代码）
-- `exec`（通用 shell / 部署 / 重型工具）
-- `chat`（普通 LLM 推理任务，默认兜底）
+**9 个 stage**（assignee 字段值，asmoday 据此路由各影）：
+- `spec` / `design` / `code`（生执 → 调对应 skill workflow）
+- `review_spec` / `review_design` / `review_code`（死执 → 评审产 verdict）
+- `simple_code` / `exec` / `chat`（生执 → 纯 LLM tool-loop）
 
-实现：`paimon/shades/worker/`
+实现位置：`paimon/shades/{naberius,jonova,asmoday,istaroth}/`
 
 ### 2.4 多视角讨论流（/agents）
 

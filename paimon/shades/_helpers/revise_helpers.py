@@ -1,6 +1,7 @@
-"""revise 路径的 issue 解析 helpers（独立实现，不依赖 archons.nahida）。
+"""revise 路径的 issue 解析 helpers（无主公共 helper）。
 
-供 spec / design / code stage 拼 prior_issues 进 user_message YAML 块用。
+生执 produce_spec / produce_design / produce_code 拼 prior_issues 进 user_message
+YAML 块时用。
 """
 from __future__ import annotations
 

@@ -130,7 +130,7 @@ irminsul/
 
 ---
 
-## archons/ — 七神（v6 解耦后：cron / 面板 / 概念归属；业务执行已转 shades/worker/）
+## archons/ — 七神（cron / 面板 / 概念归属，跟 /task 主链路无关）
 
 `base.py` — `Archon` ABC + `_invoke_skill_workflow`（保留：venti/zhongli digest 等内部 LLM 调用仍用）
 
@@ -150,21 +150,37 @@ irminsul/
 
 | 文件 | 神 | 状态 |
 |---|---|---|
-| `raiden.py` | 雷神 | namespace 壳，~30 行；原写代码 4 件套已转 worker/（design / code / simple_code） |
-| `mavuika.py` | 火神 | namespace 壳，~30 行；原 exec tool-loop 已转 worker/（exec） |
+| `raiden.py` | 雷神 | namespace 壳，~30 行；原写代码 4 件套已转生执 produce_design/code + simple_run |
+| `mavuika.py` | 火神 | namespace 壳，~30 行；原 exec tool-loop 已转生执 simple_run("exec") |
 
 ---
 
-## shades/ — 四影（流程框架）+ 工人（v6 新增）
+## shades/ — 四影（生 / 审 / 派 / 收 — 复杂任务落地引擎）
 
-| 路径 | 影 | 职责 |
+| 路径 | 影 | 关键词 | 职责 |
+|---|---|---|---|
+| `pipeline/` | — | — | 主控（prepare 入口审 + execute DAG 跑） |
+| `naberius/` | 生执 | **生** | 编排 DAG（plan）+ 产出工程产物（produce_spec/design/code + simple_run/simple_code/exec/chat） |
+| `jonova/` | 死执 | **审** | 评审循环（review_spec/design/code）+ 静态自检（self_check） |
+| `asmoday.py` | 空执 | **派** | 拓扑分层 dispatch + `_STAGE_ROUTER` 路由表派各影 + 失败重试 |
+| `istaroth/` | 时执 | **收** | 归档 + summary.md + saga 补偿（调生执 exec）+ 生命周期清扫 |
+| `_helpers/` | — | — | 无主公共 helper（runner_helpers / revise_helpers / stages） |
+
+**v7 关键变化**：
+- worker/ 子包**已删除**，9 stage 全部归到对应影实现
+- 死执原"安全审"职能已上提派蒙（`paimon/core/safety/`）
+- saga 补偿从 `shades/_saga.py` 移到 `istaroth/saga.py`（归"收"）
+
+---
+
+## core/safety/ — 派蒙安全闸（v7 新增）
+
+| 文件 | 职责 | 调用方 |
 |---|---|---|
-| `pipeline/` | — | 主控（prepare 入口审 + execute DAG 跑） |
-| `naberius/` | 生执 | DAG 拆分（assignee 字段值=stage 名）+ 拓扑 + 多轮迭代 + saga 补偿 |
-| `jonova.py` | 死执 | 安全审（subject_type="stage"）+ plan 敏感扫 + 运行时 skill 审 |
-| `asmoday.py` | 空执 | 动态路由（按 stage 派发到 `worker.run_stage`）+ gather 并发 + 故障切换 |
-| `istaroth/` | 时执 | 活跃压缩 + 生命周期清扫 + 最终归档 |
-| `worker/` | — | 9 stage 工人体系（spec/design/code/review_*/simple_code/exec/chat）；asmoday 通过 `run_stage` 派发 |
+| `task_review.py` | 入口任务级安全审 | pipeline.prepare |
+| `plan_scan.py` | DAG 敏感操作扫描 + 批量授权 | pipeline._authorize |
+| `skill_review.py` | skill 热加载审 | skill_loader.registry |
+| `sensitive_filter.py` | 敏感串过滤（密钥/身份证等） | memory / 知识库写入路径 |
 
 ---
 

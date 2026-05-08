@@ -10,7 +10,7 @@ from paimon.core.authz.sensitive_tools import derive_sensitivity
 from paimon.foundation.irminsul.task import Subtask, TaskEdict
 
 
-# assignee 字段值 = stage 名，跟 paimon/shades/worker/_stages.py:ALL_STAGES 对齐
+# assignee 字段值 = stage 名，跟 paimon/shades/_helpers/stages.py:ALL_STAGES 对齐
 _VALID_STAGES = {
     "spec", "design", "code",
     "review_spec", "review_design", "review_code",

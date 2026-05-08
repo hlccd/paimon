@@ -44,6 +44,6 @@ class VentiArchon(_CollectMixin, _DigestMixin, _AlertMixin, _LoginMixin, Archon)
         self, task: TaskEdict, subtask: Subtask, model: "Model", irminsul: "Irminsul",
         prior_results: list[str] | None = None,
     ) -> str:
-        # v6 解耦：execute 内部业务已移除（搬到 paimon/shades/worker/）
+        # v6 解耦：execute 内部业务已移除（搬到 paimon/shades/naberius/）
         # asmoday 不再调本节点；保留方法签名仅为满足 Archon ABC 约定
         return f"[{self.name}] execute 路径已解耦（v6），请参考 docs/archons/venti.md"

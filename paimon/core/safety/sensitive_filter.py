@@ -1,4 +1,4 @@
-"""敏感信息检测 —— 跨模块共享
+"""敏感信息正则过滤 —— 跨模块共享
 
 用途：拦截跨会话 memory 可能包含的密钥 / 密码 / 隐私号码等敏感串。
 调用方：`commands.cmd_remember`（用户显式记忆入口）、`shades.istaroth.extract_experience`

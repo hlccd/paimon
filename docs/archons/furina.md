@@ -23,7 +23,7 @@
 
 - `paimon/archons/furina/_review.py`：**删除整个文件**（420 行）
 - `paimon/archons/furina/service.py`：删 `execute()` 内部 `[STAGE:review_*]` 路由 + ReviewMixin，瘦身到 namespace 壳（~30 行）
-- 已搬到：`paimon/shades/worker/_review.py`（stage = `review_spec` / `review_design` / `review_code`）
+- 已搬到：`paimon/shades/jonova/review.py`（stage = `review_spec` / `review_design` / `review_code`）
 
 水神整体仍是 paimon 的"游戏 / 评审"业务模块；评审段已移交工人，游戏段完全保留。
 

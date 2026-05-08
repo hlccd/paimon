@@ -5,7 +5,7 @@
 本节点 archon 本体跟四影解耦后**execute 内部业务已移除**，但保留概念归属：
 
 - 移除：execute() 内部 spec 路由 + write_spec + 通用 tool-loop + _extract_issues_* helpers
-- 已搬到：`paimon/shades/worker/`（stage=spec / chat）和 `_revise_helpers.py`
+- 已搬到：`paimon/shades/naberius/produce.py + naberius/_simple.py`和 `_revise_helpers.py`
 - **保留概念归属**：草神语义负责 `/knowledge` 面板（草神·智识，3 tab：记忆 / 知识库 / 文书归档）
   - 代码层 webui/api/{knowledge_kb,knowledge_archives,authz}.py 直读 irminsul
   - 不经过本实例，但语义上"知识 / 偏好 / 文书归档"归草神

@@ -1,4 +1,4 @@
-"""review_spec / review_design / review_code 工人实现。
+"""死执·review — 评审产物质量（review_spec / review_design / review_code）。
 
 双路径：
 - light：产物小（spec/design < 2000 字，code < 200 行）走一次 LLM JSON 输出
@@ -6,6 +6,8 @@
 
 产出 .check.json schema 是 pipeline `_resolve_verdict` / find_last_verdict_producer
 读取的协议（field：level / summary / issues）。
+
+stage 归属：review_spec / review_design / review_code → 死执 review_*
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from ._runner_helpers import invoke_skill_workflow
+from paimon.shades._helpers.runner_helpers import invoke_skill_workflow
 
 # 轻量 review 阈值
 _LIGHT_REVIEW_DOC_CHAR_THRESHOLD = 2000
@@ -25,7 +27,7 @@ _LIGHT_REVIEW_CODE_LINE_THRESHOLD = 200
 _CODE_EXTENSIONS = (".py", ".ts", ".js", ".go", ".rs", ".java", ".cpp", ".c", ".h", ".hpp")
 
 _LIGHT_REVIEW_SYSTEM = """\
-你负责"评审"工人，对产物做严格但快速的 review。
+你负责评审者，对产物做严格但快速的 review。
 按 P0/P1/P2/P3 分级输出 findings，**只关心质量问题，不要泛泛赞美**。
 
 严重度定义：
@@ -114,14 +116,14 @@ async def _lightweight_review(
 
     try:
         raw, usage = await model._stream_text(
-            messages, component="工人", purpose=f"lightweight·{stage}",
+            messages, component="死执", purpose=f"lightweight·{stage}",
         )
         await model._record_primogem(
-            task_id, "工人", usage, purpose=f"lightweight·{stage}",
+            task_id, "死执", usage, purpose=f"lightweight·{stage}",
         )
     except Exception as e:
         # LLM 失败保守 revise（让生执继续完善）
-        logger.error("[工人·{}·轻量] LLM 失败: {} → 保守 revise", stage, e)
+        logger.error("[死执·{}·轻量] LLM 失败: {} → 保守 revise", stage, e)
         return ReviewVerdict(
             level=LEVEL_REVISE, issues=[],
             summary=f"{stage}(轻量): LLM 调用失败，保守 revise",
@@ -141,7 +143,7 @@ async def _lightweight_review(
             findings = obj.get("findings") or []
     except Exception as e:
         logger.warning(
-            "[工人·{}·轻量] JSON 解析失败: {} raw={!r}",
+            "[死执·{}·轻量] JSON 解析失败: {} raw={!r}",
             stage, e, raw[:200],
         )
 
@@ -172,7 +174,7 @@ async def _lightweight_review(
         f"{stage}(轻量): {sev_count['P0']} P0 / {sev_count['P1']} P1 / "
         f"{sev_count['P2']} P2 / {sev_count['P3']} P3"
     )
-    logger.info("[工人·{}·轻量] verdict={} {}", stage, level, summary)
+    logger.info("[死执·{}·轻量] verdict={} {}", stage, level, summary)
     return ReviewVerdict(level=level, issues=issues[:20], summary=summary)
 
 
@@ -187,7 +189,7 @@ async def _run_check_skill_and_parse(
 ):
     """调 check skill（参数模式）→ 解析 .check/candidates.jsonl → ReviewVerdict。"""
     workspace = workspace.resolve()
-    logger.info("[工人·{}] 调 check: {}", stage_name, check_args[:100])
+    logger.info("[死执·{}] 调 check: {}", stage_name, check_args[:100])
 
     # 清旧 .check/ 防读到上轮 candidates
     for old in list(workspace.rglob(".check")):
@@ -207,7 +209,7 @@ async def _run_check_skill_and_parse(
         user_message=user_msg,
         model=model,
         session_name=f"{workspace.name}-{stage_name}",
-        component="工人",
+        component="死执",
         purpose=f"check·{stage_name}",
         allowed_tools={"file_ops", "glob", "exec"},
         framing=(
@@ -268,9 +270,9 @@ def _parse_candidates_to_verdict(
             encoding="utf-8",
         )
     except OSError as e:
-        logger.warning("[工人·{}] 写 {} 失败: {}", stage_name, result_json_name, e)
+        logger.warning("[死执·{}] 写 {} 失败: {}", stage_name, result_json_name, e)
 
-    logger.info("[工人·{}] verdict={} {}", stage_name, level, summary)
+    logger.info("[死执·{}] verdict={} {}", stage_name, level, summary)
     return ReviewVerdict(level=level, issues=issues, summary=summary)
 
 
@@ -284,7 +286,7 @@ async def run_review_spec(
     """审 spec.md。小文档 light，大文档 check skill。"""
     is_light, reason = _should_use_lightweight_review("review_spec", spec_path=spec_path)
     if is_light:
-        logger.info("[工人·review_spec·轻量] 触发 ({})", reason)
+        logger.info("[死执·review_spec·轻量] 触发 ({})", reason)
         target = spec_path.read_text(encoding="utf-8", errors="ignore") if spec_path.is_file() else ""
         return await _lightweight_review(
             stage="review_spec",
@@ -310,7 +312,7 @@ async def run_review_design(
     """审 design.md 对齐 spec。"""
     is_light, reason = _should_use_lightweight_review("review_design", design_path=design_path)
     if is_light:
-        logger.info("[工人·review_design·轻量] 触发 ({})", reason)
+        logger.info("[死执·review_design·轻量] 触发 ({})", reason)
         design_text = design_path.read_text(encoding="utf-8", errors="ignore") if design_path.is_file() else ""
         spec_text = spec_path.read_text(encoding="utf-8", errors="ignore") if spec_path.is_file() else ""
         return await _lightweight_review(
@@ -334,6 +336,55 @@ async def run_review_design(
     )
 
 
+async def review(
+    stage: str,
+    task,
+    subtask,
+    model,
+    irminsul,
+    prior_results: list[str] | None = None,
+) -> str:
+    """死执·review 统一入口（asmoday 路由表调）。
+
+    stage ∈ {review_spec, review_design, review_code}。返回文本（含 verdict JSON）
+    给 pipeline `_resolve_verdict` 解析。
+    """
+    from paimon.foundation.task_workspace import create_workspace
+    workspace = create_workspace(task.id).resolve()
+    spec_path = workspace / "spec.md"
+    design_path = workspace / "design.md"
+    code_dir = workspace / "code"
+
+    if stage == "review_spec":
+        verdict = await run_review_spec(
+            spec_path=spec_path, workspace=workspace, model=model,
+            subtask_id=subtask.id,
+        )
+    elif stage == "review_design":
+        verdict = await run_review_design(
+            spec_path=spec_path, design_path=design_path, workspace=workspace,
+            model=model, subtask_id=subtask.id,
+        )
+    elif stage == "review_code":
+        # simple/trivial 无 design 时，用 task.description 作 fallback_requirement
+        fallback = "" if design_path.is_file() else (task.description or "")
+        verdict = await run_review_code(
+            design_path=design_path, code_dir=code_dir, workspace=workspace,
+            model=model, subtask_id=subtask.id,
+            fallback_requirement=fallback,
+        )
+    else:
+        return f"[死执·{stage}] 未知 review stage"
+
+    # 把 ReviewVerdict 序列化到 result 文本（pipeline _resolve_verdict 读 JSON）
+    verdict_dict = {
+        "level": verdict.level,
+        "issues": verdict.issues,
+        "summary": verdict.summary,
+    }
+    return f"{verdict.summary}\n\n```json\n{json.dumps(verdict_dict, ensure_ascii=False, indent=2)}\n```"
+
+
 async def run_review_code(
     *, design_path: Path, code_dir: Path, workspace: Path, model,
     subtask_id: str = "", fallback_requirement: str = "",
@@ -341,7 +392,7 @@ async def run_review_code(
     """审 code 对齐 design。"""
     is_light, reason = _should_use_lightweight_review("review_code", code_dir=code_dir)
     if is_light:
-        logger.info("[工人·review_code·轻量] 触发 ({})", reason)
+        logger.info("[死执·review_code·轻量] 触发 ({})", reason)
         code_chunks: list[str] = []
         if code_dir.is_dir():
             for ext in _CODE_EXTENSIONS:
@@ -378,7 +429,7 @@ async def run_review_code(
             )
             align_spec = str(req_file)
         except OSError as e:
-            logger.warning("[工人·review_code] 写 requirement.md 失败: {}", e)
+            logger.warning("[死执·review_code] 写 requirement.md 失败: {}", e)
     check_args = (
         f"code-vs-spec {code_dir} --level core --depth quick --fix report-only"
         + (f" --spec {align_spec}" if align_spec else "")
