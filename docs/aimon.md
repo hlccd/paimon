@@ -46,18 +46,18 @@
   - **晨星**：天使体系的 leader，调度（assemble → dispatch+speak loop → synthesize）；本身也是天使的一员
   - **协同天使**：11 个预定义角色（结构性 5 / 评估性 4 / 对抗性 2），晨星按议题挑 3-5 个参与讨论
   - 实现：[`paimon/morningstar/`](../paimon/morningstar/)
-- **【值班模块】七神**（cron + 面板 + 概念归属，**跟 /task 主链路无关**）
-  - **职能定位**：定时业务模块 + Web 面板代理 + 语义归属（不进 LLM 对话流）
-  - 7 个 archon class 全部保留，按当前职能分类：
-  - **A 类（保留 cron / 面板 / 概念归属 5 个）**：
-    - [风神·巴巴托斯](archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录
-    - [岩神·摩拉克斯](archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron
-    - [草神·纳西妲](archons/nahida.md)：`/knowledge` 面板概念归属（知识 / 偏好 / 文书归档）
-    - [水神·芙宁娜](archons/furina.md)：游戏（`/game` + 2 cron + 1 sub type）
-    - [冰神·冰之女皇](archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace
-  - **B 类（archon 本体暂无具体职能 / namespace 壳 2 个）**：
+- **【业务模块】七神**（各业务域的业务接口 + 数据域归属 + 面板归属 + cron）
+  - **职能定位**：每位七神是对应业务域的**业务接口 + 唯一写入者**；不进 LLM 对话流，跟 `/task` 主链路并行存在
+  - 7 个 archon class 全部保留（铁律：七神不删）；按当前是否承接业务分两类
+  - **A 类（5 个 · 业务接口 + cron + 面板）**：
+    - [风神·巴巴托斯](archons/venti.md)：信息采集业务接口（feed_items / feed_events 域）+ `/feed` `/sentiment` 面板 + `feed_collect` cron + 站点登录代理
+    - [岩神·摩拉克斯](archons/zhongli.md)：红利股业务接口（scoring / dividend 域）+ `/wealth` 面板 + `dividend_scan` `stock_watch` cron + scorer
+    - [草神·纳西妲](archons/nahida.md)：知识 / 记忆 / 偏好业务接口（**memory 域唯一写入者**）+ `/knowledge` 面板 + `memory_hygiene` `kb_hygiene` cron + 时执 extract_experience 收尾收口于草神
+    - [水神·芙宁娜](archons/furina.md)：游戏业务接口（mihoyo 域）+ `/game` 面板 + `mihoyo_collect` `mihoyo_game_collect` cron + `mihoyo_game` sub type
+    - [冰神·冰之女皇](archons/tsaritsa.md)：skill 生态业务接口（**skill 域唯一写入者**，AI 自举走 /task 落盘归冰神）+ `/plugins` 面板（含授权撤销 UI）+ skill_loader 扫盘
+  - **B 类（2 个 · namespace 永久壳，新职能待挂）**：
     - [雷神·巴尔泽布](archons/raiden.md) / [火神·玛薇卡](archons/mavuika.md)
-    - `execute` 兜底返"已解耦"；docs/archons/*.md 已标注；待用户后续安排
+    - 原写代码 / exec 职能已转生执 produce_*；按七神保留铁律留 ~30 行壳；新职能待挂（见 [`docs/todo.md`](todo.md)）
 - **【全局支撑层】**
   - **存储层（唯一）**：[**世界树**](foundation/irminsul.md) —— 9 个数据域统一落盘
   - **服务层（无状态）**：[**地脉**](foundation/leyline.md)（事件总线）、[**神之心**](foundation/gnosis.md)（LLM 资源池）

@@ -7,7 +7,7 @@
   - 补偿本身失败不递归，只写审计标 `compensate_failed`
   - 无 compensate 的节点直接跳过（大多数纯推理任务无副作用）
 
-docs/migration.md C-Q1 的技术选型决议：选 saga 而非快照。
+技术选型决议：选 saga（不做状态快照）。
 """
 from __future__ import annotations
 

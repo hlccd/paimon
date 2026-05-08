@@ -1,7 +1,7 @@
 # 世界树
 
 > 隶属：[神圣规划](../aimon.md) / 基础层
-> 相关：[权限与契约](../permissions.md) · [自进化](../evolution.md) · [迁移方案](../migration.md)
+> 相关：[权限与契约](../permissions.md) · [自进化](../evolution.md)
 
 **定位**：提瓦特世界树为原型，承担**全系统唯一的存储层**职责。
 
@@ -31,11 +31,11 @@
 
 | # | 数据域 | 唯一写入者（服务层） | 读取者 | 业务逻辑留在哪 |
 |---|---|---|---|---|
-| 1 | 用户授权记录 | 派蒙（对话写）、草神面板（撤销写） | 派蒙 / 死执 / 草神面板 | 关键词识别、缓存维护、UI 展示 |
-| 2 | Skill 生态声明 | 冰神（唯一） | 派蒙 / 死执 | 扫目录、运行时装载、与死执审查协作 |
-| 3 | 知识库 | 草神（唯一） | 草神 | 推理、整合、语义召回、Prompt 调优 |
-| 4 | 记忆 memory/（含个人偏好、习惯） | 草神（唯一） | 派蒙（prefetch）/ 草神 / 三月（反思） | 抽取、归一、反思合并 |
-| 5 | 活跃任务记录 | 生执 / 空执 / 七神 | 派蒙 / 三月面板 / 时执（归档时读出） | DAG 拆分、状态转移、轮次控制 |
+| 1 | 用户授权记录 | 派蒙（对话写）、冰神 `/plugins` 面板（撤销写） | 派蒙 / 派蒙·core/safety / 冰神面板 | 关键词识别、缓存维护、UI 展示 |
+| 2 | Skill 生态声明 | 冰神（唯一） | 派蒙 / 派蒙·core/safety | 扫目录、运行时装载、与派蒙 skill_review 协作 |
+| 3 | 知识库 | 草神（唯一） | 草神 / `/knowledge` 面板 | 推理、整合、语义召回、Prompt 调优 |
+| 4 | 记忆 memory/（含个人偏好、习惯） | 草神（唯一） | 派蒙（prefetch）/ 草神 / `/knowledge` 面板 | 抽取、归一、hygiene cron 整理 |
+| 5 | 活跃任务记录 | 生执 / 空执 / 各影 | 派蒙 / 三月面板 / 时执（归档时读出） | DAG 拆分、状态转移、轮次控制 |
 | 6 | Token 记录 | 原石（唯一） | 原石 | 费率查表、缓存折扣、多维聚合 |
 | 7 | 审计 / 归档 | 时执（唯一） | 时执 | 分层策略（热/冷/过期）、审计复盘 |
 | 8 | 理财数据 | 岩神（唯一） | 岩神 | 股价爬取、分红计算、资产管理 |
@@ -61,11 +61,11 @@
 
 | 数据域 | 可读 | 可写（架构约束：单一来源） |
 |---|---|---|
-| 用户授权 | 派蒙 / 死执（启动时）、草神面板（UI） | 派蒙（对话写）、草神面板（撤销写） |
-| Skill 生态声明 | 派蒙 / 死执（启动时） | 冰神（唯一） |
-| 知识库 | 草神 | 草神 |
-| 记忆 | 派蒙（prefetch）/ 草神 / 三月 | 草神 |
-| 活跃任务 | 派蒙 / 三月 / 时执 | 生执 / 空执 / 七神 |
+| 用户授权 | 派蒙 / 派蒙·core/safety（启动读）、冰神面板（UI） | 派蒙（对话写）、冰神 `/plugins` 面板（撤销写） |
+| Skill 生态声明 | 派蒙 / 派蒙·core/safety（启动读） | 冰神（唯一） |
+| 知识库 | 草神 / `/knowledge` 面板 | 草神 |
+| 记忆 | 派蒙（prefetch）/ 草神 / `/knowledge` 面板 | 草神（唯一） |
+| 活跃任务 | 派蒙 / 三月 / 时执 | 生执 / 空执 / 各影 |
 | Token 记录 | 原石 | 原石 |
 | 审计 / 归档 | 时执 | 时执 |
 | 理财数据 | 岩神 | 岩神 |
@@ -128,7 +128,7 @@ await irminsul.authz_set(
 
 - **SQLite 主库**（[`paimon_home`](../../paimon/config.py)/`irminsul.db`）承载结构化域：authorizations / skills / memory_index / tasks / subtasks / flow_history / progress_log / token_usage / revision_records / archived_* / dividend_* / sessions
 - **文件系统**承载文档类域：`irminsul/knowledge/{category}/{topic}.md`、`irminsul/memory/{type}/{subject}/{id}.md`
-- **路径安全**：所有文件 API 内部 `resolve()` 后校验不超出根目录（消除 [migration.md 审计 SEC-003](../migration.md) 路径遍历 + 模板 RCE 链）
+- **路径安全**：所有文件 API 内部 `resolve()` 后校验不超出根目录（消除路径遍历 + 模板 RCE 链）
 - **横向独立**：不 import `gnosis` / `model` / `primogem 业务接口` / `leyline`
 
 ## 启动时序
