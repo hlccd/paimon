@@ -10,6 +10,7 @@
 - subscribe.py     —— /subscribe /subs；导出 create_subscription（外部 API）
 - dividend.py      —— /dividend；导出 toggle_dividend_cron（外部 API）
 - task_index.py    —— /task-list /task-index
+- evolve.py        —— /evolve（自进化提案触发）
 - selfcheck.py     —— /selfcheck
 - help.py          —— /help
 
@@ -25,6 +26,7 @@ from .subscribe import create_subscription
 from . import (  # noqa: F401
     agents,
     dividend,
+    evolve,
     help,
     memory,
     selfcheck,
