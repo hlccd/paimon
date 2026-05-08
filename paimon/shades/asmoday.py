@@ -147,7 +147,8 @@ async def dispatch(
                 err = f"[{sub.assignee}] 执行失败: {outcome}"
                 logger.error("[空执] 子任务 {} 失败: {}", sub.id, outcome)
                 await irminsul.subtask_update_status(
-                    sub.id, status="failed", result=err[:2000], actor=sub.assignee,
+                    sub.id, status="failed", result=err[:2000],
+                    actor=get_display_name(sub.assignee),
                 )
                 statuses[sub.id] = "failed"
                 # 同步 in-memory Subtask（naberius 修订路径依赖这个）
@@ -232,7 +233,7 @@ async def _run_one(
             )
             await irminsul.subtask_update_status(
                 sub.id, status="completed",
-                result=(result or "")[:2000], actor=stage,
+                result=(result or "")[:2000], actor=get_display_name(stage),
             )
             if attempt > 1:
                 logger.info(

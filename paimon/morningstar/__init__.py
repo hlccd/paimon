@@ -1,4 +1,4 @@
-"""天使·多视角讨论体系（docs/world_formula.md §3.4）。
+"""天使·多视角讨论体系（详见 docs/angels/angels.md）。
 
 天使体系 = 晨星（leader）+ 11 个协同天使。
 - 晨星：天使中的 leader，负责调度（assemble 召集 → dispatch+speak loop → synthesize）

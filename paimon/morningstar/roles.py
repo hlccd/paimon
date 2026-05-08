@@ -1,6 +1,6 @@
 """协同天使（多视角讨论的协同角色）系统提示词池。
 
-11 个预定义协同天使（按 docs/world_formula.md §3.4 分 3 类）：
+11 个预定义协同天使（按 docs/angels/angels.md 分 3 类）：
 - 结构性 5：requirement / architecture / implementation / test / review
 - 评估性 4：finance / risk / user_voice / history
 - 对抗性 2：challenger / proposer

@@ -226,22 +226,9 @@ async def _progress_watcher(
 async def _invoke_check_skill(
     svc: "SelfCheckService", args: str, project_root: Path,
 ) -> None:
-    """复用 Archon 基类的 _invoke_skill_workflow 跑 check skill。
+    """跑 check skill（直接走公共 invoke_skill_workflow，不再借 archon 壳）。"""
+    from paimon.shades._helpers.runner_helpers import invoke_skill_workflow
 
-    借一个临时 Archon 外壳（不登记 state.channels，仅作 workflow 驱动）。
-    """
-    from paimon.archons.base import Archon
-
-    class _SelfCheckArchon(Archon):
-        name = "派蒙·自检"
-        description = "三月·Deep selfcheck（调 check skill）"
-        # file_ops 文件读写、glob 跨平台文件查找、exec 兜底复杂命令
-        allowed_tools = {"file_ops", "glob", "exec"}
-
-        async def execute(self, *a, **k) -> str:
-            return ""
-
-    archon = _SelfCheckArchon()
     platform_hint = _platform_exec_hint()
     framing = (
         f"【三月·Deep 自检 · paimon 适配层】\n"
@@ -321,7 +308,7 @@ async def _invoke_check_skill(
         "执行完毕后只要用一两行汇总 severity 计数即可（P0=? P1=? P2=? P3=?），"
         "paimon 会自己读 .check/ 里的产物做持久化。"
     )
-    await archon._invoke_skill_workflow(
+    await invoke_skill_workflow(
         skill_name="check",
         user_message=user_msg,
         model=svc._model,

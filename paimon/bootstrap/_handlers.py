@@ -68,13 +68,36 @@ async def _on_march_ring(event: Event) -> None:
     if prompt and state.model:
         try:
             from paimon.session import Session
+            from paimon.core.chat._prompt import _build_system_prompt
             # 每次响铃用独立 session id，避免并发任务的 token 记录全聚合到 "march-tmp"
             tmp_sid = f"march-{task_id[:12]}" if task_id else "march-tmp"
             temp_session = Session(id=tmp_sid, name="三月任务")
+
+            # 注入派蒙人设 system prompt（对话流出口铁律：所有进入对话窗口的消息都经派蒙人格化）
+            try:
+                persona_system = await _build_system_prompt(irminsul=state.irminsul)
+            except Exception as e:
+                logger.debug("[派蒙·响铃] 人设 prompt 加载失败，降级为最小人设: {}", e)
+                persona_system = "你是派蒙，一个友好的 AI 助手。请用中文回复。"
+
+            framing = (
+                f"\n\n---\n"
+                f"# 当前场景：定时任务到点提醒\n"
+                f"用户之前请求过定时提醒（task_id={task_id[:12] if task_id else '?'}）。\n"
+                f"原始请求：{prompt}\n\n"
+                f"现在到点了，你需要以派蒙的语气主动唤醒用户，按原始请求处理或提醒。\n"
+                f"如果是简单提醒（如\"30 分钟后提醒我开会\"），直接友好地通知；\n"
+                f"如果是带任务的（如\"每天早上 8 点告诉我今日要点\"），按任务执行后告知。"
+            )
+            temp_session.messages.append({
+                "role": "system",
+                "content": persona_system + framing,
+            })
+
             text_parts = []
             async for chunk in state.model.chat(
                 temp_session, prompt,
-                component="march", purpose="定时任务",
+                component="派蒙·响铃", purpose="定时任务",
             ):
                 text_parts.append(chunk)
             result = "".join(text_parts)
