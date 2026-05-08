@@ -28,6 +28,7 @@ from ..push_archive import PushArchiveRepo
 from ..schedule import ScheduleRepo
 from ..selfcheck import SelfcheckRepo
 from ..session import SessionRepo
+from ..skill_proposals import SkillProposalRepo
 from ..skills import SkillRepo
 from ..subscription import SubscriptionRepo
 from ..task import TaskRepo
@@ -44,7 +45,7 @@ class Irminsul(
 ):
     """世界树：全系统唯一存储层。
 
-    对外按 9 个数据域提供读/写/快照/列表接口。所有写/删方法必传 actor（服务方中文名），
+    对外按 13 个主数据域提供读/写/快照/列表接口。所有写/删方法必传 actor（服务方中文名），
     内部统一打 `[世界树] <actor>·<动作> <对象>` INFO 日志。
     """
 
@@ -59,6 +60,7 @@ class Irminsul(
         # Repo 延迟到 initialize
         self._authz: AuthzRepo | None = None
         self._skill: SkillRepo | None = None
+        self._skill_proposal: SkillProposalRepo | None = None
         self._knowledge: KnowledgeRepo | None = None
         self._memory: MemoryRepo | None = None
         self._task: TaskRepo | None = None
@@ -89,6 +91,7 @@ class Irminsul(
 
         self._authz = AuthzRepo(self._db)
         self._skill = SkillRepo(self._db)
+        self._skill_proposal = SkillProposalRepo(self._db)
         self._knowledge = KnowledgeRepo(self._knowledge_root)
         self._memory = MemoryRepo(self._db, self._memory_root)
         self._task = TaskRepo(self._db)

@@ -532,3 +532,38 @@ CREATE TABLE IF NOT EXISTS llm_routes (
     FOREIGN KEY (profile_id) REFERENCES llm_profiles(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_llm_routes_profile ON llm_routes(profile_id);
+
+-- ============ 域 16: Skill 自进化提案队列（2026-05 新增）============
+-- 四影 propose 阶段产出 skill 草案落此表 → 死执质量审填 review_* 字段 →
+-- 用户在 /plugins 面板审批 → 派蒙 safety 审 → 冰神 落 .claude/skills/ + 注册
+-- skill_declarations。 status 流转：
+--   pending  : 待死执审 或 死执审完 review_verdict='pass' 等用户
+--   approved : 用户同意，等冰神 apply
+--   rejected : 拒了（含死执 review_verdict='reject' 直拒 / 用户拒）
+--   applied  : 已落盘 + skill_declarations 已注册
+-- review_verdict 跟 status 解耦：'' / 'pass' / 'needs_revise' / 'reject'
+CREATE TABLE IF NOT EXISTS skill_proposals (
+    id                  TEXT PRIMARY KEY,                -- 12 hex
+    name                TEXT NOT NULL,                   -- 提议的 skill 名 kebab-case
+    kind                TEXT NOT NULL DEFAULT 'new',     -- 'new' | 'improve'
+    target_skill        TEXT NOT NULL DEFAULT '',        -- improve 时指向已存在 skill 名
+    description         TEXT NOT NULL DEFAULT '',        -- 一句话职能
+    triggers            TEXT NOT NULL DEFAULT '',        -- 触发线索（何时调用此 skill）
+    system_prompt       TEXT NOT NULL DEFAULT '',        -- skill body 草稿
+    allowed_tools       TEXT NOT NULL DEFAULT '[]',      -- JSON array
+    rationale           TEXT NOT NULL DEFAULT '',        -- 提议理由（任务事实 + 模式归纳）
+    proposed_by_session TEXT NOT NULL DEFAULT '',
+    proposed_by_task    TEXT NOT NULL DEFAULT '',
+    review_verdict      TEXT NOT NULL DEFAULT '',        -- '' | 'pass' | 'needs_revise' | 'reject'
+    review_notes        TEXT NOT NULL DEFAULT '',        -- 死执质量审评语
+    status              TEXT NOT NULL DEFAULT 'pending', -- 'pending'|'approved'|'rejected'|'applied'
+    decided_by          TEXT NOT NULL DEFAULT '',        -- 'user' | 'auto' | ''
+    decision_notes      TEXT NOT NULL DEFAULT '',        -- 用户拒绝时的理由
+    decided_at          REAL,
+    applied_at          REAL,
+    created_at          REAL NOT NULL,
+    updated_at          REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_prop_status  ON skill_proposals(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_skill_prop_kind    ON skill_proposals(kind);
+CREATE INDEX IF NOT EXISTS idx_skill_prop_session ON skill_proposals(proposed_by_session);

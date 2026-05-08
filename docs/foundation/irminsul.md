@@ -12,7 +12,7 @@
 ## 核心能力
 
 - **统一落盘枢纽**：全系统所有需要持久化的数据由世界树承载（SQLite 主库 + 文件系统）
-- **领域 API 收口**：按 12 个数据域（见下表）提供语义化读写接口，不暴露底层存储细节
+- **领域 API 收口**：按 13 个主数据域（见下表）提供语义化读写接口，不暴露底层存储细节
 - **路径安全闸门**：文件类域（知识库、记忆 body）内部强制 `resolve()` 校验，调用方只传语义化参数（category / topic / memory_id），不传路径字符串
 - **写入日志**：所有写 / 删记 INFO 级日志，凸显"世界树记录 XX 做了 XX"的主语关系（见下方日志约定）
 - **只存不推**：不做事件广播、不订阅地脉，不对外提供 subscribe / watch 接口
@@ -27,7 +27,7 @@
 - **不缓存别人的数据**：每个服务层模块自己维护本地缓存
 - **不对接 channel / LLM / 地脉 / 原石业务接口**：基础层横向独立
 
-## 12 个数据域
+## 13 个数据域
 
 | # | 数据域 | 唯一写入者（服务层） | 读取者 | 业务逻辑留在哪 |
 |---|---|---|---|---|
@@ -43,6 +43,11 @@
 | 10 | 定时任务 | 三月（唯一） | 三月 / 派蒙面板 | cron/interval/once 调度、响铃、失败退避 |
 | 11 | 订阅（subscriptions + feed_items）| 风神（采集写）/ 派蒙（订阅声明写）| 风神 / WebUI 面板 | 主题采集、去重、日报整理 |
 | 12 | 自检归档（selfcheck_runs + blob 目录）| 三月·SelfCheckService（唯一）| 三月 / WebUI `/selfcheck` 面板 | Quick 组件探针 + Deep check skill 产物归档；每 run 独立 blob 目录防覆盖 |
+| 16 | **Skill 自进化提案**（skill_proposals）| 四影·生执（propose 写）/ 四影·死执（review verdict 写）/ 冰神（apply 标记写）| 用户 `/plugins` 面板 / 冰神（apply 时读 approved）| 提案产生（生执 propose_skill stage）+ 质量审（死执 review_proposal stage）+ 用户审批 + 冰神落盘到 `.claude/skills/` |
+
+> 编号不连续是历史原因：8.5/8.6/8.7（理财扩展）/ 11.5（feed event）/ 13/14/15（push_archive / llm_profile / llm_route）等子域跳号；上表只列**主域**，13 个主域是当前活跃域数。详细 schema 见 [`paimon/foundation/irminsul/_db/_schema.sql`](../../paimon/foundation/irminsul/_db/_schema.sql)。
+
+> **自进化域的"多写入者"特例**：通常一个域一个唯一写入者；skill_proposals 例外——四影 propose 阶段写、四影 review 阶段更新 verdict、冰神 apply 时标 applied，三个写入者按状态机阶段分工不冲突。**写盘到磁盘**仍归冰神（apply 时写 `.claude/skills/<name>/SKILL.md` + 注册 skill_declarations）。详见 [自进化体系](../evolution.md) §L3。
 
 > **"读取者"的范围**：上表只列**直接调用世界树 API 的模块**。间接消费者（如派蒙 `/stat` 展示 token、派蒙推送需要理财内容、三月面板展示任务）**通过对应服务层模块**读取，不直接调世界树——这是"世界树管字节、服务层管语义"的直接体现。
 
@@ -70,6 +75,7 @@
 | 审计 / 归档 | 时执 | 时执 |
 | 理财数据 | 岩神 | 岩神 |
 | 聊天会话 | 派蒙 / 时执（归档时） | 派蒙 |
+| Skill 自进化提案 | 用户 `/plugins` 面板 / 冰神（apply 时读 approved） | 四影·生执（propose） / 四影·死执（set_review_verdict） / 冰神（mark_applied） |
 
 > 具体"谁什么时候来读 / 写、为什么"详见各服务层模块的职能文档和 [权限与契约](../permissions.md)。
 

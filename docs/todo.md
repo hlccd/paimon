@@ -77,14 +77,18 @@
   - **prompt cache 命中率**：feedback 注入已稳态排序，但 system prompt 主体仍每次 from scratch；改用模板化稳定前缀
   - **空执流水线化**：同层 gather 已并发但层间严格串行
 
-## 2. 自进化（由四影承接）
+## 2. 自进化（独立机制 + 三道闸）
 
-> 见 [evolution.md](evolution.md)。L1 已实装；L2 / L3 走 `/task`；L4 部分实装。
+> 见 [evolution.md](evolution.md)。L1 已实装；L3 持久层就位、stage 与触发器待实装；L4 部分实装。
 
-- [ ] **L3 · AI 自举生成新 skill 走 /task**
-  - **现状**：用户可直接发 `/task 写一个 X skill` → 走完整四影管线（生执 produce_spec/design/code → 死执 review_code）
-  - **未做**：cron 触发的"自动反思 + 自动提案 skill"机制（"同一请求模式出现 ≥N 次自动写一个 skill"）
-  - **优先级**：低（手动 /task 已够用）
+- [ ] **L3 · Skill 自进化提案 stage + 触发器**（持久层 + 面板已就位，调用层未接）
+  - **已实装**：世界树 skill_proposals 域（schema + Repo + façade + 状态机保护）+ `/plugins` 面板"自进化提案"tab + 5 API
+  - **待实装顺序**：
+    1. 死执 `review_proposal` stage（`paimon/shades/jonova/review_proposal.py`）—— 质量审，写 review_verdict
+    2. 生执 `propose_skill` stage（`paimon/shades/naberius/propose.py`）—— 凝练 skill 草案落 skill_proposals
+    3. 触发器 —— 候选：(a) 时执 archive 收尾事件触发；(b) 三月 cron 周期扫；(c) 用户 `/evolve` 手动触发；至少先做 a + b
+    4. 冰神 apply —— 读 status=approved 提案 → 派蒙 skill_review 审 → 写 `.claude/skills/<name>/SKILL.md` + 注册 skill_declarations + mark_applied
+  - **不强制频率**：好则有、不好则无；死执严格把关；rejected 三月定期 prune
 
 - [ ] **L4 · 轨迹沉淀（导出 SFT/RL 数据）** —— 长期路线图
   - 时执 archive + summary 已落档完整轨迹
@@ -92,9 +96,8 @@
   - 不搭训练基础设施（当前 ROI 为负）
 
 - [ ] **Prompt 自动调优** —— 长期方向
-  - 短期：用户主动 `/task 调优 X 的 prompt` 即可
-  - 长期：从 feedback 记忆里聚合"高频纠正模式" → 自动发 `/task` 调优
-  - 跟 L3 自举类似机制
+  - 短期：直接编辑 `.claude/skills/X/SKILL.md` 或 `paimon/templates/paimon.t`
+  - 长期：从 feedback 记忆里聚合"高频纠正模式" → 用 L3 提案机制凑成 prompt 改进提案
 
 ## 3. 技术选型层面
 

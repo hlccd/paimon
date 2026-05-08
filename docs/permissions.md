@@ -75,6 +75,26 @@
 
 预装 skill（启动扫入）视为预审通过，不走运行时审查。
 
+## Skill 自进化提案的三道闸
+
+跟「用户主动 `/skill` 装载」的运行时审查不同，**AI 自动提议的 skill** 需要经"质量 + 意愿 + 安全"三道独立闸，**任一闸阻断即不落地**：
+
+| 闸 | 角色 | 输出 | 阻断条件 |
+|---|---|---|---|
+| **1. 质量闸** | 四影·死执 `review_proposal` stage | `review_verdict ∈ {pass, needs_revise, reject}` 落 skill_proposals 域 | `reject` → 自动联动 status=rejected；`needs_revise` → 用户面板 approve 按钮 disabled，必须先重产再审 |
+| **2. 意愿闸** | 用户在 `/plugins` 面板"自进化提案"tab | status: pending → approved / rejected | AI 不能自审自批；status=approved 必须用户主动点同意 |
+| **3. 安全闸** | 派蒙 `core/safety/skill_review`（apply 时跑）| 跟普通 skill 装载共用同一道审查 | tool 越权 / sensitive 命中 / manifest 不合规等 → 阻装，标记 applied 失败 |
+
+**写盘归属**：三道闸全过后，冰神才执行落盘（写 `.claude/skills/<name>/SKILL.md` + 注册 skill_declarations，source='ai_gen'，origin=proposed_by_session）。skill_proposals.status=applied，作为 skill 起源审计**永不可删**。
+
+**写入者分工（自进化域的特例）**：
+- 四影·生执 → propose_skill stage 写新提案
+- 四影·死执 → review_proposal stage 写 review_verdict
+- 冰神 → apply 时标 mark_applied + 写 skill_declarations
+- 用户面板 → approve / reject / delete（rejected 限定）
+
+详见 [自进化](evolution.md) §L3。
+
 ## 用户体验
 
 - **不重复打断**：单 task 内一次批量问完

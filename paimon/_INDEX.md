@@ -58,7 +58,7 @@ webui/
 │   ├── game.py 水神游戏
 │   ├── knowledge.py / knowledge_kb.py / knowledge_archives.py 草神
 │   ├── llm.py 神之心
-│   ├── plugins.py 冰神
+│   ├── plugins.py 冰神（含 5 个自进化提案 endpoint：list/get/approve/reject/delete + count_by_status）
 │   ├── selfcheck.py 三月
 │   ├── session.py 会话 CRUD
 │   ├── tasks.py 任务面板
@@ -105,11 +105,13 @@ irminsul/
 │   ├── service.py        Irminsul 类 + 4 mixin 组合 + initialize/close
 │   └── _basics.py / _runtime.py / _finance.py / _observability.py    166 个域方法分组
 ├── _db/                  _schema.sql + _migrations.py
-└── 19 个域 Repo .py       authz / skill / knowledge / memory / task / token / audit /
+└── 20 个域 Repo .py       authz / skill / knowledge / memory / task / token / audit /
                           dividend / dividend_event / user_watchlist / mihoyo / session /
                           schedule / subscription / feed_event / push_archive / selfcheck /
-                          llm_profile / llm_route
+                          llm_profile / llm_route / skill_proposals
 ```
+
+> **`skill_proposals`（域 16）特例**：通常一个域一个写入者；此域**例外**——四影·生执 propose / 四影·死执 set_review_verdict / 冰神 mark_applied 三方按状态机阶段写。写盘到 `.claude/skills/` 仍归冰神。详见 [`docs/evolution.md`](../docs/evolution.md) §L3。
 
 > **⚠ Schema 约束**：task_subtasks/flow/progress 的 FK **没声明 ON DELETE CASCADE**，靠 `task.purge_expired()` 手动级联；新写清理路径要按顺序 progress→flow→subtasks→edicts。
 

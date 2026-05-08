@@ -55,11 +55,16 @@
 
 | 场景 | 归属 | 关键区分点 |
 |---|---|---|
-| skill 生态业务接口 | **冰神** | skill 发现 / 注册 / AI 自举的语义负责人 |
+| skill 生态业务接口 | **冰神** | skill 发现 / 注册 / 自进化提案落盘的语义负责人 |
 | skill 唯一写入者 | 冰神（→ 世界树 skill 域） | 启动扫入 / 运行时审查通过后写世界树 |
 | skill 装载审 | 派蒙 `core/safety/skill_review` | 运行时新增的 skill 必过审 |
-| AI 自举生成新 skill | 四影 `/task`（仍归冰神生态） | 走生执 produce_spec → design → code → 死执 review_code，落盘走冰神写世界树 |
-| 物理实现 | `paimon/skill_loader/`（冰神语义壳）+ webui `/plugins` 面板 | 代码层模块名是 skill_loader，语义归属仍是冰神 |
+| **AI 自进化提案产生** | 四影·生执 `propose_skill` stage | 凝练 skill 草案落世界树 skill_proposals 域（status=pending）|
+| **AI 自进化提案质量审** | 四影·死执 `review_proposal` stage | 写 review_verdict ∈ {pass, needs_revise, reject}|
+| **AI 自进化提案用户审** | 用户 `/plugins` 面板"自进化提案"tab | 死执说 needs_revise 时 approve 按钮 disabled 强制重产再审 |
+| **AI 自进化提案落盘** | 冰神（apply：读 approved → 派蒙 skill_review → 写 `.claude/skills/`）| skill_proposals.mark_applied 后正式生效；冰神仍是 skill 域唯一写入者 |
+| 物理实现 | `paimon/skill_loader/`（冰神语义壳）+ webui `/plugins` 面板（含"自进化提案"tab）| 代码层模块名是 skill_loader，语义归属仍是冰神 |
+
+> **自进化跟"写代码"是两件事**：自进化提案产出的是**skill 草案**（name + description + system_prompt + allowed_tools 等），由冰神 apply 时落 `.claude/skills/<name>/SKILL.md`；这条链路**不走** `/task` 的 spec/design/code 工程产物管线。详见 [自进化](evolution.md)。
 
 ## 7. 权限画像与授权
 

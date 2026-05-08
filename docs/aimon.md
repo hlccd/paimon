@@ -54,12 +54,12 @@
     - [岩神·摩拉克斯](archons/zhongli.md)：红利股业务接口（scoring / dividend 域）+ `/wealth` 面板 + `dividend_scan` `stock_watch` cron + scorer
     - [草神·纳西妲](archons/nahida.md)：知识 / 记忆 / 偏好业务接口（**memory 域唯一写入者**）+ `/knowledge` 面板 + `memory_hygiene` `kb_hygiene` cron + 时执 extract_experience 收尾收口于草神
     - [水神·芙宁娜](archons/furina.md)：游戏业务接口（mihoyo 域）+ `/game` 面板 + `mihoyo_collect` `mihoyo_game_collect` cron + `mihoyo_game` sub type
-    - [冰神·冰之女皇](archons/tsaritsa.md)：skill 生态业务接口（**skill 域唯一写入者**，AI 自举走 /task 落盘归冰神）+ `/plugins` 面板（含授权撤销 UI）+ skill_loader 扫盘
+    - [冰神·冰之女皇](archons/tsaritsa.md)：skill 生态业务接口（**skill 域唯一写入者**；AI 自进化提案经 `/plugins` 用户审 + 派蒙 safety 审后由冰神 apply 落盘）+ `/plugins` 面板（含授权撤销 + "自进化提案"待审 UI）+ skill_loader 扫盘
   - **B 类（2 个 · namespace 永久壳，新职能待挂）**：
     - [雷神·巴尔泽布](archons/raiden.md) / [火神·玛薇卡](archons/mavuika.md)
     - 原写代码 / exec 职能已转生执 produce_*；按七神保留铁律留 ~30 行壳；新职能待挂（见 [`docs/todo.md`](todo.md)）
 - **【全局支撑层】**
-  - **存储层（唯一）**：[**世界树**](foundation/irminsul.md) —— 9 个数据域统一落盘
+  - **存储层（唯一）**：[**世界树**](foundation/irminsul.md) —— 13 个主数据域统一落盘（含域 16 skill 自进化提案）
   - **服务层（无状态）**：[**地脉**](foundation/leyline.md)（事件总线）、[**神之心**](foundation/gnosis.md)（LLM 资源池）
   - **服务层（有状态，落盘走世界树）**：[**三月女神**](foundation/march.md)（守护 + 调度 + 推送响铃）、[**原石**](foundation/primogem.md)（token / 花费统计）
 

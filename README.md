@@ -36,7 +36,7 @@
   - **B 类（archon 本体暂无具体职能 / namespace 壳 2 个）**：
     - [雷神·巴尔泽布](docs/archons/raiden.md) / [火神·玛薇卡](docs/archons/mavuika.md)（execute 兜底返"已解耦"，待用户后续安排）
 - **全局支撑层**
-  - [**世界树**](docs/foundation/irminsul.md)：全系统**唯一存储层**，9 个数据域（授权 / skill / 知识 / 记忆 / 任务 / token / 审计 / 理财 / 会话）
+  - [**世界树**](docs/foundation/irminsul.md)：全系统**唯一存储层**，13 个数据域（授权 / skill 生态 / 知识 / 记忆 / 任务 / token / 审计 / 理财 / 会话 / 定时任务 / 订阅 / 自检归档 / **skill 自进化提案**）
   - [**地脉**](docs/foundation/leyline.md)：事件总线
   - [**神之心**](docs/foundation/gnosis.md)：LLM 资源池（浅层 / 深层分层）
   - [**三月女神**](docs/foundation/march.md)：守护 + 调度 + 推送响铃 ✅

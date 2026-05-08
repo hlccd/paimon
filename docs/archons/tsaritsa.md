@@ -14,7 +14,8 @@ archon 本体 `execute()` 跟四影解耦后**内部业务已移除**，但**保
 
 - 移除：`execute()` 内部 `skill_manage` tool-loop / 通用 exec 推理
 - 已搬到生执 `paimon/shades/naberius/_simple.py`（stage=`exec` / `chat`）
-- **保留概念归属**：冰神语义负责 `/plugins` 面板（skill 生态管理 / AI 自举），代码层 webui 直读 `skill_loader` **不经过本实例**——但**语义上**归冰神
+- **保留概念归属**：冰神语义负责 `/plugins` 面板（skill 生态管理 + AI 自进化提案审批），代码层 webui 直读 `skill_loader` **不经过本实例**——但**语义上**归冰神
+- **自进化 skill 落盘**：自进化提案经死执质量审 + 用户 `/plugins` 面板审 + 派蒙 safety 审三道闸后，由冰神 apply 写 `.claude/skills/<name>/SKILL.md` + 注册 skill_declarations。冰神仍是 skill 域唯一写入者（详见 [自进化](../evolution.md) §L3）
 
 **待用户后续安排**：是否给冰神实例挂新职能（如 webui 改成走冰神实例做面板代理）。
 

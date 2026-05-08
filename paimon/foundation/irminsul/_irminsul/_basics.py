@@ -13,6 +13,7 @@ from ..mihoyo import (
 )
 from ..memory import Memory, MemoryMeta
 from ..session import SessionMeta, SessionRecord
+from ..skill_proposals import SkillProposal
 from ..skills import SkillDecl
 from ..feed_event import FeedEvent
 from ..llm_profile import LLMProfile
@@ -68,6 +69,79 @@ class _BasicsMixin:
 
     async def skill_snapshot(self, *, include_orphaned: bool = False) -> list[SkillDecl]:
         return await self._skill.snapshot(include_orphaned=include_orphaned)
+
+    # ============ 域 16: Skill 自进化提案 ============
+    async def skill_proposal_create(
+        self, *,
+        name: str,
+        kind: str = "new",
+        target_skill: str = "",
+        description: str = "",
+        triggers: str = "",
+        system_prompt: str = "",
+        allowed_tools: list[str] | None = None,
+        rationale: str = "",
+        proposed_by_session: str = "",
+        proposed_by_task: str = "",
+        actor: str,
+    ) -> str:
+        return await self._skill_proposal.create(
+            name=name, kind=kind, target_skill=target_skill,
+            description=description, triggers=triggers,
+            system_prompt=system_prompt, allowed_tools=allowed_tools,
+            rationale=rationale,
+            proposed_by_session=proposed_by_session,
+            proposed_by_task=proposed_by_task, actor=actor,
+        )
+
+    async def skill_proposal_get(self, prop_id: str) -> SkillProposal | None:
+        return await self._skill_proposal.get(prop_id)
+
+    async def skill_proposal_list(
+        self, *,
+        status: str | None = None, kind: str | None = None, limit: int = 100,
+    ) -> list[SkillProposal]:
+        return await self._skill_proposal.list(status=status, kind=kind, limit=limit)
+
+    async def skill_proposal_set_review(
+        self, prop_id: str, verdict: str, notes: str = "", *, actor: str,
+    ) -> bool:
+        return await self._skill_proposal.set_review_verdict(
+            prop_id, verdict, notes, actor=actor,
+        )
+
+    async def skill_proposal_approve(
+        self, prop_id: str, *, decided_by: str = "user", actor: str,
+    ) -> bool:
+        return await self._skill_proposal.approve(
+            prop_id, decided_by=decided_by, actor=actor,
+        )
+
+    async def skill_proposal_reject(
+        self, prop_id: str, notes: str = "", *,
+        decided_by: str = "user", actor: str,
+    ) -> bool:
+        return await self._skill_proposal.reject(
+            prop_id, notes, decided_by=decided_by, actor=actor,
+        )
+
+    async def skill_proposal_mark_applied(self, prop_id: str, *, actor: str) -> bool:
+        return await self._skill_proposal.mark_applied(prop_id, actor=actor)
+
+    async def skill_proposal_delete(self, prop_id: str, *, actor: str) -> bool:
+        return await self._skill_proposal.delete(prop_id, actor=actor)
+
+    async def skill_proposal_count_by_status(self) -> dict[str, int]:
+        return await self._skill_proposal.count_by_status()
+
+    async def skill_proposal_prune(
+        self, *, before_ts: float,
+        statuses: tuple[str, ...] = ("rejected",),
+        actor: str,
+    ) -> int:
+        return await self._skill_proposal.prune_old(
+            before_ts=before_ts, statuses=statuses, actor=actor,
+        )
 
     # ============ 域 3: 知识库 ============
     async def knowledge_read(self, category: str, topic: str) -> str | None:
