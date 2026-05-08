@@ -5,7 +5,7 @@
 - **主题**：戏剧·评审 + 游戏
 - **核心职能**：
   - **游戏（保留）**：信息 / 配队 / 账号 / 日常（FurinaGameService）
-  - **成品评审（已移交工人）**：方案 / 文档 / 代码 / 架构挑刺
+  - **成品评审（已移交死执 review_*）**：方案 / 文档 / 代码 / 架构挑刺
 - **Web 面板**：✅ `/game` 游戏面板
 
 ## ⚠️ 当前状态（2026-05 解耦后）
@@ -25,11 +25,11 @@
 - `paimon/archons/furina/service.py`：删 `execute()` 内部 `[STAGE:review_*]` 路由 + ReviewMixin，瘦身到 namespace 壳（~30 行）
 - 已搬到：`paimon/shades/jonova/review.py`（stage = `review_spec` / `review_design` / `review_code`）
 
-水神整体仍是 paimon 的"游戏 / 评审"业务模块；评审段已移交工人，游戏段完全保留。
+水神整体仍是 paimon 的"游戏 / 评审"业务模块；评审段已移交死执 review_* stage，游戏段完全保留。
 
 ## 与时执的分工
 
 同样是"审视"，但维度不同：
 
-- **评审工人（review_*）= 内容维度**：方案 / 代码 / 架构本身好不好
+- **死执 review_* = 内容维度**：方案 / 代码 / 架构本身好不好
 - **时执 = 流程维度**：执行链路哪一步出问题、为什么失败

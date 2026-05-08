@@ -11,7 +11,7 @@
 本节点 archon 本体跟四影解耦后**暂无具体职能**：
 
 - 移除：`execute()` 内部业务 / `write_design` / `write_code` / `_write_code_simple` / `self_check`
-- 已搬到：`paimon/shades/{naberius,jonova}/`（stage = `design` / `code` / `simple_code`）
+- 已搬到生执 `paimon/shades/naberius/produce.py`（stage = `design` / `code`）+ `_simple.py`（stage = `simple_code`），自检搬到死执 `jonova/self_check.py`
 - 保留：class `RaidenArchon` + `name` + `description` + `execute` 兜底（namespace 壳）
 
 **待用户后续安排**：删除整个文件 / 重写新职能 / 保留等待。
@@ -19,7 +19,8 @@
 
 ## 历史职能（已迁移）
 
-写代码（含自检）+ 评审协作终端，已 100% 移交工人 stage：
-- `design` 工人：产 design.md（原雷神 write_design）
-- `code` 工人：产 code/ + self-check.log（原雷神 write_code）
-- `simple_code` 工人：trivial 任务直接 LLM 写代码（原 _write_code_simple）
+写代码（含自检）+ 评审协作终端，已 100% 移交四影各 stage：
+- 生执 produce_design：产 design.md（原雷神 write_design）
+- 生执 produce_code：产 code/（原雷神 write_code）
+- 生执 simple_run("simple_code")：trivial 任务直接 LLM 写代码（原 _write_code_simple）
+- 死执 self_check：py_compile + ruff + pytest（原雷神 self_check）

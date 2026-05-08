@@ -5,6 +5,7 @@
 - session.py       —— /new /sessions /switch /stop /clear /rename /delete
 - stat.py          —— /stat 原石统计
 - task.py          —— /tasks /task /skills
+- agents.py        —— /agents 多视角讨论（晨星召集天使）
 - memory.py        —— /remember
 - subscribe.py     —— /subscribe /subs；导出 create_subscription（外部 API）
 - dividend.py      —— /dividend；导出 toggle_dividend_cron（外部 API）
@@ -23,6 +24,7 @@ from .subscribe import create_subscription
 
 # 触发各 cmd 模块顶层 @command(...) 注册（必须 import 一次）
 from . import (  # noqa: F401
+    agents,
     dividend,
     help,
     memory,
