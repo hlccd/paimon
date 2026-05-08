@@ -1,22 +1,19 @@
-"""任务工作区（复杂任务写代码的隔离目录）
+"""任务工作区（复杂任务的隔离目录）
 
-每个走"草神 spec → 雷神 design+code → 水神 review" 三阶段的任务分配独立目录：
+每个 `/task` 任务分配独立目录用于落产物（v8 自进化定位下产物不再是代码）：
 
   .paimon/tasks/{task_id_prefix}/
-  ├── spec.md            草神产物
-  ├── design.md          雷神技术方案
-  ├── code/              雷神代码（保持同宿主项目的相对路径结构）
-  ├── self-check.log     雷神自检输出
-  ├── spec.check.json    水神 review_spec 结果
-  ├── design.check.json  水神 review_design 结果
-  ├── code.check.json    水神 review_code 结果
+  ├── proposal.md        生执 propose_skill 草案（可选）
+  ├── review.json        死执 review_proposal 评审结果（可选）
   └── summary.md         时执归档总结（派蒙呈现用）
 
 设计约束：
 - 工作区路径由 task_id 计算，无需世界树存储（纯 fs 约定）
-- archon 内部都通过 `get_workspace(task_id)` 定位
+- 各 stage 通过 `get_workspace(task_id)` 定位
 - 时执生命周期 sweep 清 archived 任务时一并清工作区（见 _lifecycle.py）
-- merge 时由派蒙把 code/ 下的内容 rsync/git apply 到用户 cwd
+
+历史：v7 之前承载"草神 spec / 雷神 design+code / 水神 review_*"三阶段写代码产物，
+v8 完全废弃写代码后改为通用任务工作区。
 """
 from __future__ import annotations
 

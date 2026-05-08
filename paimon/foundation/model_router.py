@@ -48,16 +48,12 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("时执", "上下文压缩"),
     ("时执", "L1 记忆提取"),
     ("空执", "动态路由"),  # 占位：当前 asmoday 不发 LLM；面板标 ⚠ 未接入 router
-    # 七神（嵌四影下）
-    ("水神", "评审"),
-    ("水神", "check·review_spec"),
-    ("水神", "check·review_design"),
-    ("水神", "check·review_code"),
-    ("雷神", "代码生成"),
-    ("雷神", "写技术方案"),
-    ("雷神", "代码实现"),
-    ("草神", "推理执行"),
-    ("草神", "写产品方案"),
+    # 四影 · stage 子调用（v8 自进化）
+    ("生执·propose_skill", "凝练 skill 草案"),
+    ("死执·review_proposal", "审 skill 提案"),
+    ("生执·exec", "shell 执行"),
+    ("生执·chat", "通用推理"),
+    # 七神（业务接口；archon execute 已解耦）
     ("风神", "信息采集"),
     ("风神", "订阅早报"),
     ("风神", "事件日报"),

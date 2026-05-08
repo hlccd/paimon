@@ -3,9 +3,10 @@
 管线第三步。按 DAG 拓扑分层 + stage 路由表把子任务派给对应影：
   - 层内节点并发（asyncio.gather）
   - 节点失败 → 重试 1 次 → 传递性标记下游 skipped
-  - stage 路由表（_STAGE_ROUTER）：
-      spec / design / code / simple_code / exec / chat → 生执 produce_* / simple_run
-      review_spec / review_design / review_code        → 死执 review
+  - stage 路由表（_STAGE_ROUTER）：v8 自进化定位
+      propose_skill                  → 生执 propose_skill（凝练 skill 草案）
+      review_proposal                → 死执 review_proposal（审提案）
+      exec / chat                    → 生执 simple_run（兜底 LLM tool-loop）
 
 未知 stage 兜底走 chat。saga 触发由 pipeline 层（_authorize / _execute）调时执 run_compensations。
 """
@@ -26,34 +27,18 @@ from ._plan import (
     topological_layers,
 )
 from ._helpers.stages import ALL_STAGES, get_display_name
-from . import jonova, naberius
+from . import naberius
 
 
-# Stage → 影路由表
-# 生执管"生"（产物 + 调度元任务）；死执管"审"（评审循环）。
-_STAGE_ROUTER = {
-    # 生执 produce
-    "spec": naberius.produce_spec,
-    "design": naberius.produce_design,
-    "code": naberius.produce_code,
-    "simple_code": lambda task, sub, model, irm, prior: naberius.simple_run(
-        "simple_code", task, sub, model, irm, prior,
-    ),
+# Stage → 影路由表（v8）
+# 生执管"生"（凝练提案 + 兜底）；死执管"审"（提案质量审）。
+# 批 1（本批）：只接通 chat / exec 兜底；propose_skill / review_proposal 在批 2 接通。
+_STAGE_ROUTER: dict = {
     "exec": lambda task, sub, model, irm, prior: naberius.simple_run(
         "exec", task, sub, model, irm, prior,
     ),
     "chat": lambda task, sub, model, irm, prior: naberius.simple_run(
         "chat", task, sub, model, irm, prior,
-    ),
-    # 死执 review
-    "review_spec": lambda task, sub, model, irm, prior: jonova.review(
-        "review_spec", task, sub, model, irm, prior,
-    ),
-    "review_design": lambda task, sub, model, irm, prior: jonova.review(
-        "review_design", task, sub, model, irm, prior,
-    ),
-    "review_code": lambda task, sub, model, irm, prior: jonova.review(
-        "review_code", task, sub, model, irm, prior,
     ),
 }
 

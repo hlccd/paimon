@@ -9,7 +9,6 @@
 - memory.py        —— /remember
 - subscribe.py     —— /subscribe /subs；导出 create_subscription（外部 API）
 - dividend.py      —— /dividend；导出 toggle_dividend_cron（外部 API）
-- task_workspace.py —— /task-merge /task-discard /task-summary
 - task_index.py    —— /task-list /task-index
 - selfcheck.py     —— /selfcheck
 - help.py          —— /help
@@ -34,7 +33,6 @@ from . import (  # noqa: F401
     subscribe,
     task,
     task_index,
-    task_workspace,
 )
 
 __all__ = [

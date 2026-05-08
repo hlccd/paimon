@@ -22,49 +22,40 @@ from .._verdict import (
     parse_verdict,
 )
 
-_REVIEW_STAGES = {"review_spec", "review_design", "review_code"}
+_REVIEW_STAGES = {"review_proposal"}
 
 
 class _VerdictMixin:
     def _stage_status_line(self, plan: Plan, results: dict[str, str]) -> str:
-        """三阶段 verdict 浓缩成一行（给用户看）。非三阶段 DAG 返回简短节点统计。"""
-        stages = [
-            ("spec", "review_spec"),
-            ("design", "review_design"),
-            ("code", "review_code"),
-        ]
-        by_stage = {
-            s: None for _, s in stages  # review_spec → verdict level or None
-        }
-        for sub in plan.subtasks:
-            if sub.assignee not in _REVIEW_STAGES:
-                continue
-            raw = results.get(sub.id, "").strip()
-            if not raw:
-                continue
-            try:
-                by_stage[sub.assignee] = parse_verdict(raw).level
-            except Exception:
-                pass
+        """评审节点的 verdict 浓缩成一行（给用户看）。无评审节点返回简短节点统计。
 
-        if all(by_stage[rv] is None for _, rv in stages):
-            # 非三阶段 DAG
+        v8 自进化定位：只有 review_proposal 一个评审 stage，简化为列出每个 review_proposal
+        节点的 verdict（实际场景下一轮一般只有 1 个 review_proposal 节点）。
+        """
+        review_subs = [s for s in plan.subtasks if s.assignee in _REVIEW_STAGES]
+        if not review_subs:
             total = len(plan.subtasks)
             completed = sum(1 for s in plan.subtasks if s.status == "completed")
             return f"{completed}/{total} 完成"
 
         icon_map = {"pass": "✓", "revise": "△", "redo": "✗", None: "·"}
         parts = []
-        for stage, rv in stages:
-            parts.append(f"{stage} {icon_map.get(by_stage[rv], '?')}")
+        for sub in review_subs:
+            level = None
+            raw = results.get(sub.id, "").strip()
+            if raw:
+                try:
+                    level = parse_verdict(raw).level
+                except Exception:
+                    pass
+            parts.append(f"review_proposal {icon_map.get(level, '·')}")
         return " / ".join(parts)
 
     def _resolve_verdict(self, plan: Plan, results: dict[str, str]) -> ReviewVerdict:
-        """聚合"本轮实际跑过且有产物的评审节点"（review_spec/design/code），取**最坏 level**。
+        """聚合所有 review_proposal 节点的 verdict，取**最坏 level**。
 
         - 只看 results 有非空产物的评审节点（已实际执行）
         - 从中取 level 最严重的（redo > revise > pass）
-        - 三阶段 DAG 下任一 review 非 pass 都会让整轮回炉（而不是只看末尾 review）
         """
         review_nodes_with_output = [
             s for s in plan.subtasks
@@ -80,9 +71,6 @@ class _VerdictMixin:
                 summary="(评审节点无产物，跳过评审视为通过)",
             )
 
-        # 三阶段聚合：任一 review 非 pass → 整轮非 pass；取最坏 level 的 verdict 返回。
-        # 没有这个聚合会导致 review_spec redo 但 review_code pass 时错判"整轮 pass"。
-        # （MVP 代价：当前 asmoday 仍会跑完所有节点再汇总；阶段门控留 Phase 2。）
         _LEVEL_RANK = {"pass": 0, "revise": 1, "redo": 2}
         parsed_list = [parse_verdict(results[s.id]) for s in review_nodes_with_output]
         worst = max(parsed_list, key=lambda v: _LEVEL_RANK.get(v.level, 0))

@@ -73,7 +73,6 @@ async def _maybe_write_task_summary(
     """若 .paimon/tasks/{id}/ 存在 → 生成 summary.md（派蒙呈现用）。"""
     from paimon.foundation.task_workspace import (
         get_workspace_path,
-        list_workspace_files,
         workspace_exists,
     )
     if not workspace_exists(task.id):
@@ -87,69 +86,26 @@ async def _maybe_write_task_summary(
         f"**轮数**: {summary['rounds']}",
         f"**子任务**: {summary['completed']} 完成 / {summary['failed']} 失败 / {summary['skipped']} 跳过",
         "",
-        "## 产物",
-        "",
     ]
 
-    for name in ("spec.md", "design.md"):
+    # 自进化提案产物（v8）：proposal.md / review.json
+    artifacts_added = False
+    for name in ("proposal.md", "review.json"):
         p = workspace / name
         if p.exists():
+            if not artifacts_added:
+                lines.append("## 产物")
+                lines.append("")
+                artifacts_added = True
             kb = p.stat().st_size / 1024
             lines.append(f"- {name} ({kb:.1f} KB) — {p}")
-
-    files = list_workspace_files(task.id)
-    if files:
-        lines.append(f"- code/ ({len(files)} files)")
-        for f in files[:30]:
-            try:
-                rel = f.relative_to(workspace / "code")
-                kb = f.stat().st_size / 1024
-                lines.append(f"  - {rel} ({kb:.1f} KB)")
-            except (ValueError, OSError):
-                pass
-
-    # 审查历史（从 *.check.json 读）
-    lines.append("")
-    lines.append("## 审查结果")
-    lines.append("")
-    for name in ("spec.check.json", "design.check.json", "code.check.json"):
-        p = workspace / name
-        if not p.exists():
-            continue
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            sev = data.get("severity_counts", {})
-            lines.append(
-                f"- **{name.replace('.check.json', '')}**: {data.get('level', '?')} "
-                f"(P0:{sev.get('P0', 0)} P1:{sev.get('P1', 0)} "
-                f"P2:{sev.get('P2', 0)} P3:{sev.get('P3', 0)})"
-            )
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    # 自检
-    sc_path = workspace / "self-check.log"
-    if sc_path.exists():
+    if artifacts_added:
         lines.append("")
-        lines.append("## 自检")
-        lines.append("")
-        sc_text = sc_path.read_text(encoding="utf-8")[:2000]
-        lines.append("```")
-        lines.append(sc_text)
-        lines.append("```")
 
     if failure_reason:
-        lines.append("")
         lines.append("## ⚠️ 失败原因")
         lines.append(failure_reason[:1000])
-
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-    lines.append(
-        f"**下一步**: `/task-merge {task.id[:12]}` 合并到工作目录，"
-        f"或 `/task-discard {task.id[:12]}` 丢弃"
-    )
+        lines.append("")
 
     summary_path = workspace / "summary.md"
     summary_path.write_text("\n".join(lines), encoding="utf-8")

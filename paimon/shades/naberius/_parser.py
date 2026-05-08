@@ -11,19 +11,16 @@ from paimon.foundation.irminsul.task import Subtask, TaskEdict
 
 
 # assignee 字段值 = stage 名，跟 paimon/shades/_helpers/stages.py:ALL_STAGES 对齐
+# v8 自进化定位：4 个 stage（写代码 stage 已废弃）
 _VALID_STAGES = {
-    "spec", "design", "code",
-    "review_spec", "review_design", "review_code",
-    "simple_code", "exec", "chat",
+    "propose_skill",     # 生执：凝练 skill 草案落 skill_proposals 域（批 2 实装）
+    "review_proposal",   # 死执：审 skill 提案，写 verdict（批 2 实装）
+    "exec",              # 生执：shell / saga 补偿
+    "chat",              # 生执：通用 LLM 推理 / 兜底
 }
 _STAGE_TOOL_MAP = {
-    "spec": ["file_ops"],
-    "design": ["file_ops"],
-    "code": ["file_ops", "exec"],
-    "review_spec": ["file_ops", "glob", "exec"],
-    "review_design": ["file_ops", "glob", "exec"],
-    "review_code": ["file_ops", "glob", "exec"],
-    "simple_code": ["file_ops", "exec"],
+    "propose_skill": ["file_ops"],
+    "review_proposal": ["file_ops"],
     "exec": ["exec"],
     "chat": ["file_ops"],
 }

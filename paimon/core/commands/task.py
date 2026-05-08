@@ -54,10 +54,7 @@ _TASK_DOMAIN_HELP = (
     "- `/task <描述>` 发起一个复杂任务 ← **带参数才开启任务**\n"
     "- `/tasks` 定时任务列表\n"
     "- `/task-list` 历史任务\n"
-    "- `/task-index [N]` 任务详情\n"
-    "- `/task-merge <id>` 合并任务产物\n"
-    "- `/task-discard <id>` 丢弃任务工作区\n"
-    "- `/task-summary [id]` 任务总结"
+    "- `/task-index [N]` 任务详情"
 )
 
 

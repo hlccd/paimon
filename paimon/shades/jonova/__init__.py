@@ -1,25 +1,10 @@
-"""死执 · Jonova — 审（评审 + 自检）
+"""死执 · Jonova — 审（评审）
 
 安全审职能（task_review / scan_plan / review_skill_declaration）在
-派蒙 `paimon/core/safety/`，本子包专注质量审：
+派蒙 `paimon/core/safety/`，本子包专注**自进化提案的质量审**：
 
-1. **review**（评审循环）：在四影管线里给生执的产物打 verdict
-   - review(stage, task, subtask, model, irminsul, prior_results) → 文本（含 verdict JSON）
-   - stage ∈ {review_spec, review_design, review_code}
-   - 实现在 review.py（轻量 LLM JSON / 重型 check skill 双路径）
-
-2. **self_check**（静态质量门）：py_compile + ruff + pytest
-   - run_self_check(workspace) → {ok, log, details}
-   - 实现在 self_check.py
-   - 调用方：生执 produce_code / simple_run(simple_code) 跑完后即时调；
-     review_code heavy 路径里也间接通过 check skill 调
+- **review_proposal**（待批 2 实装）：评审 skill 自进化提案
+  - 输入 prop_id（从世界树 skill_proposals 域读 pending 提案）
+  - LLM 审：草案完整度 / 跟现有 skill 重叠 / tool 越权 / 边界清晰
+  - 输出 verdict ∈ {pass, needs_revise, reject} + notes 写回 skill_proposals
 """
-from __future__ import annotations
-
-from .review import review
-from .self_check import run_self_check
-
-__all__ = [
-    "review",
-    "run_self_check",
-]

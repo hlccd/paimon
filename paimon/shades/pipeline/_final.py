@@ -22,7 +22,7 @@ from .._verdict import (
     parse_verdict,
 )
 
-_REVIEW_STAGES = {"review_spec", "review_design", "review_code"}
+_REVIEW_STAGES = {"review_proposal"}
 
 
 class _FinalMixin:

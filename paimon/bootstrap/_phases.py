@@ -114,20 +114,25 @@ async def _ensure_hygiene_cron() -> None:
 
 
 async def _autoallow_loaded_skills_and_archons() -> None:
-    """单用户自用：已加载的 builtin skill + 9 个四影 stage 默认 permanent_allow。
+    """单用户自用：已加载的 builtin skill + 4 个四影 stage 默认 permanent_allow。
 
-    subject_type="stage"：四影 asmoday 通过 _STAGE_ROUTER 派发到对应影的 9 个 stage 名
+    subject_type="stage"：四影 asmoday 通过 _STAGE_ROUTER 派发到对应影的 stage 名
+    （v8 自进化定位：propose_skill / review_proposal / exec / chat）。
+
+    旧 9 stage（spec/design/code 等写代码）历史记录残留 authz 表无害——
+    `_VALID_STAGES` 已收窄，LLM plan 不再输出旧 stage 名。
 
     git review 已把过关；真破坏命令由 pre_filter 拦。运行时通过 watcher 加载的
-    plugin / AI 生成 skill 不在此白名单，仍走死执 review。仅跳过用户已显式
+    plugin / AI 自进化生成 skill 不在此白名单，仍走派蒙 skill_review。仅跳过用户已显式
     permanent_deny 的，避免覆盖严格意图。详见 docs/todo.md「权限体系 v2 重新设计」。
     """
     try:
         snapshot = await state.irminsul.authz_snapshot()
         _STAGE_NAMES = (
-            "spec", "design", "code",
-            "review_spec", "review_design", "review_code",
-            "simple_code", "exec", "chat",
+            "propose_skill",
+            "review_proposal",
+            "exec",
+            "chat",
         )
         targets: list[tuple[str, str]] = []
         targets.extend(("skill", s.name) for s in state.skill_registry.list_all())
@@ -147,6 +152,6 @@ async def _autoallow_loaded_skills_and_archons() -> None:
             auto_count += 1
         if auto_count:
             await state.authz_cache.load(state.irminsul)  # 让本次写入立刻生效
-            logger.info("[派蒙·授权] 启动时自动放行 {} 项（skill + archon）", auto_count)
+            logger.info("[派蒙·授权] 启动时自动放行 {} 项（skill + stage）", auto_count)
     except Exception as e:
         logger.warning("[派蒙·授权] 启动时自动放行失败（不阻塞）: {}", e)

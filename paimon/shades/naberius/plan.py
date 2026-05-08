@@ -13,18 +13,16 @@ from paimon.llm.model import Model
 from .._plan import Plan, detect_cycle, filter_invalid_deps, linearize
 from .._verdict import ReviewVerdict, LEVEL_REDO, LEVEL_REVISE
 from ._parser import _extract_items_from_obj, _items_to_subtasks, _salvage_from_raw_text, _strip_code_fence, _tolerant_json_parse
-from .code_pipeline import _build_code_pipeline_dag, _classify_code_task, _is_code_pipeline_plan, _revise_code_pipeline
 
 
 _STAGES_DESC = """\
-当前可用的执行者（四影 stage）：
-- spec (tools: file_ops): 写产品方案 spec.md（调 requirement-spec skill）
-- design (tools: file_ops): 写技术方案 design.md（调 architecture-design skill）
-- code (tools: file_ops/exec): 写代码到 workspace/code/（调 code-implementation skill + 自检）
-- review_spec / review_design / review_code (tools: file_ops/glob/exec): 评审挑刺，输出 verdict
-- simple_code (tools: file_ops/exec): 简单代码任务，不调 skill 直接 LLM 写
-- exec (tools: exec): shell / 部署 / 重型工具
-- chat (tools: file_ops): 通用 LLM 推理 / 总结（默认兜底）
+当前可用的执行者（四影 stage · v8 自进化定位）：
+- propose_skill (tools: file_ops): 凝练 skill 草案落世界树 skill_proposals 域
+                                    （从 task / 历史归档抽出可复用的 skill）
+- review_proposal (tools: file_ops): 审 skill 提案（草案完整度 / 跟现有 skill 重叠 /
+                                      tool 越权 / 边界清晰）→ 写 verdict
+- exec (tools: exec): shell / 部署 / 重型工具 / saga 补偿
+- chat (tools: file_ops): 通用 LLM 推理 / 总结 / 兜底
 """
 _INITIAL_PROMPT = f"""\
 你是任务编排官·纳贝里士。你的职责是把复杂任务拆分为 DAG（子任务有向无环图）。
@@ -34,30 +32,30 @@ _INITIAL_PROMPT = f"""\
 编排规则：
 1. 每个子任务必须有唯一的临时编号 id（如 "s1", "s2"）
 2. deps 是字符串数组，列出前置节点 id。无依赖则 deps=[]
-3. assignee 填 stage 名：spec / design / code / review_spec / review_design / review_code / simple_code / exec / chat
+3. assignee 必须是 4 stage 之一：propose_skill / review_proposal / exec / chat
 4. description 要具体、可执行
-5. 独立的子任务（如调研 + 起草）deps 应为空，以便并发
-6. 写代码流程：先 code 写，再 review_code 审；spec/design/code 三阶段可多轮（本轮先拆一版）
-7. **review_* 节点的位置**：评审节点应该依赖前面的产出节点
-8. 简单任务 1 个节点；复杂任务 2-6 个节点
-9. 每个子任务可声明 sensitive_ops（数组，预计调用的敏感工具名，如 ["exec","Write"]），用于权限预告；不确定时填 []
-10. **saga 补偿**（可选）：只在节点有**副作用**（写文件、修改数据库、注册定时任务、部署等）时填 compensate
-    字段，用自然语言描述如何**反向还原**（如"删除 /tmp/output.json"、"撤销 schedule id=xxx"）。
-    纯查询 / 纯推理任务 compensate 留空字符串。
+5. 独立的子任务 deps 应为空，以便并发
+6. **propose_skill → review_proposal 强烈建议成对**：propose 完成后立即接 review_proposal 节点
+   依赖该 propose（系统会自动把 prop_id 通过 prior_results 传给 review）
+7. **不要**自己重新发明"写代码 / 写文档"流程——本管线 v8 后**完全废弃写代码**，
+   生成可执行代码 / 工程产物的请求请引导用户去 Claude Code 等专业 IDE
+8. 简单任务 1 个节点（chat）；自进化提案任务 2 个节点（propose_skill + review_proposal）
+9. 每个子任务可声明 sensitive_ops（数组，预计调用的敏感工具，如 ["exec"]），不确定时填 []
+10. **saga 补偿**（可选）：只在节点有**副作用**（写盘 / 注册定时 / 部署等）时填 compensate 字段，
+    用自然语言描述如何**反向还原**；纯查询 / 推理任务 compensate 留空字符串
 11. **不要**把"归档到知识库 / 整理入库 / 存档 / 总结归档"作为子任务 — 归档是系统职责（由时执·
-    istaroth 自动做），不占节点。最终**回答用户的内容**必须由**业务节点**直接产出，别让管线停
-    在"已整理完毕"这种空洞收尾上。
+    istaroth 自动做），不占节点。最终**回答用户的内容**必须由**业务节点**直接产出
 
 只输出 JSON 对象，格式严格如下（不要 markdown fence，不要解释）：
 {{
   "subtasks": [
-    {{"id": "s1", "assignee": "spec", "description": "...", "deps": [], "sensitive_ops": [], "compensate": ""}},
-    {{"id": "s2", "assignee": "code", "description": "...", "deps": ["s1"], "sensitive_ops": ["Write"], "compensate": "删除生成的 xxx.py"}}
+    {{"id": "s1", "assignee": "propose_skill", "description": "...", "deps": [], "sensitive_ops": [], "compensate": ""}},
+    {{"id": "s2", "assignee": "review_proposal", "description": "审 s1 产出的提案", "deps": ["s1"], "sensitive_ops": [], "compensate": ""}}
   ]
 }}
 """
 _REVISE_PROMPT = f"""\
-你是任务编排官·纳贝里士。上一轮子任务已执行，但 review 节点提出了修改意见，
+你是任务编排官·纳贝里士。上一轮子任务已执行，但 review_proposal 节点提出了修改意见，
 或出现了节点失败。请**仅修订有问题的节点**，保留其余节点不变。
 
 {_STAGES_DESC}
@@ -65,10 +63,10 @@ _REVISE_PROMPT = f"""\
 修订规则：
 1. 对每个需要改的原节点，新建一个修订节点（新 id，描述中体现改进点）
 2. 新节点的 deps 保持与原节点一致
-3. 修订后的 review_* 节点仍放后面，依赖新修订的产出
+3. 修订后的 review_proposal 节点仍放后面，依赖新修订的产出
 4. 如果 review 给出 level=redo，意味整体重拆，本轮可大改
 5. **失败节点改派**：若原节点被标记为 status=failed，说明原 stage 无法胜任。
-   请**更换 assignee stage**（如 code 失败 → 先 spec 出方案再 code；执行类失败可换 exec）。
+   请**更换 assignee stage**（如 propose_skill 失败 → 换 chat 兜底产出文本草案）
 6. 失败节点的下游节点若已被标 skipped，需重新纳入修订
 7. 字段要求与初始编排一致：id / assignee / description / deps / sensitive_ops / compensate
 
@@ -102,15 +100,6 @@ async def plan(
     if round == 1 or previous_plan is None or verdict is None:
         subtasks = await _plan_initial(task, model, irminsul)
         plan_obj = Plan(task_id=task.id, round=1, subtasks=subtasks, reason="")
-    elif _is_code_pipeline_plan(previous_plan):
-        # 三阶段写代码 DAG 专用 revise：保留已 pass 阶段，重派失败阶段生产节点 + 下游
-        subtasks, preserved_ids = _revise_code_pipeline(
-            task, previous_plan, verdict, round,
-        )
-        plan_obj = Plan(
-            task_id=task.id, round=round, subtasks=subtasks,
-            reason=f"[三阶段 revise] {verdict.summary[:180]}",
-        )
     else:
         subtasks, preserved_ids = await _plan_revise(
             task, model, irminsul, previous_plan, verdict, round,
@@ -173,15 +162,7 @@ async def plan(
 async def _plan_initial(
     task: TaskEdict, model: Model, irminsul: Irminsul,
 ) -> list[Subtask]:
-    # 检测是否是"写代码"任务并按复杂度分档生成对应 DAG
-    level = _classify_code_task(task)
-    if level != "none":
-        logger.info(
-            "[生执] 写代码任务 {} 级 → {} 节点 DAG",
-            level, {"trivial": 1, "simple": 2, "complex": 6}[level],
-        )
-        return _build_code_pipeline_dag(task.id, level=level)
-
+    """v8 自进化定位：纯 LLM 编排 4 stage（写代码硬编码 DAG 已废弃）。"""
     messages = [
         {"role": "system", "content": _INITIAL_PROMPT},
         {"role": "user", "content": f"请分解以下任务:\n\n{task.title}\n{task.description}"},
@@ -262,8 +243,8 @@ async def _plan_revise(
             continue
         if s.status in ("failed", "skipped"):  # 失败/被跳过的节点要重做
             continue
-        # review_* stage 由新 plan 重出，不保留
-        if s.assignee in ("review_spec", "review_design", "review_code"):
+        # review stage 由新 plan 重出，不保留（v8 仅 review_proposal）
+        if s.assignee == "review_proposal":
             continue
         preserved.append(s)
         preserved_ids.add(s.id)

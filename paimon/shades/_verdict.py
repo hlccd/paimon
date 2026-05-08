@@ -121,7 +121,7 @@ def parse_verdict(raw_text: str) -> ReviewVerdict:
     return ReviewVerdict(level=level, issues=issues, summary=summary)
 
 
-_REVIEW_STAGES = {"review_spec", "review_design", "review_code"}
+_REVIEW_STAGES = {"review_proposal"}
 
 
 def find_last_verdict_producer(subtasks: list[Subtask]) -> Subtask | None:

@@ -1,10 +1,14 @@
-"""四影 9 个 stage 的配置（公共，各影按需引用）。
+"""四影 stage 配置中心（公共，各影按需引用）。
 
-stage 归属：
-- 生执 produce：spec / design / code / simple_code / exec / chat
-- 死执 review： review_spec / review_design / review_code
+stage 池（v8 自进化定位）：
+- 生执 produce：propose_skill（凝练 skill 草案落 skill_proposals 域）
+                + exec / chat（兜底 LLM tool-loop，无 skill）
+- 死执 review：review_proposal（审 skill 提案，写 verdict）
 
 asmoday 用 ALL_STAGES + 内部路由表派活给各影。
+
+历史：v7 之前还有 spec/design/code + review_spec/review_design/review_code + simple_code
+（写代码三段管线），v8 完全废弃，仅留 chat / exec 兜底。
 """
 from __future__ import annotations
 
@@ -19,56 +23,29 @@ FINAL_OUTPUT_RULE = """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Skill 驱动 stage（生执 produce_spec / produce_design / produce_code）
+# Skill 驱动 stage（生执 propose_skill）
 # ─────────────────────────────────────────────────────────────────────────────
 
-SKILL_STAGES = {
-    "spec": {
-        "skill": "requirement-spec",
-        "allowed_tools": {"file_ops"},
-        "purpose": "写产品方案",
-        "display_name": "生执·spec",
-    },
-    "design": {
-        "skill": "architecture-design",
-        "allowed_tools": {"file_ops"},
-        "purpose": "写技术方案",
-        "display_name": "生执·design",
-    },
-    "code": {
-        "skill": "code-implementation",
-        "allowed_tools": {"file_ops", "exec"},
-        "purpose": "代码实现",
-        "display_name": "生执·code",
-    },
-}
+# propose_skill 不调 skill，自由 LLM 凝练（见 naberius/propose.py）。
+# 留 SKILL_STAGES 接口给未来用 skill 驱动的 stage（暂时空字典）。
+SKILL_STAGES: dict[str, dict] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Review stage（死执 review_*）
-# 走 jonova/review.py 内部的 light + check skill 双路径
+# Review stage（死执 review_proposal）
 # ─────────────────────────────────────────────────────────────────────────────
 
-REVIEW_STAGES = ("review_spec", "review_design", "review_code")
+# 评审循环用的 stage 名集合（pipeline/_verdict.py 的 _resolve_verdict 按此过滤
+# review 节点的 verdict）。
+REVIEW_STAGES = ("review_proposal",)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 纯 LLM tool-loop stage（生执 _simple，无 skill）
 # ─────────────────────────────────────────────────────────────────────────────
 
-SIMPLE_CODE_PROMPT = """\
-你负责"简单代码"任务（trivial / simple DAG 不带 spec/design）。
-能力：file_ops 写代码到 workspace/code/、exec 跑测试 / lint。
-
-规则：
-1. 当前项目路径是 .
-2. 用 file_ops write 写文件，不要用 exec echo
-3. 写完后用 exec 跑 py_compile / ruff / pytest 自检
-4. 输出结构化结果：文件路径 + 代码要点 + 自检结论
-"""
-
 EXEC_PROMPT = """\
-你负责重型执行任务（shell / 部署 / 命令行工具）。
+你负责重型执行任务（shell / 部署 / 命令行工具 / saga 补偿）。
 能力：exec 执行任意命令。
 
 规则：
@@ -89,12 +66,6 @@ CHAT_PROMPT = """\
 
 
 SIMPLE_STAGES = {
-    "simple_code": {
-        "prompt": SIMPLE_CODE_PROMPT,
-        "allowed_tools": {"file_ops", "exec"},
-        "purpose": "代码生成(简易)",
-        "display_name": "生执·simple_code",
-    },
     "exec": {
         "prompt": EXEC_PROMPT,
         "allowed_tools": {"exec"},
@@ -113,9 +84,15 @@ SIMPLE_STAGES = {
 # ─────────────────────────────────────────────────────────────────────────────
 # 全部 stage 名（asmoday + naberius._parser 引用）
 # ─────────────────────────────────────────────────────────────────────────────
+#
+# 4 个 stage：
+#   - propose_skill（生执，自进化提案产生）
+#   - review_proposal（死执，提案质量审）
+#   - exec（生执，shell / saga 补偿）
+#   - chat（生执，通用兜底）
 
 ALL_STAGES = (
-    *SKILL_STAGES.keys(),
+    "propose_skill",
     *REVIEW_STAGES,
     *SIMPLE_STAGES.keys(),
 )
@@ -123,8 +100,8 @@ ALL_STAGES = (
 
 def get_display_name(stage: str) -> str:
     """stage → 显示名。日志 / audit / flow_append 用这个标识 from_agent。"""
-    if stage in SKILL_STAGES:
-        return SKILL_STAGES[stage]["display_name"]
+    if stage == "propose_skill":
+        return "生执·propose_skill"
     if stage in SIMPLE_STAGES:
         return SIMPLE_STAGES[stage]["display_name"]
     if stage in REVIEW_STAGES:
