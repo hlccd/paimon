@@ -171,9 +171,10 @@ async def plugins_proposal_get_api(channel: "WebUIChannel", request: web.Request
 
 
 async def plugins_proposal_approve_api(channel: "WebUIChannel", request: web.Request) -> web.Response:
-    """用户同意提案 → status=approved（等冰神 apply 落盘）。
+    """用户同意提案 → status=approved → 立即调冰神 apply 落盘。
 
-    死执 review_verdict='needs_revise' 时 Repo 层会拒绝，前端会收到 ok=False。
+    死执 review_verdict='needs_revise' 时 Repo 层会拒绝 approve，返 ok=False。
+    apply 失败时 status 仍是 approved（人工介入决定 retry / reject）。
     """
     if channel.require_auth:
         token = request.cookies.get("paimon_token")
@@ -190,9 +191,52 @@ async def plugins_proposal_approve_api(channel: "WebUIChannel", request: web.Req
                 "ok": False,
                 "error": "提案非 pending 或死执质量审建议修订，无法直接 approve",
             })
-        return web.json_response({"ok": True})
+
+        # 同步调冰神 apply（用户期望"点同意 = 立刻生效"）
+        from paimon.skill_loader.apply_proposal import apply_proposal
+        from pathlib import Path
+        skills_dir = Path(__file__).resolve().parents[4] / "skills"
+        result = await apply_proposal(
+            prop_id, irminsul=irminsul, model=channel.state.model,
+            skills_dir=skills_dir, actor="冰神面板",
+        )
+        return web.json_response({
+            "ok": True,
+            "applied": result.ok,
+            "skill_name": result.skill_name,
+            "apply_error": result.error if not result.ok else "",
+        })
     except Exception as e:
         logger.error("[派蒙·WebUI] approve 提案异常: {}", e)
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def plugins_proposal_apply_api(channel: "WebUIChannel", request: web.Request) -> web.Response:
+    """重试 apply（status=approved 但落盘失败的提案）。"""
+    if channel.require_auth:
+        token = request.cookies.get("paimon_token")
+        if not token or token not in channel.valid_tokens:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+    prop_id = request.match_info.get("prop_id", "")
+    irminsul = channel.state.irminsul
+    if not irminsul or not prop_id:
+        return web.json_response({"ok": False, "error": "Not Found"}, status=404)
+    try:
+        from paimon.skill_loader.apply_proposal import apply_proposal
+        from pathlib import Path
+        skills_dir = Path(__file__).resolve().parents[4] / "skills"
+        result = await apply_proposal(
+            prop_id, irminsul=irminsul, model=channel.state.model,
+            skills_dir=skills_dir, actor="冰神面板",
+        )
+        return web.json_response({
+            "ok": result.ok,
+            "skill_name": result.skill_name,
+            "error": result.error,
+            "skill_dir": result.skill_dir,
+        })
+    except Exception as e:
+        logger.error("[派蒙·WebUI] apply 提案异常: {}", e)
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -252,5 +296,6 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_get("/api/plugins/proposals", lambda r, ch=channel: plugins_proposals_list_api(ch, r))
     app.router.add_get("/api/plugins/proposals/{prop_id}", lambda r, ch=channel: plugins_proposal_get_api(ch, r))
     app.router.add_post("/api/plugins/proposals/{prop_id}/approve", lambda r, ch=channel: plugins_proposal_approve_api(ch, r))
+    app.router.add_post("/api/plugins/proposals/{prop_id}/apply", lambda r, ch=channel: plugins_proposal_apply_api(ch, r))
     app.router.add_post("/api/plugins/proposals/{prop_id}/reject", lambda r, ch=channel: plugins_proposal_reject_api(ch, r))
     app.router.add_post("/api/plugins/proposals/{prop_id}/delete", lambda r, ch=channel: plugins_proposal_delete_api(ch, r))
