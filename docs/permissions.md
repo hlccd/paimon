@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 > 相关：[派蒙](paimon/paimon.md) · [世界树](foundation/irminsul.md) · [冰神](archons/tsaritsa.md)
 
-跨派蒙 / 四影 / 冰神 / 世界树的统一权限机制（v7：安全审职能上提到派蒙 `core/safety/`，但 skill 生态业务接口仍归冰神）。
+跨派蒙 / 四影 / 冰神 / 世界树的统一权限机制。安全审职能在派蒙 `core/safety/`；skill 生态业务接口归冰神。
 
 ## 核心角色分工
 
@@ -34,7 +34,7 @@
    b. 从世界树加载历史 plugin 声明
 3. 派蒙启动：
    a. 从世界树一次性读 skill 声明 + 用户授权记录 → AuthzCache
-   b. 自动放行：9 个四影 stage + builtin skill（v7 起，subject_type="stage"）
+   b. 自动放行：9 个四影 stage + builtin skill（subject_type="stage"）
 ```
 
 ## 运行时决策

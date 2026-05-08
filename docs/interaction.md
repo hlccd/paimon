@@ -6,7 +6,7 @@
 >
 > 实施情况见各模块 docs。
 
-> **v7 衔接**：四影派发的子任务列表显示用 stage display_name（如「生执·spec」「死执·review_code」），代码侧 `_format_dispatch_msg` 走 `get_display_name(stage)`。详见 `paimon/shades/_helpers/stages.py`。
+> 四影派发的子任务列表显示用 stage display_name（如「生执·spec」「死执·review_code」），代码侧 `_format_dispatch_msg` 走 `get_display_name(stage)`。详见 `paimon/shades/_helpers/stages.py`。
 
 ---
 

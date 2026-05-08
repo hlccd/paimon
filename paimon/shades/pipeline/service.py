@@ -87,7 +87,7 @@ class ShadesPipeline(
 
         子任务描述**完整不截断**（用户明确要求，即使很长也全列；QQ 单条消息上限
         约 2000 字，通常远够装下 DAG）。
-        显示用 get_display_name 把 stage 转"生执·spec"等友好名（v7 风格）。
+        显示用 get_display_name 把 stage 转"生执·spec"等友好名。
         """
         from paimon.shades._helpers.stages import get_display_name
         lines = [f"🚀 已派发 {len(plan.subtasks)} 个子任务执行："]

@@ -25,7 +25,7 @@
 - **入口·派蒙**（[paimon/paimon.md](paimon/paimon.md)）— **守门 + 路由 + 出口 + 全程安全闸**
   - 接入：WebUI / Telegram / QQ
   - 意图分类 + 4 出口路由 + 出口人格化
-  - **安全闸**（v7 起从死执上提，[paimon/core/safety/](../paimon/core/safety/)）
+  - **安全闸**（[paimon/core/safety/](../paimon/core/safety/)）
     - `task_review`：入口任务级审（pipeline 第一步）
     - `scan_plan`：DAG 敏感操作扫描 + 批量授权（生执编排后调）
     - `review_skill_declaration`：skill 热加载审（skill_loader 调）

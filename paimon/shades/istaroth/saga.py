@@ -1,4 +1,4 @@
-"""时执·saga — 失败回滚补偿（v7：归时执"收尾"职能）。
+"""时执·saga — 失败回滚补偿（归时执"收尾"职能）。
 
 失败回滚采用轻量 saga 模式（不做状态快照）：
   - 每个 Subtask 可声明 `compensate` 字段（自然语言描述反向动作）
@@ -95,7 +95,7 @@ async def _compensate_one(
     model: Model,
     irminsul: Irminsul,
 ) -> dict:
-    """执行单个节点的补偿动作（v7：生执 exec stage）。"""
+    """执行单个节点的补偿动作（生执 exec stage）。"""
     compensate_desc = (sub.compensate or "").strip()
     logger.warning(
         "[时执·saga] 补偿 {} ({}) → {}",

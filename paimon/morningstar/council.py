@@ -75,11 +75,13 @@ async def run_council(
     component: str = "agents",
     on_speak: Callable[[str, str, str], Awaitable[None]] | None = None,
     session_id: str = "",
+    background: str = "",
 ) -> CouncilResult:
     """跑一次多视角讨论。
 
     on_speak(role_key, role_name, content) —— 每个发言完毕后回调（流式 reply 用）。
-    session_id —— 落 primogem 用（不传则空字符串，原石只记 component/purpose 不记 session）。
+    session_id —— 落 primogem 用（不传则空字符串）。
+    background —— 晨星 scout 阶段收集的信息包文本，注入 speak/synthesize 的 system prompt。
     """
     llm_calls = 0
     history: list[dict] = []
@@ -102,7 +104,7 @@ async def run_council(
     opening = (plan.get("opening") or "")[:300]
     if len(members) < 2:
         # 兜底：用结构性 3 个保底
-        members = ["requirement", "architecture", "review"]
+        members = ["synthesist", "finance", "challenger"]
         logger.info("[晨星] 召集失败兜底：{}", members)
     if not opening:
         opening = topic[:200]
@@ -153,6 +155,7 @@ async def run_council(
             role_system=role_meta["system"],
             topic=topic, opening=opening,
             history=history, instruction=instruction,
+            background=background,
         )
         utterance, _ = await model._stream_text(
             msgs, component=component, purpose=f"天使·{role_meta['name']}",
@@ -180,7 +183,7 @@ async def run_council(
     # ─── 3. synthesize ───
     final = ""
     try:
-        msgs = build_synthesize_prompt(topic, opening, history)
+        msgs = build_synthesize_prompt(topic, opening, history, background=background)
         final, _ = await model._stream_text(msgs, component=component, purpose="晨星·综合")
         llm_calls += 1
     except Exception as e:

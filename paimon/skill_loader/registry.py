@@ -127,7 +127,7 @@ class SkillRegistry:
             sensitive_tools=list(info.sensitive_tools or []),
         )
 
-        # 热重载必过派蒙安全审查（v7：审查从死执上提派蒙）
+        # 热重载必过派蒙安全审查
         passed, reason = await review_skill_declaration(decl, model)
 
         if not passed:

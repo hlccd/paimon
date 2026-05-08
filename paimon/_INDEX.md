@@ -166,14 +166,9 @@ irminsul/
 | `istaroth/` | 时执 | **收** | 归档 + summary.md + saga 补偿（调生执 exec）+ 生命周期清扫 |
 | `_helpers/` | — | — | 无主公共 helper（runner_helpers / revise_helpers / stages） |
 
-**v7 关键变化**：
-- worker/ 子包**已删除**，9 stage 全部归到对应影实现
-- 死执原"安全审"职能已上提派蒙（`paimon/core/safety/`）
-- saga 补偿从 `shades/_saga.py` 移到 `istaroth/saga.py`（归"收"）
-
 ---
 
-## core/safety/ — 派蒙安全闸（v7 新增）
+## core/safety/ — 派蒙安全闸
 
 | 文件 | 职责 | 调用方 |
 |---|---|---|

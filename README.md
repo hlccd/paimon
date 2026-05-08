@@ -15,7 +15,7 @@
   - `/task` **复杂任务落地**（四影管线 — 写 skill / 写代码 / 改代码 / 修 bug 等工程产物）
   - `/agents` **分析 / 调研 / 决策辅助**（天使多视角讨论，输出纪要不落地）
 - **【守门 + 路由 + 出口 + 全程安全闸】派蒙**
-  - 安全闸（v7 起从死执上提，[paimon/core/safety/](paimon/core/safety/)）：`task_review` / `scan_plan` / `review_skill_declaration` / `detect_sensitive`
+  - 安全闸（[paimon/core/safety/](paimon/core/safety/)）：`task_review` / `scan_plan` / `review_skill_declaration` / `detect_sensitive`
 - **【落地引擎】四影**（生 / 审 / 派 / 收 — 复杂任务落地引擎）
   - [**生执·纳贝里士**](docs/shades/naberius.md)：**生** — DAG 编排 + 产出工程产物（spec/design/code/simple_code/exec/chat 6 个动作）
   - [**死执·若纳瓦**](docs/shades/jonova.md)：**审** — 评审循环（review_spec/design/code）+ 静态自检（py_compile/ruff/pytest）

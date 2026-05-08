@@ -1,4 +1,4 @@
-"""代码任务专用 pipeline：spec → design+code → review_* 三段式（v6 全 stage 化）。"""
+"""代码任务专用 pipeline：spec → design+code → review_* 三段式。"""
 from __future__ import annotations
 
 import json
@@ -106,7 +106,7 @@ def _revise_code_pipeline(
 
     # 收集所有节点按 stage 分组（保持原顺序）
     ordered = list(previous_plan.subtasks)
-    # assignee 直接就是 stage 名（v6 解耦后）
+    # assignee 直接就是 stage 名
     def _stage_of(s: Subtask) -> str:
         return s.assignee if s.assignee in _CODE_PIPELINE_STAGES else "unknown"
 
@@ -203,7 +203,7 @@ def _revise_code_pipeline(
         )
 
     # stage_meta 只保留当前 plan 里实际存在的 stage，避免 simple/trivial revise
-    # 被升级成 complex 6 节点。assignee 字段值 = stage 名（v6 解耦后的统一格式）
+    # 被升级成 complex 6 节点。assignee 字段值 = stage 名
     _full_stage_meta = [
         ("spec", "spec", "产出产品方案 spec.md（revise 轮）"),
         ("review_spec", "review_spec", "审查 spec.md"),

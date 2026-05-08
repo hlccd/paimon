@@ -7,39 +7,68 @@
 
 **天使体系** = 一个 leader 天使（**晨星**） + 11 个协同天使。
 
-- **晨星**：天使中的 leader，负责讨论调度（assemble 召集 → dispatch+speak loop → synthesize 综合）；本身也是天使的一员，但不发言、只主持。
-- **协同天使**：11 个预定义角色，由晨星按议题挑 3-5 个参与讨论。
+- **晨星**：天使中的 leader，负责**全程主持**（拆议题 → 调研 → 召集 → 调度发言 → 综合）；本身也是天使的一员，但不发言、只主持 + 调研。
+- **协同天使**：11 个预定义角色，由晨星按议题挑 3-5 个参与讨论；纯文本发言，无 tool 权限。
 
 ## 11 个协同天使
 
-按职能分 3 类：
+按职能分 3 类（**专为分析决策设计，写代码相关挖掘走 `/task` 四影管线**）：
 
 | 类别 | 天使 | 职责 |
 |---|---|---|
-| **结构性 5**（任务拆解 / 落地视角）| 需求分析 / 架构师 / 实施工程师 / 测试工程师 / 审查 | 看怎么拆、怎么做、怎么验证 |
-| **评估性 4**（决策 / 取舍视角）| 财务评估 / 风险评估 / 用户代言 / 历史复盘 | 看成本、风险、体验、过往经验 |
-| **对抗性 2**（推动讨论）| 挑刺者 / 提议者 | 找毛病 / 推动落地 |
+| **信息加工 3**（scout 收料 → 可讨论素材）| 综述者 / 对比者 / 求证者 | 提炼事实 / 结构化对比 / 质疑信源 |
+| **决策视角 5**（多角度权衡）| 经济视角 / 风险视角 / 体验视角 / 生活视角 / 历史复盘 | 成本 / 失败模式 / 易用 / 生活影响 / 过往教训 |
+| **推动讨论 3**（突破 / 收敛）| 挑刺者 / 提议者 / 时机视角 | 找毛病 / 推动落地 / 现在做还是等等 |
 
 每个协同天使 = 一段 system prompt（在 [`roles.py`](../../paimon/morningstar/roles.py) 里定义）。同一个底层 LLM 戴上不同 prompt 输出不同视角观点。
 
-## 运作流程
+## 运作流程（5 阶段）
 
 ```text
 用户 → /agents <议题> → 派蒙 → 晨星
+   │
+[scout 阶段 · 可跳过]
+   晨星 plan_info：拆议题，输出信息需求清单（JSON，含 skip 标志）
+     ↓ skip=true（主观偏好议题）→ 跳过 collect
+     ↓ skip=false
+   晨星 collect：tool-loop 调 web_search / topic / knowledge / file_ops 收资料 → 信息包
    │
 晨星 assemble：LLM 看议题挑 3-5 个协同天使 + 写开题
    │
 loop（最多 12 轮发言 / 30 LLM 上限）
    晨星 dispatch（看 history 决定下个发言者 + 给指令 / 是否收敛）
      ↓
-   协同天使 speak（用专属角色 prompt + 历史上下文发言）
+   协同天使 speak（专属角色 prompt + 历史上下文 + scout 信息包注入 system context）
      ↓
    收敛？（共识 / 死锁 / 上限）
    │
-晨星 synthesize：综合发言 → 共识 / 分歧 / 建议下一步
+晨星 synthesize：综合发言 → 共识 / 分歧 / 建议下一步（引用资料时打 [依据] 标）
    │
 派蒙 → channel → 用户
 ```
+
+### scout 阶段
+
+**意图**：议题需要外部数据时（"Redis vs Postgres" / "Sora 现状如何"），先收集再讨论，避免天使凭印象瞎扯。
+
+**实现**：[`paimon/morningstar/_scout.py`](../../paimon/morningstar/_scout.py)
+
+| 子步骤 | 输入 | 输出 | 备注 |
+|---|---|---|---|
+| plan_info | 议题文本 | JSON `{skip, reason, info_needs:[{topic, source_hint}]}` | 1 次 LLM 调用，浅池 |
+| collect | info_needs 清单 | 信息包 markdown（≤4000 字硬截断）| tool-loop 模式，浅池 |
+
+**skip 判定**（plan_info 自己决定）：
+- 主观偏好（"我该不该换工作"）→ skip
+- 个人范围（"下周二请假吗"）→ skip
+- 依赖外部事实（"Redis vs Postgres"）→ collect
+- 项目内事实（"我现在 paimon 架构合理吗"）→ collect（指 `source_hint=project` 读项目代码）
+
+**工具白名单**：`web_search / topic / knowledge / memory / file_ops / glob`。**禁 exec**（议题讨论不触副作用）；要 exec 的事走 `/task`。
+
+**信息需求最多 4 条**；超 4 条时 plan_info 自己挑最重要的。
+
+**信息包注入位置**：speak / synthesize 阶段的 system prompt 末尾「# 背景资料」段。dispatch 阶段不注入（晨星调度决策不需要资料）。
 
 ## 召集协议
 
@@ -50,9 +79,11 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 ```
 
 例：
-- "用 sqlite 还是 postgres" → 实施 + 风险 + 财务
-- "应不应该上 RBAC" → 需求 + 架构 + 审查 + 挑刺
-- "上次重构哪做错了" → 历史 + 挑刺 + 提议
+- "群晖 NAS vs 自建 unraid" → 对比者 + 经济 + 生活 + 风险
+- "我该不该跳槽到 X 厂" → 经济 + 风险 + 生活 + 历史 + 时机
+- "推荐 3 本理财书" → 综述 + 对比 + 求证 + 体验
+- "现在该不该买 Mac" → 经济 + 体验 + 时机 + 生活
+- "调研 self-hosted 笔记软件" → 综述 + 对比 + 体验 + 生活
 
 ## 收敛规则
 
@@ -83,7 +114,7 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 ## 不适用 / 限制
 
 - **不写代码 / 不调外部 API**：纯讨论引擎，输出纪要给人看；用户拿结论自己 `/task` 落地
-- **慢 + 贵**：典型 3 角色 × 4 轮 ≈ 9 LLM 调用 / 1-2 分钟 / ~¥0.003
+- **慢 + 贵**：典型 3 角色 × 4 轮 ≈ 9 LLM 调用 / 1-2 分钟 / ~¥0.003；scout 阶段不 skip 时 +30~50% token（plan_info 1 次 + collect tool-loop 1 次 + 各天使 system context 多 ~3-4k 字背景）
 - **同 LLM 扮多角色 mode collapse 风险**：靠 system prompt 拉视角差异，理论上不同模型实例对抗深度更大但 MVP 不做
 - **/stop 跑期间无效**：见 [todo §6](../todo.md#6-stop-在-skill--agents-跑期间无效)
 

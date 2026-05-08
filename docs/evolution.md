@@ -5,7 +5,7 @@
 
 **定位**：在现有架构之上"跨会话经验积累 → 行为自我调整"，**不新增主干轨道** —— 各能力分散到既有模块（草神 / 时执 / 派蒙 / 四影），不再是独立体系。
 
-## v7 后能力分层
+## 能力分层
 
 | 层级 | 能力 | 当前状态 | 业务接口 / 归属 |
 |---|---|---|---|
@@ -14,7 +14,7 @@
 | L3 · Skill 自举 | AI 生成新 skill | 🟡 由四影 `/task` 承接 | 写代码任务走生执 produce_spec → design → code → 死执 review_code；落盘归**冰神**（skill 唯一写入者）|
 | L4 · 轨迹沉淀 | 为未来 SFT / RL 留原料 | 🟡 部分实装 | 时执 archive + summary 已落档；导出 SFT/RL pipeline 未做 |
 
-> v7 关键变化：原"L2 prompt 进化 / L3 skill 自举"是独立轨道（草神 + 冰神 + 死执联动）；v7 后这些都是**写代码任务**，走 `/task` 即可，不再需要独立机制。
+> "L2 prompt 进化 / L3 skill 自举"都是**写代码任务**，走 `/task` 即可，不需要独立机制。
 
 ## 设计原则
 
@@ -68,7 +68,7 @@
 
 ## L2 · Prompt 进化（由 `/task` 承接）
 
-**v7 设计变化**：原方案是"草神反思 + 三月定时 + 写 persona_patch"独立机制。v7 后**简化为写代码任务**：
+**机制**：直接走 `/task` 写代码任务：
 
 - 想优化派蒙人设？→ `/task 调优 templates/paimon.t 让 X 类回复更精炼`
 - 想优化某 skill 的 prompt？→ `/task 调优 skills/check/SKILL.md，强调 P0 阈值`
@@ -78,7 +78,7 @@
 
 ## L3 · Skill 自举（由 `/task` 承接）
 
-**v7 设计变化**：原方案是"冰神 AI 自举生成 + 死执审查"独立机制。v7 后**直接走 `/task`**写代码（落盘仍归冰神 skill 域唯一写入者地位）：
+**机制**：直接走 `/task` 写代码（落盘归冰神 skill 域唯一写入者）：
 
 - "写一个查我 GitHub 提交统计的 skill"
 - "把现有的 dividend-tracker 改造成支持港股"
@@ -129,4 +129,4 @@
 - **RL / 微调主循环**：当前阶段纯原料化，不建训练基础设施
 - **主动事件推送**：记忆写入不触发事件广播；唯一运行时更新路径是 leyline 通知
 - **绕过 review**：任何 AI 自举产物必经四影 review；prompt 调优同样走死执 review_code
-- **独立的 persona_patch 机制**：v7 简化为"想调谁的 prompt 就发 `/task`"
+- **独立的 persona_patch 机制**：想调谁的 prompt 就发 `/task`

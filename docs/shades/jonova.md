@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](../aimon.md) / 四影 — **审**（评审 + 自检）
 > 调用关系：生执出产物 → 死执审 verdict → 不通过 → 生执 revise
 
-**定位**：v7 起转岗为"质量审" — 给生执的产物（spec / design / code）打 verdict。
+**定位**：质量审 — 给生执的产物（spec / design / code）打 verdict。
 原"安全审"职能（task review / scan plan / skill review）已上提派蒙 [`paimon/core/safety/`](../../paimon/core/safety/)。
 
 ## 核心能力
@@ -29,16 +29,12 @@ py_compile + ruff + pytest 三件套，写 `self-check.log`。
 
 实现：[`paimon/shades/jonova/self_check.py`](../../paimon/shades/jonova/self_check.py)
 
-## v7 转岗变化
+## 公开 API
 
-**移除**（→ 派蒙 [`paimon/core/safety/`](../../paimon/core/safety/)）：
-- `task_review`：入口任务级安全审
-- `scan_plan`：DAG 敏感操作扫描 + 批量授权
-- `review_skill_declaration`：skill 热加载审
-
-**保留 + 新增**：
 - `review`（统一入口，按 stage 路由到 review_spec/design/code）
 - `run_self_check`（静态质量门）
+
+> 安全审（`task_review` / `scan_plan` / `review_skill_declaration`）在派蒙 [`paimon/core/safety/`](../../paimon/core/safety/)，不归死执。
 
 ## 与派蒙的边界
 

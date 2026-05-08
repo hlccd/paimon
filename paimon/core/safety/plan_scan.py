@@ -1,4 +1,4 @@
-"""派蒙·plan_scan — DAG 敏感操作扫描（v7 起从死执上提派蒙）。
+"""派蒙·plan_scan — DAG 敏感操作扫描。
 
 四影管线在生执编排出 DAG 后、空执 dispatch 前，由派蒙扫一遍敏感操作：
   - permanent_deny → 加入 blocked_ids（pipeline 剔除）

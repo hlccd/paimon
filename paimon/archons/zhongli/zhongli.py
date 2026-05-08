@@ -160,9 +160,9 @@ class ZhongliArchon(_ScanMixin, _SkillMixin, _WatchMixin, _DigestMixin, Archon):
         self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
         prior_results: list[str] | None = None,
     ) -> str:
-        # v6 起 asmoday 不再调岩神 execute（解耦）。本方法仅为满足 Archon ABC 约定
+        # asmoday 不再调岩神 execute（解耦）。本方法仅为满足 Archon ABC 约定
         # 非四影功能（collect_dividend / scorer / handle_query / cron / /wealth 面板）全部保留
-        return f"[{self.name}] execute 路径已解耦（v6），请参考 docs/archons/zhongli.md"
+        return f"[{self.name}] execute 路径已解耦，请参考 docs/archons/zhongli.md"
 
     # ---------- 红利股采集主入口（cron 驱动）----------
 

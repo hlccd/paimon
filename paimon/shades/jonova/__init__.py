@@ -1,6 +1,6 @@
 """死执 · Jonova — 审（评审 + 自检）
 
-v7：安全审职能（task_review / scan_plan / review_skill_declaration）已上提到
+安全审职能（task_review / scan_plan / review_skill_declaration）在
 派蒙 `paimon/core/safety/`，本子包专注质量审：
 
 1. **review**（评审循环）：在四影管线里给生执的产物打 verdict

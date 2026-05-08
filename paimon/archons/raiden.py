@@ -25,5 +25,5 @@ class RaidenArchon(Archon):
         self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
         prior_results: list[str] | None = None,
     ) -> str:
-        # v6 解耦后：本节点跟四影 execute 路径解耦；asmoday 不再 dispatch 到此
-        return f"[{self.name}] execute 路径已解耦（v6），请参考 docs/archons/raiden.md"
+        # 本节点跟四影 execute 路径解耦；asmoday 不再 dispatch 到此
+        return f"[{self.name}] execute 路径已解耦，请参考 docs/archons/raiden.md"

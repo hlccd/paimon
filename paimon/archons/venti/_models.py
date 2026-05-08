@@ -2,10 +2,10 @@
 
 新闻采集、舆情分析与追踪、推送整理。
 
-⚠️ v6 解耦后单一入口：
+单一入口：
 - `collect_subscription()` —— 话题订阅后台采集入口（subprocess 直调 web-search skill，
   批量 LLM 早报，交三月响铃推送）
-- `execute()` 已废除（v6 解耦后 asmoday 不再调本节点；通用执行职能由四影自己承担）
+- `execute()` 已废除（asmoday 不再调本节点；通用执行职能由四影自己承担）
 """
 from __future__ import annotations
 

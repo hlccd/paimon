@@ -1,6 +1,6 @@
 """时执 · Istaroth — 收（任务尾声善后 + 生命周期）
 
-v7 职责：
+职责：
   - 运行中：活跃会话上下文压缩（_compress.compress）
   - 结束后 · 归档：任务归档 + 审计 + summary.md（_archive.archive）
   - 结束后 · 经验提取：跨会话记忆抽取（_experience.extract_experience）

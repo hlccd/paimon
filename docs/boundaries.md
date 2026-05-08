@@ -2,7 +2,7 @@
 
 > 隶属：[神圣规划](aimon.md)
 
-模块职责归属速查，按场景分类。v7 后边界（生 / 审 / 派 / 收 + 派蒙安全闸 + 七神值班）。
+模块职责归属速查，按场景分类（生 / 审 / 派 / 收 + 派蒙安全闸 + 七神业务接口）。
 
 ## 1. 入口 & 意图
 
@@ -16,16 +16,16 @@
 
 | 场景 | 归属 | 关键区分点 |
 |---|---|---|
-| 入口安全审 | 派蒙 `core/safety/task_review` | 入口任务级合规/越权审查（v7 起从死执上提）|
+| 入口安全审 | 派蒙 `core/safety/task_review` | 入口任务级合规/越权审查 |
 | 关键词预过滤 | 派蒙 `core/pre_filter.py` | shell 破坏命令直接 block / prompt injection warn |
-| DAG 敏感扫描 + 批量授权 | 派蒙 `core/safety/scan_plan` | 生执编排后调（v7 起从死执上提）|
-| skill 热加载审 | 派蒙 `core/safety/skill_review` | skill_loader 注册前调（v7 起从死执上提）|
+| DAG 敏感扫描 + 批量授权 | 派蒙 `core/safety/scan_plan` | 生执编排后调 |
+| skill 热加载审 | 派蒙 `core/safety/skill_review` | skill_loader 注册前调 |
 | 敏感串过滤（密钥/身份证）| 派蒙 `core/safety/sensitive_filter` | memory / 知识库写入路径用 |
 | 产物质量审 | 死执 review_* stage | spec/design/code 评审循环（生执出活 → 死执打 verdict）|
 | 静态自检 | 死执 self_check | py_compile + ruff + pytest |
 | 流程审计 | 时执 | archive + summary.md，执行链路复盘 |
 
-## 3. 编排 & 执行（四影 v7：生 / 审 / 派 / 收）
+## 3. 编排 & 执行（四影：生 / 审 / 派 / 收）
 
 | 场景 | 归属 | 关键区分点 |
 |---|---|---|
@@ -67,7 +67,7 @@
 |---|---|---|
 | 权限画像（权威存储）| 世界树 authz 域 | 跨模块统一持久化 |
 | 本地缓存 | 派蒙 AuthzCache | 启动读世界树；运行时四影通知更新 |
-| stage 维度授权 | 派蒙 `core/safety/scan_plan` | subject_type=stage（v7 起统一，不再 shades_node）|
+| stage 维度授权 | 派蒙 `core/safety/scan_plan` | subject_type=stage |
 | 永久授权写入 | 派蒙 | 识别"永久"关键词 → 写世界树 + 自更新缓存 |
 | 授权查看 / 撤销 | **冰神**（webui `/plugins` 面板）| 冰神语义负责人：UI 入口直读 + 写世界树 |
 
@@ -81,7 +81,7 @@
 
 ## 9. Web 面板（独立交互通道，不走对话流）
 
-七神是各面板的**业务接口 + 概念归属者**。代码实现层 webui api 直读 irminsul / skill_loader（v7 解耦后不经 archon 实例），但业务语义归各七神。
+七神是各面板的**业务接口 + 概念归属者**。代码实现层 webui api 直读 irminsul / skill_loader（不经 archon 实例），但业务语义归各七神。
 
 | 面板 | 业务接口归属 | 数据域 |
 |---|---|---|

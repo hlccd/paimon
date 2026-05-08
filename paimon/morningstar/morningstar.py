@@ -15,6 +15,7 @@ from paimon.channels.base import Channel, IncomingMessage
 from paimon.session import Session
 from paimon.state import state
 
+from ._scout import run_scout
 from .council import CouncilResult, run_council
 
 
@@ -24,15 +25,27 @@ async def run_agents(
     channel: Channel,
     main_session: Session,
 ) -> CouncilResult:
-    """跑 /agents 多视角讨论：流式输出每个发言 + 综合结论 → merge 主 session。"""
+    """跑 /agents 多视角讨论：scout 阶段调研 → 流式输出每个发言 + 综合结论 → merge 主 session。"""
     if not state.model:
         raise RuntimeError("神之心未就绪")
 
     reply = await channel.make_reply(msg)
-    try:
-        await reply.notice("🌅 晨星召集天使中…", kind="milestone")
-    except Exception:
-        pass
+
+    async def _on_notice(text: str):
+        try:
+            await reply.notice(text, kind="milestone")
+        except Exception:
+            pass
+
+    # ─── scout 阶段：晨星拆议题 + 调研 ───
+    await _on_notice("🧭 晨星·拆议题…")
+    background, scout_meta = await run_scout(
+        topic, state.model,
+        on_notice=_on_notice,
+        session_id=main_session.id,
+    )
+
+    await _on_notice("🌅 晨星召集天使…")
 
     async def _on_speak(role_key: str, role_name: str, content: str):
         text = f"\n\n**[{role_name}]**\n{content}\n"
@@ -48,6 +61,7 @@ async def run_agents(
         topic, state.model,
         on_speak=_on_speak,
         session_id=main_session.id,
+        background=background,
     )
 
     # 综合结论

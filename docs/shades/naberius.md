@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](../aimon.md) / 四影 — **生**（编排 + 产出）
 > 调用关系：生执出 DAG → 派蒙审 → 空执派 → 生执 produce / 死执 review → 时执收
 
-**定位**：v7 起统一承担"生" — DAG 编排 + 产物生产，是四影体量最大的影。
+**定位**：统一承担"生" — DAG 编排 + 产物生产，是四影体量最大的影。
 是 9 stage 中 6 个产物 stage（spec / design / code / simple_code / exec / chat）的归属（其余 3 个 review_* 归死执）。
 
 ## 两段职能

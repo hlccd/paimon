@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 只记录**尚未实现 / 待完善**的事项。已完成项请查 git log。
-> 更新时间：2026-05-08（v7 重构后清理）
+> 更新时间：2026-05-08
 
 ## 0. ⚠️ 最高优
 
@@ -36,14 +36,14 @@
 - [ ] **测试基础设施** —— 仓库零测试：无 `tests/`、无 `conftest.py`、`pyproject.toml` 无 test 配置、全仓 zero import of pytest / unittest、无 CI workflow。需要设计静态契约测试 / 离线冒烟 / 真实 API 测试分层
 
 - [ ] **权限体系 v2 重新设计**
-  - **临时缓解已做**：启动时 builtin skill + 9 个 stage 自动 `permanent_allow`（`permanent_deny` 不覆盖；subject_type=stage，v7 起统一）
+  - **临时缓解已做**：启动时 builtin skill + 9 个 stage 自动 `permanent_allow`（`permanent_deny` 不覆盖；subject_type=stage）
   - **根本设计待重做**：
     - 工具粒度细化：当前 skill 级；需 tool 级 + 参数模式（`Bash(rm:*)` / `Bash(curl http*download*)`）
     - 单用户场景分级：「自用模式」全自动放行 + 真破坏命令依赖 pre_filter ／「严格模式」按现状询问
   - 正式重构等需求更明确后再启动
 
 - [ ] **七神 B 类节点新职能（雷神 / 火神）**
-  - **现状**：v7 解耦后 raiden / mavuika 是 namespace 永久壳（按"七神保留"铁律）
+  - **现状**：raiden / mavuika 是 namespace 永久壳（按"七神保留"铁律）
     - 原写代码 4 件套已转生执 produce_design / produce_code / simple_run（simple_code）
     - 原 exec tool-loop 已转生执 simple_run("exec")
   - **当前形态**：~30 行 namespace 壳（class + name + description + execute 兜底）
@@ -77,11 +77,11 @@
   - **prompt cache 命中率**：feedback 注入已稳态排序，但 system prompt 主体仍每次 from scratch；改用模板化稳定前缀
   - **空执流水线化**：同层 gather 已并发但层间严格串行
 
-## 2. 自进化（v7 后由四影承接）
+## 2. 自进化（由四影承接）
 
 > 见 [evolution.md](evolution.md)。L1 已实装；L2 / L3 走 `/task`；L4 部分实装。
 
-- [ ] **L3 · AI 自举生成新 skill 走 /task** —— v7 简化方案
+- [ ] **L3 · AI 自举生成新 skill 走 /task**
   - **现状**：用户可直接发 `/task 写一个 X skill` → 走完整四影管线（生执 produce_spec/design/code → 死执 review_code）
   - **未做**：cron 触发的"自动反思 + 自动提案 skill"机制（"同一请求模式出现 ≥N 次自动写一个 skill"）
   - **优先级**：低（手动 /task 已够用）
@@ -103,11 +103,6 @@
 - [ ] **通用日报合成器**（[`paimon/foundation/digest/`](../paimon/foundation/digest/)）—— 只 prompt 层抽好，实装条件**尚未**达成
   - 真正"起抽 `DigestPipeline` 条件"：≥2 个 LLM 驱动日报实现。届时再读两个找共同抽象
   - 当前动作：保持 prompt 层现状
-
-- [ ] **天使体系加「信息收集」成员**
-  - 现状：11 协同天使全是"评估 / 推动"型，没有专门"先去查信息"的角色
-  - 设想：加一个"调研员 / scout"角色，可在讨论前 / 中段被晨星调度调 web-search / topic skill 拿数据回填
-  - 难点：天使发言现在是纯文本，调 skill 需要 tool-loop 能力
 
 ## 4. 四影管线设计缺陷
 

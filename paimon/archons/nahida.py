@@ -29,4 +29,4 @@ class NahidaArchon(Archon):
         self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
         prior_results: list[str] | None = None,
     ) -> str:
-        return f"[{self.name}] execute 路径已解耦（v6），请参考 docs/archons/nahida.md"
+        return f"[{self.name}] execute 路径已解耦，请参考 docs/archons/nahida.md"
