@@ -194,11 +194,12 @@ async def plugins_proposal_approve_api(channel: "WebUIChannel", request: web.Req
 
         # 同步调冰神 apply（用户期望"点同意 = 立刻生效"）
         from paimon.skill_loader.apply_proposal import apply_proposal
-        from pathlib import Path
-        skills_dir = Path(__file__).resolve().parents[4] / "skills"
+        skill_registry = channel.state.skill_registry
+        if not skill_registry:
+            return web.json_response({"ok": False, "error": "skill_registry 未就绪"}, status=500)
         result = await apply_proposal(
             prop_id, irminsul=irminsul, model=channel.state.model,
-            skills_dir=skills_dir, actor="冰神面板",
+            skills_dir=skill_registry.skills_dir, actor="冰神面板",
         )
         return web.json_response({
             "ok": True,
@@ -223,11 +224,12 @@ async def plugins_proposal_apply_api(channel: "WebUIChannel", request: web.Reque
         return web.json_response({"ok": False, "error": "Not Found"}, status=404)
     try:
         from paimon.skill_loader.apply_proposal import apply_proposal
-        from pathlib import Path
-        skills_dir = Path(__file__).resolve().parents[4] / "skills"
+        skill_registry = channel.state.skill_registry
+        if not skill_registry:
+            return web.json_response({"ok": False, "error": "skill_registry 未就绪"}, status=500)
         result = await apply_proposal(
             prop_id, irminsul=irminsul, model=channel.state.model,
-            skills_dir=skills_dir, actor="冰神面板",
+            skills_dir=skill_registry.skills_dir, actor="冰神面板",
         )
         return web.json_response({
             "ok": result.ok,

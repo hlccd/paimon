@@ -143,14 +143,6 @@ KNOWLEDGE_SCRIPT_2 = """                }
         }
 
         window.openArchive = async function(task_id, artifact){
-            // code/ 目录没法展开看单文件，点击时给个提示
-            if(artifact === 'code/'){
-                document.getElementById('modalTitle').textContent = task_id + ' · code/';
-                document.getElementById('modalBody').textContent = '此任务的 code/ 目录含多个文件，请用 /task-merge 命令合并到当前工作目录查看。';
-                document.getElementById('modalMeta').innerHTML = '';
-                document.getElementById('modal').classList.add('active');
-                return;
-            }
             document.getElementById('modalTitle').textContent = task_id + ' · ' + artifact;
             document.getElementById('modalBody').textContent = '加载中...';
             document.getElementById('modalMeta').innerHTML = '';

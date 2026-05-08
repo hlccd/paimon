@@ -81,13 +81,12 @@
 
 > 见 [evolution.md](evolution.md)。L1 已实装；L3 持久层就位、stage 与触发器待实装；L4 部分实装。
 
-- [ ] **L3 · Skill 自进化提案 stage + 触发器**（持久层 + 面板已就位，调用层未接）
-  - **已实装**：世界树 skill_proposals 域（schema + Repo + façade + 状态机保护）+ `/plugins` 面板"自进化提案"tab + 5 API
-  - **待实装顺序**：
-    1. 死执 `review_proposal` stage（`paimon/shades/jonova/review_proposal.py`）—— 质量审，写 review_verdict
-    2. 生执 `propose_skill` stage（`paimon/shades/naberius/propose.py`）—— 凝练 skill 草案落 skill_proposals
-    3. 触发器 —— 候选：(a) 时执 archive 收尾事件触发；(b) 三月 cron 周期扫；(c) 用户 `/evolve` 手动触发；至少先做 a + b
-    4. 冰神 apply —— 读 status=approved 提案 → 派蒙 skill_review 审 → 写 `.claude/skills/<name>/SKILL.md` + 注册 skill_declarations + mark_applied
+- [x] **L3 · Skill 自进化提案 端到端**（用户触发 `/evolve` 已通；自动触发器待加）
+  - **已实装**：世界树 skill_proposals 域 + `/plugins` 面板 + 生执 propose_skill + 死执 review_proposal + 冰神 apply（safety 审 + atomic 写盘 + 注册）+ `/evolve` 命令
+  - **待加**：
+    1. 时执 archive 收尾 hook —— 浅池 LLM 看 task summary 判 should_propose（hermes 借鉴：max_iter + Nothing to save 短路）
+    2. 三月 cron 周期扫 —— 比如月度跑一次扫最近高活跃 task 找 skill 沉淀机会
+    3. 三月 cron 清 rejected 提案（避免表膨胀）—— 调 irminsul.skill_proposal_prune
   - **不强制频率**：好则有、不好则无；死执严格把关；rejected 三月定期 prune
 
 - [ ] **L4 · 轨迹沉淀（导出 SFT/RL 数据）** —— 长期路线图

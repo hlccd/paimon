@@ -85,7 +85,8 @@ webui/
 | `chat/shades_bridge.py` | 四影路径桥接 → `enter_shades_pipeline_background` |  |
 | `commands/_dispatch.py` | `/cmd` 总分发器 | `dispatch_command()` |
 | `commands/{session,task,subscribe,dividend,memory,selfcheck,stat,help}.py` | 各命令实现 | 一文件一命令 |
-| `commands/task_index.py` / `task_workspace.py` | 任务编号缓存 / 任务工作区 |  |
+| `commands/task_index.py` | 任务编号缓存 |  |
+| `commands/evolve.py` | `/evolve` 自进化提案触发（走四影 propose_skill + review_proposal） |  |
 | `intent.py` | LLM 意图分类 → complex/skill/chat | `classify_intent()` |
 | `safety.py` | 敏感信息正则（密钥/卡号/身份证） | `detect_sensitive()` |
 | `pre_filter.py` | 入口轻量安全过滤（shell danger/prompt injection；NFKC 归一化防绕过） | `pre_filter()` |
@@ -157,16 +158,21 @@ irminsul/
 
 ---
 
-## shades/ — 四影（生 / 审 / 派 / 收 — 复杂任务落地引擎）
+## shades/ — 四影（生 / 审 / 派 / 收 — v8 自进化定位）
 
 | 路径 | 影 | 关键词 | 职责 |
 |---|---|---|---|
 | `pipeline/` | — | — | 主控（prepare 入口审 + execute DAG 跑） |
-| `naberius/` | 生执 | **生** | 编排 DAG（plan）+ 产出工程产物（produce_spec/design/code + simple_run/simple_code/exec/chat） |
-| `jonova/` | 死执 | **审** | 评审循环（review_spec/design/code）+ 静态自检（self_check） |
-| `asmoday.py` | 空执 | **派** | 拓扑分层 dispatch + `_STAGE_ROUTER` 路由表派各影 + 失败重试 |
+| `naberius/` | 生执 | **生** | 编排 DAG（plan）+ propose_skill（凝练 skill 草案）+ simple_run（exec/chat 兜底）|
+| `jonova/` | 死执 | **审** | review_proposal（审 skill 提案质量，写 verdict + skill_proposals.review_verdict） |
+| `asmoday.py` | 空执 | **派** | 拓扑分层 dispatch + `_STAGE_ROUTER` 路由 4 stage（propose_skill/review_proposal/exec/chat）|
 | `istaroth/` | 时执 | **收** | 归档 + summary.md + saga 补偿（调生执 exec）+ 生命周期清扫 |
 | `_helpers/` | — | — | 无主公共 helper（runner_helpers / revise_helpers / stages） |
+
+> v8（2026-05）四影从"写代码管线"重定位到"自进化提案管线"：
+> 删除 produce_*/review_*（写代码）+ self_check + code_pipeline；新增 propose_skill /
+> review_proposal 两个 stage。`exec`（saga 补偿）+ `chat`（异常兜底）保留。
+> 详见 [docs/evolution.md](../docs/evolution.md) §L3。
 
 ---
 
@@ -188,6 +194,7 @@ irminsul/
 | `registry.py` | skill 注册器（装载时 grep allowed_tools 派生 sensitivity） |
 | `parser.py` | SKILL.md frontmatter 解析 |
 | `watcher.py` | watchdog 热重载（默认关，`SKILLS_HOT_RELOAD=true` 启用） |
+| `apply_proposal.py` | 冰神 apply approved skill 提案：派蒙 safety 审 + atomic 写 SKILL.md + 注册 skill_declarations |
 
 ---
 

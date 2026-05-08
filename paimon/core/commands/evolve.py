@@ -21,8 +21,10 @@ from ._dispatch import CommandContext, command
 
 
 _EVOLVE_PROMPT_HEAD = (
-    "请反思当前会话最近的对话和任务，凝练**可复用**的 skill 草案落自进化提案队列。"
-    "判断标准从严：单次问答、太琐碎、跟现有 skill 重叠 → 输出 SKIP 不要硬凑。"
+    "请反思当前会话最近的对话和任务，凝练**可复用**的 skill 草案落自进化提案队列。\n\n"
+    "**编排提示（给生执看）**：本任务请用 propose_skill stage 凝练，紧跟 review_proposal "
+    "stage 审；不要用 chat / exec stage 兜底。\n\n"
+    "判断标准从严：单次问答、太琐碎、跟现有 skill 重叠 → 生执直接输出 SKIP 不要硬凑。"
 )
 
 

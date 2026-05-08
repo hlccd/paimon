@@ -12,7 +12,7 @@
 | 层级 | 能力 | 当前状态 | 业务接口 / 归属 |
 |---|---|---|---|
 | L1 · 经验记忆 | 跨会话记忆积累与召回 | ✅ **已实装** | **草神**（memory 域唯一写入者 + 业务接口）；时执触发 extract / hygiene cron 周一整理 / 派蒙 prefetch / `/knowledge` 面板 |
-| L3 · Skill 自进化提案 | AI 凝练新 / 改进 skill → 待审 → 落盘 | 🟡 **持久层就位 / 调用层未接** | 四影 propose → 死执 review_proposal → `/plugins` 面板待审 → 冰神 apply 落 `.claude/skills/`；写盘仍归**冰神**（skill 域唯一写入者）|
+| L3 · Skill 自进化提案 | AI 凝练新 / 改进 skill → 待审 → 落盘 | ✅ **已实装** | 四影 propose_skill → 死执 review_proposal → `/plugins` 面板待审 → 冰神 apply 落 `<repo>/skills/`；触发器：`/evolve` 命令（archive hook / cron 待挂）|
 | L4 · 轨迹沉淀 | 为未来 SFT / RL 留原料 | 🟡 部分实装 | 时执 archive + summary 已落档；导出 SFT/RL pipeline 未做 |
 
 > L2 槽位空着——派蒙人设 / skill prompt 调优属于一次性维护工作，不需要独立机制（直接编辑 `.claude/skills/X/SKILL.md` 或 `paimon/templates/paimon.t`）。
@@ -114,12 +114,13 @@
 | 子项 | 状态 | 实装位置 |
 |---|---|---|
 | 世界树·skill_proposals 域（schema + Repo + façade）| ✅ 实装 | [`paimon/foundation/irminsul/skill_proposals.py`](../paimon/foundation/irminsul/skill_proposals.py) |
-| `/plugins` 面板"自进化提案"tab + 5 个 API | ✅ 实装 | [`paimon/channels/webui/api/plugins.py`](../paimon/channels/webui/api/plugins.py) / [`plugins_html.py`](../paimon/channels/webui/plugins_html.py) |
+| `/plugins` 面板"自进化提案"tab + 6 个 API | ✅ 实装 | [`paimon/channels/webui/api/plugins.py`](../paimon/channels/webui/api/plugins.py) / [`plugins_html.py`](../paimon/channels/webui/plugins_html.py) |
 | 状态机保护（同名去重 / approve 卡 needs_revise / applied 不可 reject）| ✅ 实装 | Repo 层 |
-| 生执 propose_skill stage | ❌ 未实装 | 待加 `paimon/shades/naberius/propose.py` |
-| 死执 review_proposal stage | ❌ 未实装 | 待加 `paimon/shades/jonova/review_proposal.py` |
-| 触发器（archive hook / cron）| ❌ 未实装 | 待加 |
-| 冰神 apply（读 approved 写盘 + 注册）| ❌ 未实装 | 待加 |
+| 生执 propose_skill stage（含 hermes 借鉴的 SKIP 短路）| ✅ 实装 | [`paimon/shades/naberius/propose.py`](../paimon/shades/naberius/propose.py) |
+| 死执 review_proposal stage | ✅ 实装 | [`paimon/shades/jonova/review_proposal.py`](../paimon/shades/jonova/review_proposal.py) |
+| 冰神 apply（读 approved 写盘 + 注册 + safety 审）| ✅ 实装 | [`paimon/skill_loader/apply_proposal.py`](../paimon/skill_loader/apply_proposal.py) |
+| `/evolve` 命令（用户主动触发器）| ✅ 实装 | [`paimon/core/commands/evolve.py`](../paimon/core/commands/evolve.py) |
+| 自动触发器（archive hook / 三月 cron 周期扫）| ❌ 待加 | 见 todo.md |
 
 ### 状态机
 
