@@ -108,10 +108,14 @@ async def _invoke_skill(skill_name: str, args: str, msg: IncomingMessage, channe
         main_session = session_mgr.create()
         session_mgr.switch(msg.channel_key, main_session.id)
 
+    # 保留 / 前缀给 LLM 看：ephemeral session LLM 视野里 user 消息必须是
+    # `/topic <query>`，不能只是裸 query。否则 LLM 看到裸 query 会推断"user 没用
+    # /topic 啊，那走常规对话"，跳过 skill 脚本（弱模型 + 不像调研的 query 必现）。
+    skill_msg_text = f"/{skill_name} {args}".strip() if args else f"/{skill_name}"
     skill_msg = IncomingMessage(
         channel_name=msg.channel_name,
         chat_id=msg.chat_id,
-        text=args or f"请执行 {skill_name} skill",
+        text=skill_msg_text,
         _reply=msg._reply,
     )
 

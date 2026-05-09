@@ -110,12 +110,22 @@ class ExecTool(BaseTool):
         cwd = Path.cwd()
         logger.info("[天使·exec] cmd=({}) cwd={}", command[:200], cwd)
 
+        # subprocess env 强制 PYTHONIOENCODING=utf-8：
+        # Windows 上 Python 子进程默认用系统 codepage（cp936/GBK）做 sys.stdout encoding，
+        # print emoji（⚠️）/ 部分中文标点时 UnicodeEncodeError 崩溃。强制 UTF-8 让子进程
+        # encode 不再被系统 codepage 限制，与上面 decode("utf-8") 端到端对齐。
+        # 跨平台无副作用：Linux/Mac 默认就是 UTF-8。
+        import os as _os
+        env = _os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(cwd),
+                env=env,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=TIMEOUT,
@@ -130,8 +140,8 @@ class ExecTool(BaseTool):
         except Exception as e:
             return f"执行失败: {e}"
 
-        out = stdout.decode(errors="replace") if stdout else ""
-        err = stderr.decode(errors="replace") if stderr else ""
+        out = stdout.decode("utf-8", errors="replace") if stdout else ""
+        err = stderr.decode("utf-8", errors="replace") if stderr else ""
 
         result = ""
         if out:
