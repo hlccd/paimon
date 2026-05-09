@@ -1,4 +1,4 @@
-"""冰神 · apply skill 自进化提案 → 落 `<project_root>/skills/<name>/SKILL.md` + 注册。
+"""空执 · apply skill 自进化提案 → 落 `<project_root>/skills/<name>/SKILL.md` + 注册。
 
 唯一调用方：webui `/api/plugins/proposals/<id>/approve` 用户点同意后同步调。
 不在 cron / 启动期跑——每条 approved 提案立即落盘，失败回滚标 audit。
@@ -14,7 +14,7 @@
 借鉴 hermes-agent：原子 temp-replace；审查失败 rmtree 回滚。
 
 failure 处理：
-- safety 审拒：删 .tmp/，不写 .claude/skills/，audit 记原因，提案保持 status=approved
+- safety 审拒：删 .tmp/，不写 skills/，audit 记原因，提案保持 status=approved
   让用户/管理员决定是否人工介入（暂不 auto-rollback 到 rejected——尊重用户已 approve 的意愿）
 - 落盘异常：同上
 - mark_applied 失败：skill 已生效但状态没刷，下次启动再补刷；不致命
@@ -73,7 +73,7 @@ async def apply_proposal(
     irminsul: "Irminsul",
     model: "Model",
     skills_dir: Path,
-    actor: str = "冰神",
+    actor: str = "空执",
 ) -> ApplyResult:
     """读 approved 提案 → 派蒙 safety 审 → 落 SKILL.md → 注册 skill_declarations。"""
     from paimon.foundation.irminsul import STATUS_APPROVED
@@ -115,7 +115,7 @@ async def apply_proposal(
     try:
         passed, reason = await review_skill_declaration(decl, model)
     except Exception as e:
-        logger.error("[冰神·apply] safety 审异常 {}: {}", prop_id, e)
+        logger.error("[空执·apply] safety 审异常 {}: {}", prop_id, e)
         return ApplyResult(
             ok=False, skill_name=prop.name,
             error=f"safety 审异常：{e}",
@@ -133,7 +133,7 @@ async def apply_proposal(
             )
         except Exception:
             pass
-        logger.warning("[冰神·apply] safety 审拒 {}: {}", prop.name, reason)
+        logger.warning("[空执·apply] safety 审拒 {}: {}", prop.name, reason)
         return ApplyResult(
             ok=False, skill_name=prop.name,
             error=f"派蒙 safety 审拒：{reason}",
@@ -148,7 +148,7 @@ async def apply_proposal(
         # 原子 rename
         tmp_dir.rename(skill_dir)
     except Exception as e:
-        logger.error("[冰神·apply] 写盘失败 {}: {}", prop.name, e)
+        logger.error("[空执·apply] 写盘失败 {}: {}", prop.name, e)
         # 清理 .tmp/
         if tmp_dir.exists():
             try:
@@ -169,7 +169,7 @@ async def apply_proposal(
     try:
         await irminsul.skill_declare(decl, actor=actor)
     except Exception as e:
-        logger.error("[冰神·apply] 写 skill_declarations 失败 {}: {}", prop.name, e)
+        logger.error("[空执·apply] 写 skill_declarations 失败 {}: {}", prop.name, e)
         # 文件已写，但 DB 注册失败：保留文件让下次启动 scan_and_load 补刷
         # 不回滚文件，避免反复 LLM 调用浪费
 
@@ -181,19 +181,19 @@ async def apply_proposal(
         if state.leyline:
             await state.leyline.publish(
                 "skill.loaded", {"name": prop.name, "source": "ai_gen"},
-                source="冰神",
+                source="空执",
             )
     except Exception as e:
-        logger.debug("[冰神·apply] registry 热加载或 leyline 发布失败：{}", e)
+        logger.debug("[空执·apply] registry 热加载或 leyline 发布失败：{}", e)
 
     # 6. mark_applied
     try:
         await irminsul.skill_proposal_mark_applied(prop_id, actor=actor)
     except Exception as e:
-        logger.warning("[冰神·apply] mark_applied 失败 {}: {}", prop_id, e)
+        logger.warning("[空执·apply] mark_applied 失败 {}: {}", prop_id, e)
 
     logger.info(
-        "[冰神·apply] 落盘成功 {} → {}（source=ai_gen, sensitivity={}）",
+        "[空执·apply] 落盘成功 {} → {}（source=ai_gen, sensitivity={}）",
         prop.name, skill_dir, sensitivity,
     )
     return ApplyResult(

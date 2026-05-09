@@ -58,7 +58,7 @@ webui/
 │   ├── game.py 水神游戏
 │   ├── knowledge.py / knowledge_kb.py / knowledge_archives.py 草神
 │   ├── llm.py 神之心
-│   ├── plugins.py 冰神（含 5 个自进化提案 endpoint：list/get/approve/reject/delete + count_by_status）
+│   ├── plugins.py /plugins 面板 API（skill 生态 + 永久授权 + 自进化提案审批入口）
 │   ├── selfcheck.py 三月
 │   ├── session.py 会话 CRUD
 │   ├── tasks.py 任务面板
@@ -85,7 +85,7 @@ webui/
 | `commands/_dispatch.py` | `/cmd` 总分发器 | `dispatch_command()` |
 | `commands/{session,task,subscribe,dividend,memory,selfcheck,stat,help}.py` | 各命令实现 | 一文件一命令 |
 | `commands/task_index.py` | 任务编号缓存 |  |
-| `commands/evolve.py` | `/evolve` 自进化提案触发（直调 propose_skill + review_proposal） |  |
+| `commands/evolve.py` | `/evolve` 自进化提案触发（直调生执 + 死执函数链） |  |
 | `intent.py` | LLM 意图分类 → chat / skill | `classify_intent()` |
 | `safety.py` | 敏感信息正则（密钥/卡号/身份证） | `detect_sensitive()` |
 | `pre_filter.py` | 入口轻量安全过滤（shell danger/prompt injection；NFKC 归一化防绕过） | `pre_filter()` |
@@ -111,9 +111,7 @@ irminsul/
                           llm_profile / llm_route / skill_proposals
 ```
 
-> **`skill_proposals`（域 16）特例**：通常一个域一个写入者；此域**例外**——四影·生执 propose / 四影·死执 set_review_verdict / 冰神 mark_applied 三方按状态机阶段写。写盘到 `.claude/skills/` 仍归冰神。详见 [`docs/evolution.md`](../docs/evolution.md) §L3。
-
-> **⚠ Schema 约束**：task_subtasks/flow/progress 的 FK **没声明 ON DELETE CASCADE**，靠 `task.purge_expired()` 手动级联；新写清理路径要按顺序 progress→flow→subtasks→edicts。
+> **自进化提案域特例**：通常一域一写入者；此域例外——四影按提案 / 重写 / 审三阶段分别写、用户面板写决策、空执标 applied，多写入者按状态机阶段分工。写盘到 `skills/` 仍归空执。详见 [`docs/evolution.md`](../docs/evolution.md) §L3。
 
 ### 其他 foundation 模块
 
@@ -128,7 +126,6 @@ irminsul/
 | `selfcheck/_deep.py` | Deep 自检：调 check skill（默认 selfcheck_deep_hidden=True 隐藏入口；保留代码） |
 | `digest/composer.py + prompts.py` | 通用摘要 prompt 工厂（venti/zhongli 都用） |
 | `model_router.py` | LLM profile 路由（按 component+purpose 选 profile） |
-| `task_workspace.py` | 任务产物目录 .paimon/workspace/<task_id>/ helper |
 
 ---
 
@@ -146,7 +143,7 @@ irminsul/
 | `furina/` | 水神 | namespace 壳（archon 本体 review 段已删）；FurinaGameService 在 `furina_game/` |
 | `furina_game/` | 水神 | 米哈游游戏（账号/签到/便笺/抽卡 + 6 mixin）；保留 |
 | `nahida.py` | 草神 | namespace 壳；概念归属 `/knowledge` 面板（webui 直读 irminsul） |
-| `tsaritsa.py` | 冰神 | namespace 壳；概念归属 `/plugins` 面板（webui 直读 skill_loader） |
+| `tsaritsa.py` | 冰神 | namespace 壳；原 skill 域职能已移交空执 |
 
 **B 类（archon 本体暂无具体职能 / namespace 壳，待用户后续安排）：**
 
@@ -157,20 +154,21 @@ irminsul/
 
 ---
 
-## shades/ — 四影（生 / 审 / 收 — 自进化提案管线）
+## shades/ — 四影（生执 / 死执 / 空执 / 时执 — 自进化提案管线）
 
 | 路径 | 影 | 关键词 | 职责 |
 |---|---|---|---|
-| `naberius/` | 生执 | **生** | propose_skill 凝练 skill 草案落 skill_proposals 域 |
-| `jonova/` | 死执 | **审** | review_proposal 审 skill 提案质量，写 verdict |
-| `istaroth/` | 时执 | **收** | archive + summary.md + 自进化触发 hook + L1 记忆抽取 + 生命周期清扫 |
+| `naberius/` | 生执 | 凝练 skill 草案；按用户反馈重写 |
+| `jonova/` | 死执 | 审草案质量并裁决（通过 / 要修 / 直拒） |
+| (asmoday) | 空执 | skill 域写入与管理（提案落盘 / 启动装载 / 声明注册 / `/plugins` 面板）；代码在 `shades/asmoday/` |
+| `istaroth/` | 时执 | 自进化触发 + 自进化两个 cron + skill 热重载 + 生命周期清扫 |
 | `_helpers/` | — | — | 公共 helper（runner_helpers）|
 | `_check_parser.py` | — | — | check skill 产物解析（被 morningstar / selfcheck 复用） |
 | `_lifecycle.py` | — | — | 时执生命周期 sweep（三月 cron 触发） |
 | `_task_summary.py` | — | — | task summary 回溯（webui /tasks 详情用） |
 
-> 触发器：用户主动 `/evolve` / 时执 archive hook / 三月月度 cron。
-> 落盘归冰神（apply：派蒙 safety + 写 SKILL.md + 注册）。详见 [docs/evolution.md](../docs/evolution.md) §L3。
+> 触发器：用户主动 `/evolve` / 时执触发（任务归档 + 对话累积）/ 三月月度 cron。
+> 落盘归空执（apply：派蒙安全审 + 写 SKILL.md + 注册声明 + 热加载）。详见 [docs/evolution.md](../docs/evolution.md) §L3。
 
 ---
 
@@ -178,20 +176,19 @@ irminsul/
 
 | 文件 | 职责 | 调用方 |
 |---|---|---|
-| `task_review.py` | 入口任务级安全审 | `/evolve` 命令、archive hook |
-| `skill_review.py` | skill 装载审 | skill_loader.registry / apply_proposal |
+| `task_review.py` | 入口任务级安全审 | `/evolve` 命令 |
+| `skill_review.py` | skill 装载审 | shades/asmoday/registry + apply_proposal |
 | `sensitive_filter.py` | 敏感串过滤（密钥/身份证等） | memory / 知识库写入路径 |
 
 ---
 
-## skill_loader/ — Skill 加载器
+## shades/asmoday/ — 空执（skill 域写入与管理）
 
 | 文件 | 职责 |
 |---|---|
 | `registry.py` | skill 注册器（装载时 grep allowed_tools 派生 sensitivity） |
 | `parser.py` | SKILL.md frontmatter 解析 |
-| `watcher.py` | watchdog 热重载（默认关，`SKILLS_HOT_RELOAD=true` 启用） |
-| `apply_proposal.py` | 冰神 apply approved skill 提案：派蒙 safety 审 + atomic 写 SKILL.md + 注册 skill_declarations |
+| `apply_proposal.py` | 空执落盘已同意提案：派蒙安全审 + 原子写 skills/ 子目录 + 注册 skill 声明 |
 
 ---
 
@@ -257,9 +254,9 @@ __main__ → bootstrap → 各服务初始化
 渠道层 (qq/tg/webui) → core.chat.entry → core.intent
                               ↓
                   ├─ chat: model 直接答
-                  ├─ skill: skill_loader.registry → core.chat._handler
+                  ├─ skill: shades/asmoday.registry → core.chat._handler
                   ├─ /agents: morningstar 多视角讨论
-                  └─ /evolve: shades 自进化（propose_skill → review_proposal → skill_proposals 待审）
+                  └─ /evolve: 四影自进化（生执凝练 → 死执质量审 → 进面板待审）
                                     ↑
                   全部读写都经 → foundation.irminsul（世界树）
                   全部 LLM 都经 → foundation.gnosis + llm.*

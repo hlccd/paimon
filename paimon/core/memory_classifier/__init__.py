@@ -6,6 +6,7 @@
 - memory_hygiene.py —— memory 域批量整理（cron + 面板手动）
 - kb.py           —— 知识库录入：分类 (category/topic) + reconcile + 写盘
 - kb_hygiene.py   —— knowledge 域按 category 批量整理
+- experience.py   —— 跨会话记忆经验提取（由时执会话压缩触发，写入 memory 域）
 - _register.py    —— 启动期注册 memory_hygiene / kb_hygiene 两个 task_type
 """
 from __future__ import annotations
@@ -33,6 +34,7 @@ from .memory import (
     sanitize_subject,
 )
 from .memory_hygiene import is_hygiene_running, run_hygiene
+from .experience import extract_experience
 
 __all__ = [
     "MAX_REMEMBER_CHARS",
@@ -56,5 +58,6 @@ __all__ = [
     "run_hygiene",
     "run_kb_hygiene",
     "sanitize_kb_segment",
+    "extract_experience",
     "sanitize_subject",
 ]

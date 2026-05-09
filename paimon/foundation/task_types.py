@@ -32,6 +32,11 @@ ARCHONS: dict[str, str] = {
     "zhongli": "岩神",
     "furina": "水神",
     "nahida": "草神",
+    # 四影分项：自进化 / skill 落盘相关的系统任务按职能挂到具体执
+    "naberius": "生执",
+    "jonova": "死执",
+    "asmoday": "空执",
+    "istaroth": "时执",
 }
 
 

@@ -1,4 +1,4 @@
-"""时执 · Istaroth — 活跃会话上下文压缩：tool pair 对齐 + 4 段 prompt + 熔断。"""
+"""派蒙 · 活跃会话上下文压缩：tool pair 对齐 + 4 段 prompt + 熔断。"""
 from __future__ import annotations
 
 import json
@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from paimon.core.memory_classifier import extract_experience
 from paimon.foundation.irminsul import Irminsul
 from paimon.session import Session
 
@@ -66,7 +67,7 @@ async def compress(
 ) -> bool:
     """活跃会话上下文压缩。
 
-    搬自 Model.compress_session_context，日志节点换为 [时执·压缩]，
+    搬自 Model.compress_session_context，日志节点换为 [派蒙·压缩]，
     新增 4 项改进（见模块 docstring）。
 
     返回 True 表示执行并成功；False 表示本次跳过（无需压缩 / 熔断禁用 / 无可压缩段）。
@@ -74,7 +75,7 @@ async def compress(
     # 改进 4：熔断
     if getattr(session, "auto_compact_disabled", False):
         logger.debug(
-            "[时执·压缩] 会话 {} 已熔断 auto-compact，跳过",
+            "[派蒙·压缩] 会话 {} 已熔断 auto-compact，跳过",
             session.id[:8],
         )
         return False
@@ -138,13 +139,13 @@ async def compress(
         # 改进 4：熔断计数
         session.compression_failures = getattr(session, "compression_failures", 0) + 1
         logger.warning(
-            "[时执·压缩] 记忆生成失败（第 {}/{} 次）：{}",
+            "[派蒙·压缩] 记忆生成失败（第 {}/{} 次）：{}",
             session.compression_failures, MAX_CONSECUTIVE_COMPACT_FAILURES, e,
         )
         if session.compression_failures >= MAX_CONSECUTIVE_COMPACT_FAILURES:
             session.auto_compact_disabled = True
             logger.error(
-                "[时执·压缩] 会话 {} 连续 {} 次压缩失败，熔断 auto-compact",
+                "[派蒙·压缩] 会话 {} 连续 {} 次压缩失败，熔断 auto-compact",
                 session.id[:8], session.compression_failures,
             )
         return False
@@ -165,7 +166,7 @@ async def compress(
     session.last_compressed_at = time.time()
     session.compressed_rounds += 1
     logger.info(
-        "[时执·压缩] 会话 {} 上下文压缩完成，第 {} 轮",
+        "[派蒙·压缩] 会话 {} 上下文压缩完成，第 {} 轮",
         session.id[:8], session.compressed_rounds,
     )
 
@@ -179,12 +180,12 @@ async def compress(
             )
             if n > 0:
                 logger.info(
-                    "[时执·提取] 会话 {} 写入 {} 条跨会话记忆",
+                    "[草神·经验提取] 会话 {} 写入 {} 条跨会话记忆",
                     session.id[:8], n,
                 )
         except Exception as e:
             logger.warning(
-                "[时执·提取] 会话 {} 经验提取失败（压缩仍成功）: {}",
+                "[草神·经验提取] 会话 {} 经验提取失败（压缩仍成功）: {}",
                 session.id[:8], e,
             )
 
@@ -240,11 +241,11 @@ async def _build_memory_block(
     last_error = "unknown"
     for attempt in range(1, 4):
         try:
-            raw, usage = await model._stream_text(messages, component="时执", purpose="上下文压缩")
+            raw, usage = await model._stream_text(messages, component="派蒙", purpose="上下文压缩")
         except Exception as e:
             last_error = f"模型调用失败: {e}"
             logger.warning(
-                "[时执·压缩] 记忆生成第 {}/3 次尝试失败: {}",
+                "[派蒙·压缩] 记忆生成第 {}/3 次尝试失败: {}",
                 attempt, e,
             )
             # REL-013：retry 加指数 backoff（防 LLM 限流瞬时失败立即重试再失败）
@@ -256,13 +257,13 @@ async def _build_memory_block(
         summary = _strip_code_fence(raw)
         if not summary:
             last_error = "模型输出为空"
-            logger.warning("[时执·压缩] 记忆生成第 {}/3 次结果为空", attempt)
+            logger.warning("[派蒙·压缩] 记忆生成第 {}/3 次结果为空", attempt)
             if attempt < 3:
                 import asyncio as _asyncio
                 await _asyncio.sleep(min(2 ** attempt, 10))
             continue
         await model._record_primogem(
-            session_id, "时执", usage, purpose="上下文压缩",
+            session_id, "派蒙", usage, purpose="上下文压缩",
         )
         return summary
 

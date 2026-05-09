@@ -1,4 +1,8 @@
-"""时执 · Istaroth — L1 记忆经验提取：从压缩 summary 抽跨会话条目写入 memory_index。"""
+"""草神 · 跨会话记忆经验提取：从压缩 summary 抽跨会话条目写入 memory_index。
+
+调用方：会话压缩成功后由 paimon.core.chat._compress 触发。
+压缩归派蒙 chat 路径；记忆写入归草神（memory 域唯一写入者），故本模块归草神。
+"""
 from __future__ import annotations
 
 import json
@@ -10,13 +14,19 @@ from paimon.core.safety import detect_sensitive
 from paimon.foundation.irminsul import Irminsul
 from paimon.session import Session
 
-from ._compress import _strip_code_fence
-
 if TYPE_CHECKING:
     from paimon.llm.model import Model
 
 
-# ==================== L1 记忆 · 经验提取 ====================
+def _strip_code_fence(text: str) -> str:
+    """剥 markdown 代码围栏（LLM 偶尔违反 Prompt 裹一层 ```）。"""
+    s = text.strip()
+    if not s.startswith("```"):
+        return s
+    lines = s.splitlines()
+    if len(lines) >= 2 and lines[-1].strip() == "```":
+        return "\n".join(lines[1:-1]).strip()
+    return s
 
 
 _EXTRACT_PROMPT = """\
@@ -54,7 +64,8 @@ async def extract_experience(
 ) -> int:
     """从压缩 summary 里结构化提取跨会话记忆，写入 memory_index。返回写入条数。
 
-    调用方：istaroth.compress 压缩成功后。失败抛异常，由 compress 捕获记 warning。
+    调用方：派蒙 chat 路径的会话压缩成功后调（paimon.core.chat._compress）。
+    失败抛异常，由 compress 捕获记 warning。
     """
     messages = [
         {"role": "system", "content": _EXTRACT_PROMPT},
@@ -65,12 +76,12 @@ async def extract_experience(
     ]
 
     try:
-        raw, usage = await model._stream_text(messages, component="时执", purpose="L1 记忆提取")
+        raw, usage = await model._stream_text(messages, component="草神", purpose="L1 记忆提取")
         await model._record_primogem(
-            session.id, "时执", usage, purpose="L1 记忆提取",
+            session.id, "草神", usage, purpose="L1 记忆提取",
         )
     except Exception as e:
-        logger.warning("[时执·提取] LLM 调用失败: {}", e)
+        logger.warning("[草神·经验提取] LLM 调用失败: {}", e)
         return 0
 
     text = _strip_code_fence(raw)
@@ -78,12 +89,12 @@ async def extract_experience(
         items = json.loads(text)
     except json.JSONDecodeError as e:
         logger.warning(
-            "[时执·提取] JSON 解析失败: {} 原始={}", e, text[:200],
+            "[草神·经验提取] JSON 解析失败: {} 原始={}", e, text[:200],
         )
         return 0
 
     if not isinstance(items, list):
-        logger.warning("[时执·提取] 输出不是数组，skip")
+        logger.warning("[草神·经验提取] 输出不是数组，skip")
         return 0
 
     valid_types = {"user", "feedback", "project", "reference"}
@@ -128,7 +139,7 @@ async def extract_experience(
         if hit:
             skipped_sensitive += 1
             logger.warning(
-                "[时执·提取] 丢弃敏感条目 (pattern={}): title={}",
+                "[草神·经验提取] 丢弃敏感条目 (pattern={}): title={}",
                 hit, title[:30],
             )
             continue
@@ -144,12 +155,12 @@ async def extract_experience(
             try:
                 from paimon.config import config as _cfg
                 from pathlib import Path as _Path
-                import re as _re_istaroth
+                import re as _re
                 home = _Path(_cfg.paimon_home).expanduser().resolve()
                 # paimon_home 一般是 <project>/.paimon → 父目录名 = 项目名
                 raw_subject = home.parent.name or "current"
                 if (".." in raw_subject or "/" in raw_subject or "\\" in raw_subject
-                        or not _re_istaroth.match(r"^[\w\u4e00-\u9fff\-]+$", raw_subject)):
+                        or not _re.match(r"^[\w一-鿿\-]+$", raw_subject)):
                     subject = "current"
                 else:
                     subject = raw_subject[:80]
@@ -172,15 +183,15 @@ async def extract_experience(
                 body=body,
                 tags=[str(t)[:30] for t in tags[:8]],
                 source=f"compress@{session.id}",
-                actor="时执",
+                actor="草神",
             )
             existing.add(final_title)  # 同批内也防重
             written += 1
         except Exception as e:
-            logger.warning("[时执·提取] 写入 {} 失败: {}", title[:30], e)
+            logger.warning("[草神·经验提取] 写入 {} 失败: {}", title[:30], e)
 
     if skipped_dup:
-        logger.debug("[时执·提取] 去重跳过 {} 条同名记忆", skipped_dup)
+        logger.debug("[草神·经验提取] 去重跳过 {} 条同名记忆", skipped_dup)
     if skipped_sensitive:
-        logger.info("[时执·提取] 敏感拦截丢弃 {} 条", skipped_sensitive)
+        logger.info("[草神·经验提取] 敏感拦截丢弃 {} 条", skipped_sensitive)
     return written

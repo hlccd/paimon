@@ -1,14 +1,15 @@
-"""四影 · 自进化提案管线（生 / 审 / 派 / 收）。
+"""四影 · 自进化提案管线（生执 / 死执 / 空执 / 时执）。
 
 子模块：
-- naberius/   生执 → propose_skill（凝练 skill 草案落 skill_proposals 域）
-- jonova/     死执 → review_proposal（审提案质量，写 verdict + skill_proposals.review_verdict）
-- istaroth/   时执 → archive 归档 + summary + propose 触发 hook + L1 记忆提取 + 上下文压缩
+- naberius/   生执 → 凝练 skill 草案；按用户反馈重写
+- jonova/     死执 → 审草案质量并裁决（通过 / 要修 / 直拒）
+- asmoday/    空执 → skill 域写入与管理（提案落盘 / 启动装载 / 声明注册）
+- istaroth/   时执 → 自进化触发 + skill 热重载 + 自进化两个 cron
 
 入口：
-- 用户主动 `/evolve` 命令（paimon/core/commands/evolve.py）
-- 时执 archive hook 自动判 should_propose 触发
-- 三月 cron：月度扫近 30 天任务 / 周度清 30 天前 rejected 提案
+- 用户主动 `/evolve` 命令
+- 时执自进化触发：对话每 5 条用户消息浅判
+- 三月调度月度 cron / 周度 cron（dispatcher 是时执）
 
-落盘归冰神（paimon/skill_loader/apply_proposal.py）。
+落盘归空执（paimon/shades/asmoday/apply_proposal.py）。
 """

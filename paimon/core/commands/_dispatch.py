@@ -61,7 +61,6 @@ async def dispatch_command(msg: IncomingMessage, channel: "Channel") -> str | No
     extra_args = ""
 
     # 容错：用户在 QQ/聊天框常忘记命令和参数之间的空格
-    # 例：/task-index1 → cmd=task-index, args="1"；/task-list2 → cmd=task-list, args="2"
     # 触发条件：raw 不是已注册命令 且 尾部含数字 且 切出的前缀是已注册命令
     if cmd_name not in _commands:
         m = re.match(r"^([a-zA-Z][a-zA-Z_-]*?)(\d.*)$", raw)

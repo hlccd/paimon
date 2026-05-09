@@ -1,7 +1,7 @@
 # 自进化能力
 
 > 隶属：[神圣规划](aimon.md)
-> 相关：[世界树](foundation/irminsul.md) · [四影](shades/naberius.md) · [冰神](archons/tsaritsa.md) · [草神](archons/nahida.md) · [时执](shades/istaroth.md) · [三月](foundation/march.md) · [权限与契约](permissions.md)
+> 相关：[世界树](foundation/irminsul.md) · [四影](shades/naberius.md) · [草神](archons/nahida.md) · [时执](shades/istaroth.md) · [三月](foundation/march.md) · [权限与契约](permissions.md)
 
 **定位**：在现有架构之上"跨会话经验积累 → 行为自我调整"，**不新增主干轨道** —— 各能力分散到既有模块（草神 / 时执 / 派蒙 / 四影），不是独立体系。
 
@@ -11,11 +11,11 @@
 
 | 层级 | 能力 | 当前状态 | 业务接口 / 归属 |
 |---|---|---|---|
-| L1 · 经验记忆 | 跨会话记忆积累与召回 | ✅ **已实装** | **草神**（memory 域唯一写入者 + 业务接口）；时执触发 extract / hygiene cron 周一整理 / 派蒙 prefetch / `/knowledge` 面板 |
-| L3 · Skill 自进化提案 | AI 凝练新 / 改进 skill → 待审 → 落盘 | ✅ **已实装** | 四影 propose_skill → 死执 review_proposal → `/plugins` 面板待审 → 冰神 apply 落 `<repo>/skills/`。触发器：`/evolve` 用户主动 + 时执 archive hook（浅池 LLM 判 should_propose 自动触发）+ 三月 cron 月度扫 + 周度 prune rejected |
-| L4 · 轨迹沉淀 | 为未来 SFT / RL 留原料 | 🟡 部分实装 | 时执 archive + summary 已落档；导出 SFT/RL pipeline 未做 |
+| L1 · 经验记忆 | 跨会话记忆积累与召回 | ✅ **已实装** | **草神**（memory 域唯一写入者 + 业务接口）；时执的会话压缩触发草神 extract_experience 抽取 / hygiene cron 周一整理 / 派蒙 prefetch / `/knowledge` 面板 |
+| L3 · Skill 自进化提案 | AI 凝练新 / 改进 skill → 待审 → 落盘 | ✅ **已实装** | 生执 propose → 死执 review → `/plugins` 面板待审 → 空执 apply 落 `<repo>/skills/`。触发器：`/evolve` 用户主动 + chat 每 5 条消息浅判 + 三月 cron 月度扫 + 周度 prune rejected |
+| L4 · 轨迹沉淀 | 为未来 SFT / RL 留原料 | 🔴 暂未实装 | task 域已删除；当前没有自进化以外的执行链路产生轨迹。会话压缩归档跟训练原料用途不重合 |
 
-> L2 槽位空着——派蒙人设 / skill prompt 调优属于一次性维护工作，不需要独立机制（直接编辑 `.claude/skills/X/SKILL.md` 或 `paimon/templates/paimon.t`）。
+> L2 槽位空着——派蒙人设 / skill prompt 调优属于一次性维护工作，不需要独立机制（直接编辑 `skills/X/SKILL.md` 或 `paimon/templates/paimon.t`）。
 
 ## 设计原则
 
@@ -40,11 +40,11 @@
 ### 实装链路
 
 ```
-【时执收尾 - 经验提炼】
-  时执 _experience.extract_experience()
+【会话压缩 - 经验提炼】
+  时执 compress 末尾触发草神 extract_experience()
     ├─ 浅池 LLM 抽取候选记忆（按四分类）
     ├─ 去重 / 合并
-    └─ 写世界树 memory/
+    └─ 写世界树 memory/（actor=草神）
 
 【三月定时 - hygiene】
   cron: 周一 00:00 草神 memory_hygiene
@@ -62,7 +62,7 @@
 
 实装位置：
 - 世界树 memory 域：[`paimon/foundation/irminsul/memory.py`](../paimon/foundation/irminsul/memory.py)
-- 时执提取：[`paimon/shades/istaroth/_experience.py`](../paimon/shades/istaroth/_experience.py)
+- 草神提取：[`paimon/core/memory_classifier/experience.py`](../paimon/core/memory_classifier/experience.py)（由时执 _compress 触发）
 - 派蒙 prefetch：[`paimon/core/chat/_prompt.py`](../paimon/core/chat/_prompt.py) `_load_l1_memories`
 - 草神 hygiene：bootstrap cron 周一触发
 - 面板：webui `/knowledge`
@@ -71,7 +71,7 @@
 
 ### 设计意图
 
-让 AI 从「跨会话使用规律」里凝练出**可复用的 skill 草案**，但**不直接落盘**——必经死执质量审 + 用户面板手动确认 + 派蒙安全审才能装入 `.claude/skills/`。三道闸保证：
+让 AI 从「跨会话使用规律」里凝练出**可复用的 skill 草案**，但**不直接落盘**——必经死执质量审 + 用户面板手动确认 + 派蒙安全审才能装入 `skills/`。三道闸保证：
 
 - **质量门**（死执 review_proposal）：drop 没价值 / 描述空泛 / 跟现有 skill 重叠的提议
 - **意愿门**（用户面板）：用户决定要不要这个能力，AI 不能 silently 给自己加技能
@@ -79,49 +79,35 @@
 
 ### 数据流
 
-```
-【触发（待实装）】
-  方案 A：时执 archive 收尾时浅池 LLM 判 should_propose（事件触发）
-  方案 B：三月 cron（如月度）扫一批 task 找模式（cron 兜底）
-  方案 C：用户主动 /evolve（手工触发）
+四个阶段串成一条链：触发 → 生执凝练 → 死执质量审 → 用户面板审 → 空执落盘。
 
-【提案产生（待实装）】
-  四影·生执 propose_skill stage
-    └─ 凝练 skill 草案：name / description / triggers / system_prompt /
-       allowed_tools / rationale → 写世界树 skill_proposals 域（status=pending）
+**触发**（四个入口都跳过任务编排，直接调生执 + 死执函数链）：
 
-【质量审（待实装）】
-  四影·死执 review_proposal stage
-    └─ 审 skill_prompt 完整度 / 跟现有 skill 是否重叠 / 边界是否清晰
-       → 写 review_verdict ∈ {pass, needs_revise, reject}（reject 时联动 status=rejected）
+| 入口 | 触发条件 |
+|---|---|
+| 普通对话 | 每 5 条用户消息后台浅判一次 |
+| 用户主动 | `/evolve` 命令 |
+| 月度扫描 | 每月 1 日 04:00（先清 30 天前未审 pending → 再扫近 30 天任务汇总） |
 
-【用户审（已实装）】
-  webui `/plugins` → "自进化提案" tab
-    ├─ 列待审提案 + 死执评语
-    ├─ 同意 → status=approved（死执说 needs_revise 时按钮 disabled）
-    └─ 拒绝 → status=rejected + 用户备注
+**生执凝练**：LLM 看上下文，值得做就产出 skill 草案落待审队列。一次最多 5 条；同名草案与现有 pending 去重复用；队列总数超过 25 时 LRU 删最早。
 
-【落盘（待实装）】
-  冰神 apply：读 status=approved 提案
-    ├─ 派蒙 core/safety/skill_review 跑 tool 越权 / sensitive 检查
-    ├─ 写 .claude/skills/<name>/SKILL.md
-    ├─ skill_loader 装载 + skill_declarations 注册（source='ai_gen', origin=session）
-    └─ skill_proposals.mark_applied(prop_id)
-```
+**死执质量审**：循环每条草案独立审 4 维度（完整度 / 重叠 / 工具最小权限 / 边界），裁决三档（通过 / 要修 / 直拒）；整体严格度取最严档。
+
+**用户面板审**：`/plugins` 列待审草案 + 死执评语 + 已重写次数。三个动作：同意立刻调空执落盘；拒绝归档；提建议改写则后台让生执按反馈产新版本 + 死执再审一道。重写期间锁同意 / 再提建议按钮，仅留拒绝。
+
+**空执落盘**：派蒙安全审通过后写到 `skills/` 子目录，注册到 skill 声明域；状态标 applied 后永久保留作起源审计。
 
 ### 当前实装状态
 
 | 子项 | 状态 | 实装位置 |
 |---|---|---|
-| 世界树·skill_proposals 域（schema + Repo + façade）| ✅ 实装 | [`paimon/foundation/irminsul/skill_proposals.py`](../paimon/foundation/irminsul/skill_proposals.py) |
-| `/plugins` 面板"自进化提案"tab + 6 个 API | ✅ 实装 | [`paimon/channels/webui/api/plugins.py`](../paimon/channels/webui/api/plugins.py) / [`plugins_html.py`](../paimon/channels/webui/plugins_html.py) |
-| 状态机保护（同名去重 / approve 卡 needs_revise / applied 不可 reject）| ✅ 实装 | Repo 层 |
-| 生执 propose_skill stage（含 hermes 借鉴的 SKIP 短路）| ✅ 实装 | [`paimon/shades/naberius/propose.py`](../paimon/shades/naberius/propose.py) |
-| 死执 review_proposal stage | ✅ 实装 | [`paimon/shades/jonova/review_proposal.py`](../paimon/shades/jonova/review_proposal.py) |
-| 冰神 apply（读 approved 写盘 + 注册 + safety 审）| ✅ 实装 | [`paimon/skill_loader/apply_proposal.py`](../paimon/skill_loader/apply_proposal.py) |
-| `/evolve` 命令（用户主动触发器）| ✅ 实装 | [`paimon/core/commands/evolve.py`](../paimon/core/commands/evolve.py) |
-| 时执 archive 自动触发 hook（浅池判 should_propose）| ✅ 实装 | [`paimon/shades/istaroth/_propose_trigger.py`](../paimon/shades/istaroth/_propose_trigger.py) |
-| 三月 cron：月度扫 + 周度 prune rejected | ✅ 实装 | [`paimon/skill_loader/proposal_cron.py`](../paimon/skill_loader/proposal_cron.py) |
+| 世界树自进化提案域 | ✅ 实装 | [`paimon/foundation/irminsul/skill_proposals.py`](../paimon/foundation/irminsul/skill_proposals.py) |
+| `/plugins` 面板"自进化提案" tab | ✅ 实装 | [`paimon/channels/webui/api/plugins.py`](../paimon/channels/webui/api/plugins.py) / [`plugins_html.py`](../paimon/channels/webui/plugins_html.py) |
+| 生执凝练 + 按反馈重写 | ✅ 实装 | [`paimon/shades/naberius/`](../paimon/shades/naberius/) |
+| 死执质量审 | ✅ 实装 | [`paimon/shades/jonova/review_proposal.py`](../paimon/shades/jonova/review_proposal.py) |
+| 空执落盘 + 注册 | ✅ 实装 | [`paimon/shades/asmoday/apply_proposal.py`](../paimon/shades/asmoday/apply_proposal.py) |
+| `/evolve` 命令 + 对话累积触发 | ✅ 实装 | [`paimon/core/commands/evolve.py`](../paimon/core/commands/evolve.py) / [`paimon/shades/istaroth/_propose_trigger.py`](../paimon/shades/istaroth/_propose_trigger.py) |
+| 月度扫描 + 周度清理 | ✅ 实装 | [`paimon/shades/istaroth/proposal_cron.py`](../paimon/shades/istaroth/proposal_cron.py) |
 
 ### 状态机
 
@@ -136,7 +122,7 @@
         │       │           ▼
         │       │       approved
         │       │           │
-        │       │   冰神 mark_applied
+        │       │   空执 mark_applied
         │       │           │
         ▼       ▼           ▼
      rejected  rejected   applied （永不可删，作为 skill 起源审计）
@@ -145,10 +131,12 @@
 ```
 
 **关键保护**：
-- 同名 + 同 kind + status=pending 提案去重（避免模型反复刷同一 skill 形成 spam）
-- `approve()` 校验 `review_verdict != 'needs_revise'`：死执说要修就必须先重产再审，用户硬批等于绕过质量门
-- `delete()` 拒绝 `applied`：已落盘 skill 的起源审计不可删
-- `prune_old()` 默认仅清 `rejected`；`applied` 永不清
+
+- 同名同类型 pending 去重，避免反复刷同一草案
+- 单次凝练上限 5 条，pending 队列上限 25（满则删最早）
+- 死执说要修 / 正在重写中 → 同意按钮不可点
+- 已落盘草案的起源审计不可删，月度仅清 30 天前未审 pending（用户一个月没决策 = 大概率不需要了）
+- 提建议改写期间用 `revising_at` 时间戳标记，链路完成清空；服务异常重启时启动清扫超 10 分钟的僵尸标记，避免按钮永久锁死
 
 ### 频率约束（重要）
 
@@ -159,19 +147,10 @@
 - 用户长期不审 → 提案在 `pending` 沉淀，不影响系统运行
 - `rejected` 提案三月定期 prune（避免表膨胀）；`applied` 永久保留
 
-## L4 · 轨迹沉淀（部分实装）
+## L4 · 轨迹沉淀（暂未实装）
 
-时执 archive 已落档完整 DAG + flow_history + progress_log，但**未结构化成 SFT/RL 训练数据**。
-
-**已做**：
-- 任务全链路审计入世界树 task 域
-- summary.md 写归档目录
-- 各 LLM 调用 token / 耗时入原石
-
-**未做**（长期路线图，见 [todo.md](todo.md)）：
-- 导出 SFT 数据格式（messages / tool_calls / labels）
-- RL 数据 pipeline（success/fail label / reward signal）
-- 不搭训练基础设施（成本 ROI 当前阶段为负）
+task 域已删除；当前自进化以外没有执行链路产生轨迹。会话压缩归档（草神 memory）跟训练原料用途不重合。
+如果未来需要 SFT/RL pipeline，需要重建任务编排与轨迹采集机制。
 
 ## 权限与安全
 
@@ -182,10 +161,10 @@
 | 记忆撤销 | 用户通过草神 `/knowledge` 面板 | UI 入口归草神，落盘走世界树 |
 | **Skill 提案产生** | 四影·生执 `propose_skill` stage | 凝练草案落 skill_proposals 域（pending）|
 | **Skill 提案质量审** | 四影·死执 `review_proposal` stage | 写 review_verdict + notes |
-| **Skill 提案用户审** | 用户通过冰神 `/plugins` 面板 | UI 入口归冰神（同 skill 生态）|
-| **Skill 提案落盘** | **冰神**（skill 域唯一写入者）| 读 approved 提案 → 派蒙 safety 审 → 写 `.claude/skills/` + 注册 skill_declarations |
+| **Skill 提案用户审** | 用户通过 `/plugins` 面板 | UI 入口归空执|
+| **Skill 提案落盘** | **空执**（skill 域唯一写入者）| 读 approved 提案 → 派蒙安全审 → 写 `skills/` 子目录 + 注册声明 |
 
-**冰神 vs 自进化的边界**：冰神是 skill 生态的语义负责人 + skill 域唯一写入者；自进化只是给冰神**加了一条新的 skill 来源**（除 builtin / plugin / 现有 ai_gen 之外的新流程）。冰神依然是看门人——`apply` 调用冰神接口，写盘动作都在冰神这边。
+**空执 vs 自进化的边界**：空执是 skill 域唯一写入者；自进化只是给空执加了一条新的 skill 来源（除内置 / plugin 之外）。落盘动作都收口在空执的 apply。
 
 ## 明确不做
 

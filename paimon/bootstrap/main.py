@@ -111,24 +111,24 @@ async def create_app(cfg: Config) -> list[Channel]:
 
     from pathlib import Path
     from paimon.tools.registry import ToolRegistry
-    from paimon.skill_loader.registry import SkillRegistry
+    from paimon.shades.asmoday.registry import SkillRegistry
 
     project_root = Path(__file__).parent.parent.parent
     state.tool_registry = ToolRegistry.load(project_root / "tools")
     state.skill_registry = SkillRegistry(project_root / "skills")
     state.skill_registry.scan_and_load()
-    # 冰神职责：把内存 registry 持久化到世界树 skill_declarations 表
+    # 空执职责：把内存 registry 持久化到世界树 skill_declarations 表
     await state.skill_registry.sync_to_irminsul(state.irminsul)
 
-    # 冰神 B-2：skill 目录热加载（docs/angels/angels.md §热加载）
+    # 时执 · skill 目录热加载（监听文件变化）
     state.skill_hot_loader = None
     if cfg.skills_hot_reload:
-        from paimon.skill_loader.watcher import SkillHotLoader
+        from paimon.shades.istaroth.skill_watcher import SkillHotLoader
         state.skill_hot_loader = SkillHotLoader(
             state.skill_registry, state.irminsul, state.model,
         )
         if state.skill_hot_loader.start():
-            logger.info("[冰神·启动] 热加载已开启（skills_hot_reload=True）")
+            logger.info("[时执·启动] 热加载已开启（skills_hot_reload=True）")
         else:
             state.skill_hot_loader = None
 
@@ -158,7 +158,7 @@ async def create_app(cfg: Config) -> list[Channel]:
     _furina_game_reg()
     from paimon.core.memory_classifier import register_task_types as _hygiene_reg
     _hygiene_reg()
-    from paimon.skill_loader.proposal_cron import register_task_types as _proposal_reg
+    from paimon.shades.istaroth.proposal_cron import register_task_types as _proposal_reg
     _proposal_reg()
 
     # 订阅类型注册（venti.collect_subscription dispatch 时按 binding_kind 查表）
@@ -238,7 +238,7 @@ async def create_app(cfg: Config) -> list[Channel]:
     # 派蒙订阅三月响铃 → 投递给用户
     state.leyline.subscribe("march.ring", _on_march_ring)
 
-    # 权限缓存：新 skill 上线（冰神审过 → 四影通知）/ skill 被撤销时失效对应缓存
+    # 权限缓存：新 skill 上线（空执装载 → 四影通知）/ skill 被撤销时失效对应缓存
     state.leyline.subscribe("skill.loaded", _on_skill_loaded)
     # 热卸载 / orphan 场景：撤销后也失效 authz 缓存（避免 dangling 授权被消费）
     state.leyline.subscribe("skill.revoked", _on_skill_loaded)

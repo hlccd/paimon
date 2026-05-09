@@ -1,4 +1,4 @@
-"""世界树 façade · 基础数据域 1-7：authz/skill/knowledge/memory/task/token/audit。"""
+"""世界树 façade · 基础数据域 1-7：authz/skill/knowledge/memory/token/audit。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,7 +21,6 @@ from ..llm_route import LLMRoute
 from ..push_archive import PushArchiveRecord
 from ..selfcheck import SelfcheckRun
 from ..subscription import FeedItem, Subscription
-from ..task import FlowEntry, ProgressEntry, Subtask, TaskEdict
 from ..schedule import ScheduledTask
 from ..token import TokenRow
 
@@ -125,6 +124,40 @@ class _BasicsMixin:
             prop_id, notes, decided_by=decided_by, actor=actor,
         )
 
+    async def skill_proposal_submit_user_feedback(
+        self, prop_id: str, feedback: str, *, actor: str = "用户",
+    ) -> bool:
+        return await self._skill_proposal.submit_user_feedback(
+            prop_id, feedback, actor=actor,
+        )
+
+    async def skill_proposal_mark_revising_done(self, prop_id: str) -> None:
+        await self._skill_proposal.mark_revising_done(prop_id)
+
+    async def skill_proposal_clear_stale_revising(
+        self, *, timeout_seconds: float = 600,
+    ) -> int:
+        return await self._skill_proposal.clear_stale_revising(
+            timeout_seconds=timeout_seconds,
+        )
+
+    async def skill_proposal_update_content(
+        self, prop_id: str, *,
+        description: str | None = None,
+        triggers: str | None = None,
+        system_prompt: str | None = None,
+        allowed_tools: list[str] | None = None,
+        rationale: str | None = None,
+        bump_revision: bool = True,
+        actor: str,
+    ) -> bool:
+        return await self._skill_proposal.update_content(
+            prop_id,
+            description=description, triggers=triggers,
+            system_prompt=system_prompt, allowed_tools=allowed_tools,
+            rationale=rationale, bump_revision=bump_revision, actor=actor,
+        )
+
     async def skill_proposal_mark_applied(self, prop_id: str, *, actor: str) -> bool:
         return await self._skill_proposal.mark_applied(prop_id, actor=actor)
 
@@ -196,86 +229,6 @@ class _BasicsMixin:
 
     async def memory_expire(self, now: float, *, actor: str) -> int:
         return await self._memory.expire(now, actor=actor)
-
-    # ============ 域 5: 活跃任务 ============
-    async def task_create(self, edict: TaskEdict, *, actor: str) -> None:
-        await self._task.create(edict, actor=actor)
-
-    async def task_get(self, task_id: str) -> TaskEdict | None:
-        return await self._task.get(task_id)
-
-    async def task_update_status(self, task_id: str, status: str, *, actor: str) -> None:
-        await self._task.update_status(task_id, status, actor=actor)
-
-    async def task_update_lifecycle(self, task_id: str, stage: str, *, actor: str) -> None:
-        await self._task.update_lifecycle(task_id, stage, actor=actor)
-
-    # --- 生命周期清扫（时执·_lifecycle 用）---
-
-    async def task_stuck_running_timeout(
-        self, *, now: float, timeout_seconds: float, actor: str,
-    ) -> list[str]:
-        return await self._task.stuck_running_timeout(
-            now=now, timeout_seconds=timeout_seconds, actor=actor,
-        )
-
-    async def task_promote_lifecycle(
-        self, *, now: float, cold_ttl_seconds: float, actor: str,
-    ) -> list[str]:
-        return await self._task.promote_lifecycle(
-            now=now, cold_ttl_seconds=cold_ttl_seconds, actor=actor,
-        )
-
-    async def task_purge_expired(
-        self, *, now: float, archived_ttl_seconds: float, actor: str,
-    ) -> list[str]:
-        return await self._task.purge_expired(
-            now=now, archived_ttl_seconds=archived_ttl_seconds, actor=actor,
-        )
-
-    async def task_list(
-        self, *, status: str | None = None, lifecycle_stage: str | None = None,
-        session_id: str | None = None, limit: int = 100,
-    ) -> list[TaskEdict]:
-        return await self._task.list(
-            status=status, lifecycle_stage=lifecycle_stage,
-            session_id=session_id, limit=limit,
-        )
-
-    async def subtask_create(self, sub: Subtask, *, actor: str) -> None:
-        await self._task.subtask_create(sub, actor=actor)
-
-    async def subtask_update_status(self, subtask_id: str, status: str, result: str = "", *, actor: str) -> None:
-        await self._task.subtask_update_status(subtask_id, status, result, actor=actor)
-
-    async def subtask_update_verdict(
-        self, subtask_id: str, verdict_status: str, *, actor: str,
-    ) -> None:
-        """水神裁决后为单个子任务打标 verdict（passed / needs_revise / needs_redo）。"""
-        await self._task.subtask_update_verdict(subtask_id, verdict_status, actor=actor)
-
-    async def subtask_list(self, task_id: str) -> list[Subtask]:
-        return await self._task.subtask_list(task_id)
-
-    async def flow_append(
-        self, task_id: str, from_agent: str, to_agent: str, action: str,
-        payload: dict | None = None, *, actor: str,
-    ) -> None:
-        await self._task.flow_append(task_id, from_agent, to_agent, action, payload, actor=actor)
-
-    async def flow_list(self, task_id: str) -> list[FlowEntry]:
-        return await self._task.flow_list(task_id)
-
-    async def progress_append(
-        self, task_id: str, agent: str, progress_pct: int,
-        message: str = "", subtask_id: str | None = None, *, actor: str,
-    ) -> None:
-        await self._task.progress_append(
-            task_id, agent, progress_pct, message, subtask_id, actor=actor,
-        )
-
-    async def progress_list(self, task_id: str) -> list[ProgressEntry]:
-        return await self._task.progress_list(task_id)
 
     # ============ 域 6: Token 记录 ============
     async def token_write(

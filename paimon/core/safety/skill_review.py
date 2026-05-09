@@ -1,6 +1,6 @@
 """派蒙·skill_review — 新 skill 声明审查。
 
-skill_loader 加载新 skill（plugin / AI 生成）前调一次，判断是否准入世界树。
+空执加载新 skill（plugin / AI 生成）前调一次，判断是否准入世界树。
 LLM 调用失败时保守拒绝（不加载）。
 """
 from __future__ import annotations

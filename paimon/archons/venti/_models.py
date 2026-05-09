@@ -21,7 +21,6 @@ from loguru import logger
 
 from paimon.archons.base import Archon
 from paimon.foundation.irminsul import Irminsul
-from paimon.foundation.irminsul.task import Subtask, TaskEdict
 from paimon.foundation.march import today_local_bounds
 from paimon.llm.model import Model
 from paimon.session import Session

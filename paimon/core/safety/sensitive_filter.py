@@ -1,7 +1,7 @@
 """敏感信息正则过滤 —— 跨模块共享
 
 用途：拦截跨会话 memory 可能包含的密钥 / 密码 / 隐私号码等敏感串。
-调用方：`commands.cmd_remember`（用户显式记忆入口）、`shades.istaroth.extract_experience`
+调用方：`commands.cmd_remember`（用户显式记忆入口）、`core.memory_classifier.extract_experience`（会话压缩末尾触发）
 （压缩后自动提取入口）。
 
 策略：宁少勿多。只拦截强特征的串；正常中文内容不应误伤。

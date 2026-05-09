@@ -31,7 +31,6 @@ from paimon.foundation.irminsul import (
     UserWatchPrice,
     WatchlistEntry,
 )
-from paimon.foundation.irminsul.task import Subtask, TaskEdict
 
 from ._zhongli._digest import _DigestMixin
 from ._zhongli._scan import _ScanMixin
@@ -156,10 +155,7 @@ class ZhongliArchon(_ScanMixin, _SkillMixin, _WatchMixin, _DigestMixin, Archon):
 
     # ---------- 事件持久化（供 _full_scan/_daily_update/_rescore 调）----------
 
-    async def execute(
-        self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
-        prior_results: list[str] | None = None,
-    ) -> str:
+    async def execute(self) -> str:
         # 本方法仅为满足 Archon ABC 约定（archon 实例不参与执行路径）
         # 非四影功能（collect_dividend / scorer / handle_query / cron / /wealth 面板）全部保留
         return f"[{self.name}] execute 路径已解耦，请参考 docs/archons/zhongli.md"

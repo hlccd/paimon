@@ -46,67 +46,6 @@ CREATE TABLE IF NOT EXISTS memory_index (
 CREATE INDEX IF NOT EXISTS idx_memory_type_subject ON memory_index(mem_type, subject);
 CREATE INDEX IF NOT EXISTS idx_memory_ttl ON memory_index(ttl);
 
--- ============ 域 5: 活跃任务（4 张表）============
-CREATE TABLE IF NOT EXISTS task_edicts (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    creator TEXT NOT NULL,
-    status TEXT NOT NULL,
-    lifecycle_stage TEXT NOT NULL DEFAULT 'hot',
-    session_id TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    archived_at REAL
-);
-CREATE INDEX IF NOT EXISTS idx_task_status ON task_edicts(status);
-CREATE INDEX IF NOT EXISTS idx_task_lifecycle ON task_edicts(lifecycle_stage);
-CREATE INDEX IF NOT EXISTS idx_task_session ON task_edicts(session_id);
-
-CREATE TABLE IF NOT EXISTS task_subtasks (
-    id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    parent_id TEXT,
-    assignee TEXT NOT NULL,
-    description TEXT NOT NULL,
-    status TEXT NOT NULL,
-    result TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    deps TEXT NOT NULL DEFAULT '[]',
-    round INTEGER NOT NULL DEFAULT 1,
-    sensitive_ops TEXT NOT NULL DEFAULT '[]',
-    verdict_status TEXT NOT NULL DEFAULT '',
-    compensate TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY (task_id) REFERENCES task_edicts(id)
-);
-CREATE INDEX IF NOT EXISTS idx_subtask_task ON task_subtasks(task_id);
-CREATE INDEX IF NOT EXISTS idx_subtask_status ON task_subtasks(status);
-
-CREATE TABLE IF NOT EXISTS task_flow_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id TEXT NOT NULL,
-    from_agent TEXT NOT NULL,
-    to_agent TEXT NOT NULL,
-    action TEXT NOT NULL,
-    payload TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES task_edicts(id)
-);
-CREATE INDEX IF NOT EXISTS idx_flow_task ON task_flow_history(task_id);
-
-CREATE TABLE IF NOT EXISTS task_progress_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id TEXT NOT NULL,
-    subtask_id TEXT,
-    agent TEXT NOT NULL,
-    progress_pct INTEGER NOT NULL DEFAULT 0,
-    message TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES task_edicts(id)
-);
-CREATE INDEX IF NOT EXISTS idx_progress_task ON task_progress_log(task_id);
-
 -- ============ 域 6: Token 记录 ============
 CREATE TABLE IF NOT EXISTS token_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -561,6 +500,9 @@ CREATE TABLE IF NOT EXISTS skill_proposals (
     decision_notes      TEXT NOT NULL DEFAULT '',        -- 用户拒绝时的理由
     decided_at          REAL,
     applied_at          REAL,
+    user_feedback       TEXT NOT NULL DEFAULT '',        -- 用户最近一次给草案的建议（驱动 revise）
+    revision_count      INTEGER NOT NULL DEFAULT 0,      -- 被用户提建议重写过的次数
+    revising_at         REAL,                            -- 正在生执 revise 中的开始时间戳；NULL = 空闲
     created_at          REAL NOT NULL,
     updated_at          REAL NOT NULL
 );

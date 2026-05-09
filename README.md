@@ -16,24 +16,25 @@
   - `/evolve` **自进化提案触发**（凝练当前会话为 skill 草案进 `/plugins` 待审）
 - **【守门 + 路由 + 出口 + 全程安全闸】派蒙**
   - 安全闸（[paimon/core/safety/](paimon/core/safety/)）：`task_review` / `review_skill_declaration` / `detect_sensitive`
-- **【自进化提案管线】四影**（生 / 审 / 收）
-  - [**生执·纳贝里士**](docs/shades/naberius.md)：**生** — `propose_skill` 凝练 skill 草案落 skill_proposals 域
-  - [**死执·若纳瓦**](docs/shades/jonova.md)：**审** — `review_proposal` 审提案质量 + 写 review_verdict
-  - [**时执·伊斯塔露**](docs/shades/istaroth.md)：**收** — archive 归档 + summary + 自进化触发 hook + L1 记忆抽取 + 生命周期
-  - 触发：用户主动 `/evolve` / archive hook 浅池判 should_propose / 三月月度 cron
-  - 落盘归冰神（apply：派蒙 safety 审 + 写 SKILL.md + 注册 skill_declarations）
+- **【自进化提案管线】四影**（生执 / 死执 / 空执 / 时执）
+  - [**生执·纳贝里士**](docs/shades/naberius.md) — 凝练 skill 草案；按用户反馈重写
+  - [**死执·若纳瓦**](docs/shades/jonova.md) — 审草案质量并裁决（通过 / 要修 / 直拒）
+  - [**空执·阿斯莫代**](docs/shades/asmoday.md) — skill 域写入与管理（提案落盘 + 启动装载 + 声明注册 + `/plugins` 面板）
+  - [**时执·伊斯塔露**](docs/shades/istaroth.md) — 自进化触发 + 自进化两个 cron + skill 热重载 + 生命周期清扫
+  - 触发：用户主动 `/evolve` / 任务归档 / 对话每 5 条消息浅判 / 月度扫描
+  - 落盘归空执：通过派蒙安全审后写到 `skills/` 子目录并注册
 - **【议事辅助】天使**（晨星 leader + 11 协同天使，**不落地，只出纪要**）
   - 职能：分析 / 调研 / 决策辅助（"该不该做 X" / "选 A 还是 B" / "评估这个方案"）
   - 晨星调度（assemble → dispatch+speak loop → synthesize），按议题挑 3-5 个协同天使参与
   - 11 角色池：结构性 5 / 评估性 4 / 对抗性 2
 - **【值班模块】七神**（cron + 面板 + 概念归属，跟自进化主链路并行）
-  - **A 类（保留 cron / 面板 / 概念归属 5 个）**：
+  - **A 类（保留 cron / 面板 / 概念归属 4 个）**：
     - [风神·巴巴托斯](docs/archons/venti.md)：信息采集 + LLM digest + `/feed` cron + 站点登录 ✅
     - [岩神·摩拉克斯](docs/archons/zhongli.md)：红利股扫描 + scorer + `/wealth` cron ✅
     - [草神·纳西妲](docs/archons/nahida.md)：`/knowledge` 面板概念归属 ✅
     - [水神·芙宁娜](docs/archons/furina.md)：游戏 `/game` + 2 cron + 1 sub type ✅
-    - [冰神·冰之女皇](docs/archons/tsaritsa.md)：`/plugins` 面板代理 + skill 生态 namespace ✅
-  - **B 类（archon 本体暂无具体职能 / namespace 壳 2 个）**：
+  - **B 类（namespace 壳 3 个，待新职能挂载）**：
+    - [冰神·冰之女皇](docs/archons/tsaritsa.md)：原 skill 域职能已移交空执，namespace 壳
     - [雷神·巴尔泽布](docs/archons/raiden.md) / [火神·玛薇卡](docs/archons/mavuika.md)（namespace 壳，待新职能挂载）
 - **全局支撑层**
   - [**世界树**](docs/foundation/irminsul.md)：全系统**唯一存储层**，13 个数据域（授权 / skill 生态 / 知识 / 记忆 / 任务 / token / 审计 / 理财 / 会话 / 定时任务 / 订阅 / 自检归档 / **skill 自进化提案**）

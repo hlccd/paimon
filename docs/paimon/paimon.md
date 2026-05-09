@@ -6,7 +6,7 @@
 
 - **入口侧**：用户消息接入、安全闸（task_review / scan_plan / skill_review / sensitive_filter，见 `paimon/core/safety/`）、意图分流、闲聊、权限询问
 - **出口侧**：天使纪要 / 四影产物 / 三月响铃推送，统一经派蒙人格包装后送达用户
-- **Web 面板**（`/feed` `/wealth` `/game` `/knowledge` `/plugins` `/sentiment` `/tasks` 等）是**独立交互通道**，webui api 直读 irminsul / skill_loader，不走对话流，跟派蒙对话出入口并行存在
+- **Web 面板**（`/feed` `/wealth` `/game` `/knowledge` `/plugins` `/sentiment` `/tasks` 等）是**独立交互通道**，webui api 直读 irminsul + 空执 SkillRegistry，不走对话流，跟派蒙对话出入口并行存在
 
 ## 核心能力
 
@@ -55,6 +55,13 @@
 - **超时**：单 tool 超时返错给 LLM 自愈；整体超时直接 reply 错误终止
 - **容错**：skill 失败时返错误 message 给用户（不再升级到四影）
 
+### 活跃会话上下文压缩
+- **触发**：每次 chat 处理时，发现 token 占比超阈值就压一次
+- **过程**：归档头部消息 → LLM 抽 4 段 summary → 替换原 messages 头部
+- **副产物**：压缩成功后调草神 `extract_experience` 抽跨会话记忆入 memory 域
+- **熔断**：连续 3 次失败 → 熔断 auto-compact，本会话不再尝试
+- **实现**：[`paimon/core/chat/_compress.py`](../../paimon/core/chat/_compress.py)
+
 ### 权限询问与授权管理
 
 派蒙在权限体系中承担 4 项专属职责：
@@ -72,4 +79,4 @@
   └── 敏感权限无记录 → 询问用户，按答复处理
 ```
 
-> 跨模块的完整权限机制见 [权限与契约](../permissions.md)；其他角色（冰神 = skill 生态业务接口 / 派蒙 core/safety = 安全闸 / 世界树 = 唯一存储）的权限职责见各自文档。
+> 跨模块的完整权限机制见 [权限与契约](../permissions.md)；其他角色（空执 = skill 生态实现 / 派蒙 core/safety = 安全闸 / 世界树 = 唯一存储）的权限职责见各自文档。

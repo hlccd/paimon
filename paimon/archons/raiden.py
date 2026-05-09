@@ -7,9 +7,6 @@
 from __future__ import annotations
 
 from paimon.archons.base import Archon
-from paimon.foundation.irminsul import Irminsul
-from paimon.foundation.irminsul.task import Subtask, TaskEdict
-from paimon.llm.model import Model
 
 
 class RaidenArchon(Archon):
@@ -17,8 +14,5 @@ class RaidenArchon(Archon):
     description = "（namespace 保留 / 待新职能挂载）"
     allowed_tools: set[str] = set()
 
-    async def execute(
-        self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
-        prior_results: list[str] | None = None,
-    ) -> str:
+    async def execute(self) -> str:
         return f"[{self.name}] 暂无具体职能（namespace 壳）"

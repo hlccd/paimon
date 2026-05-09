@@ -42,8 +42,12 @@ def _validate_col_def(col_def: str) -> None:
 # 从此列表删除——本地有老 DB 的实例下次启动还需要靠这条 ALTER 补列。
 #
 # 当前为空：2026-05 启动瘦身已合并 13 列到 _schema.sql；之后新增列从这里登记。
-# 例如：("task_subtasks", "new_col_y", "TEXT NOT NULL DEFAULT ''"),
+# 例如：("skill_proposals", "new_col_y", "TEXT NOT NULL DEFAULT ''"),
 _MIGRATIONS: list[tuple[str, str, str]] = [
+    # 2026-05 用户给 skill 草案提建议触发 revise
+    ("skill_proposals", "user_feedback", "TEXT NOT NULL DEFAULT ''"),
+    ("skill_proposals", "revision_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("skill_proposals", "revising_at", "REAL"),
 ]
 
 

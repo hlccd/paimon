@@ -1,4 +1,4 @@
-"""插件面板 API — 冰神 skill 列表 + 永久授权管理（撤销）。"""
+"""插件面板 API — 空执（skill 生态 + 自进化提案审批）+ 永久授权管理。"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -95,7 +95,7 @@ async def plugins_authz_revoke_api(channel: "WebUIChannel", request: web.Request
             return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
 
         ok = await irminsul.authz_revoke(
-            subject_type, subject_id, actor="冰神面板",
+            subject_type, subject_id, actor="空执面板",
         )
         # 同步撤销本地缓存
         if channel.state.authz_cache:
@@ -130,6 +130,9 @@ def _proposal_to_dict(p) -> dict:
         "decision_notes": p.decision_notes,
         "decided_at": p.decided_at,
         "applied_at": p.applied_at,
+        "user_feedback": p.user_feedback,
+        "revision_count": p.revision_count,
+        "revising_at": p.revising_at,
         "created_at": p.created_at,
         "updated_at": p.updated_at,
     }
@@ -171,7 +174,7 @@ async def plugins_proposal_get_api(channel: "WebUIChannel", request: web.Request
 
 
 async def plugins_proposal_approve_api(channel: "WebUIChannel", request: web.Request) -> web.Response:
-    """用户同意提案 → status=approved → 立即调冰神 apply 落盘。
+    """用户同意提案 → status=approved → 立即调空执 apply 落盘。
 
     死执 review_verdict='needs_revise' 时 Repo 层会拒绝 approve，返 ok=False。
     apply 失败时 status 仍是 approved（人工介入决定 retry / reject）。
@@ -185,21 +188,28 @@ async def plugins_proposal_approve_api(channel: "WebUIChannel", request: web.Req
     if not irminsul or not prop_id:
         return web.json_response({"ok": False, "error": "Not Found"}, status=404)
     try:
-        ok = await irminsul.skill_proposal_approve(prop_id, actor="冰神面板")
+        # 先查状态给出准确原因（approve 内部联合三个条件，错误难定位）
+        existing = await irminsul.skill_proposal_get(prop_id)
+        if existing and existing.revising_at:
+            return web.json_response({
+                "ok": False,
+                "error": "提案正在重写中，请等重写完成再 approve",
+            })
+        ok = await irminsul.skill_proposal_approve(prop_id, actor="空执面板")
         if not ok:
             return web.json_response({
                 "ok": False,
                 "error": "提案非 pending 或死执质量审建议修订，无法直接 approve",
             })
 
-        # 同步调冰神 apply（用户期望"点同意 = 立刻生效"）
-        from paimon.skill_loader.apply_proposal import apply_proposal
+        # 同步调空执 apply（用户期望"点同意 = 立刻生效"）
+        from paimon.shades.asmoday.apply_proposal import apply_proposal
         skill_registry = channel.state.skill_registry
         if not skill_registry:
             return web.json_response({"ok": False, "error": "skill_registry 未就绪"}, status=500)
         result = await apply_proposal(
             prop_id, irminsul=irminsul, model=channel.state.model,
-            skills_dir=skill_registry.skills_dir, actor="冰神面板",
+            skills_dir=skill_registry.skills_dir, actor="空执面板",
         )
         return web.json_response({
             "ok": True,
@@ -223,13 +233,13 @@ async def plugins_proposal_apply_api(channel: "WebUIChannel", request: web.Reque
     if not irminsul or not prop_id:
         return web.json_response({"ok": False, "error": "Not Found"}, status=404)
     try:
-        from paimon.skill_loader.apply_proposal import apply_proposal
+        from paimon.shades.asmoday.apply_proposal import apply_proposal
         skill_registry = channel.state.skill_registry
         if not skill_registry:
             return web.json_response({"ok": False, "error": "skill_registry 未就绪"}, status=500)
         result = await apply_proposal(
             prop_id, irminsul=irminsul, model=channel.state.model,
-            skills_dir=skill_registry.skills_dir, actor="冰神面板",
+            skills_dir=skill_registry.skills_dir, actor="空执面板",
         )
         return web.json_response({
             "ok": result.ok,
@@ -258,7 +268,7 @@ async def plugins_proposal_reject_api(channel: "WebUIChannel", request: web.Requ
     except Exception:
         notes = ""
     try:
-        ok = await irminsul.skill_proposal_reject(prop_id, notes, actor="冰神面板")
+        ok = await irminsul.skill_proposal_reject(prop_id, notes, actor="空执面板")
         if not ok:
             return web.json_response({
                 "ok": False,
@@ -268,6 +278,60 @@ async def plugins_proposal_reject_api(channel: "WebUIChannel", request: web.Requ
     except Exception as e:
         logger.error("[派蒙·WebUI] reject 提案异常: {}", e)
         return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def plugins_proposal_revise_api(channel: "WebUIChannel", request: web.Request) -> web.Response:
+    """用户提建议改写提案：写 user_feedback + 后台调生执 revise → 死执重审。
+
+    body: {"feedback": "建议文本（可空）"}
+    feedback 为空时退化为「按原内容重审」（用于挽救 verdict 不准的旧提案）。
+
+    返回立刻：ok 表示「已接收并安排后台重写」；用户面板 poll 列表看新版即可。
+    """
+    if channel.require_auth:
+        token = request.cookies.get("paimon_token")
+        if not token or token not in channel.valid_tokens:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+    prop_id = request.match_info.get("prop_id", "")
+    irminsul = channel.state.irminsul
+    if not irminsul or not prop_id:
+        return web.json_response({"ok": False, "error": "Not Found"}, status=404)
+    try:
+        data = await request.json() if request.body_exists else {}
+        feedback = (data.get("feedback") or "").strip()
+    except Exception:
+        feedback = ""
+
+    # 1. 入库 user_feedback + reset verdict
+    try:
+        ok = await irminsul.skill_proposal_submit_user_feedback(
+            prop_id, feedback, actor="空执面板",
+        )
+        if not ok:
+            return web.json_response({
+                "ok": False,
+                "error": "提案非 pending（已 approved / rejected / applied），无法 revise",
+            })
+    except Exception as e:
+        logger.error("[派蒙·WebUI] revise 入库异常 prop_id={}: {}", prop_id, e)
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    # 2. 后台调生执 revise + 死执 re-review（fire-and-forget，不阻塞响应）
+    model = channel.state.model
+    if model:
+        import asyncio as _asyncio
+        from paimon.shades.naberius.revise import run_revise_and_review_chain
+        _asyncio.create_task(
+            run_revise_and_review_chain(prop_id, irminsul, model),
+            name=f"revise-{prop_id[:8]}",
+        )
+    else:
+        logger.warning("[派蒙·WebUI] revise 已入库但 model 未就绪，无法触发后台重写")
+
+    return web.json_response({
+        "ok": True,
+        "message": "建议已接收，后台正在重写。刷新列表可看到新版本。",
+    })
 
 
 async def plugins_proposal_delete_api(channel: "WebUIChannel", request: web.Request) -> web.Response:
@@ -281,7 +345,7 @@ async def plugins_proposal_delete_api(channel: "WebUIChannel", request: web.Requ
     if not irminsul or not prop_id:
         return web.json_response({"ok": False, "error": "Not Found"}, status=404)
     try:
-        ok = await irminsul.skill_proposal_delete(prop_id, actor="冰神面板")
+        ok = await irminsul.skill_proposal_delete(prop_id, actor="空执面板")
         return web.json_response({"ok": ok})
     except Exception as e:
         logger.error("[派蒙·WebUI] delete 提案异常: {}", e)
@@ -300,4 +364,5 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_post("/api/plugins/proposals/{prop_id}/approve", lambda r, ch=channel: plugins_proposal_approve_api(ch, r))
     app.router.add_post("/api/plugins/proposals/{prop_id}/apply", lambda r, ch=channel: plugins_proposal_apply_api(ch, r))
     app.router.add_post("/api/plugins/proposals/{prop_id}/reject", lambda r, ch=channel: plugins_proposal_reject_api(ch, r))
+    app.router.add_post("/api/plugins/proposals/{prop_id}/revise", lambda r, ch=channel: plugins_proposal_revise_api(ch, r))
     app.router.add_post("/api/plugins/proposals/{prop_id}/delete", lambda r, ch=channel: plugins_proposal_delete_api(ch, r))

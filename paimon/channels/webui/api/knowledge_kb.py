@@ -141,7 +141,7 @@ async def knowledge_kb_write_api(channel, request: web.Request) -> web.Response:
             return web.json_response(
                 {"ok": False, "error": "body 不能为空"}, status=400,
             )
-        # 路径安全（跟 task_workspace.read_artifact 同策略）：category / topic
+        # 路径安全（resolve + 校验在 paimon_home/irminsul/ 内）：category / topic
         # 里禁止 ..、斜杠、反斜杠、null byte——knowledge_write 底层用它们拼文件路径
         for seg_name, seg in (("category", category), ("topic", topic)):
             if ".." in seg or "/" in seg or "\\" in seg or "\x00" in seg:

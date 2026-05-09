@@ -4,7 +4,7 @@
 - 普通：纯读 / 本地无副作用 / 低风险
 - 敏感：系统 / 外部 / 凭据 / 可导致副作用的写
 
-冰神装载 skill 时调用 derive_sensitivity，基于 skill 声明的 allowed_tools
+空执装载 skill 时调用 derive_sensitivity，基于 skill 声明的 allowed_tools
 自动派生其敏感度，无需手动 manifest 标记。
 """
 from __future__ import annotations

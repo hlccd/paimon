@@ -21,7 +21,7 @@
 ## 明确不做
 
 - **不做业务推理**：推理归草神
-- **不做安全审查**：审查归死执（新 skill）、冰神（生态把关）
+- **不做安全审查**：审查归死执（新 skill）、派蒙 core/safety（生态把关）
 - **不做访问决策**：决策归派蒙 / 死执（查缓存后自行判断）
 - **不做主动广播**：消费者感知变更走"**启动读 + 服务层回调通知**"两条路径（见 [permissions.md §画像更新链路](../permissions.md)）
 - **不缓存别人的数据**：每个服务层模块自己维护本地缓存
@@ -31,11 +31,10 @@
 
 | # | 数据域 | 唯一写入者（服务层） | 读取者 | 业务逻辑留在哪 |
 |---|---|---|---|---|
-| 1 | 用户授权记录 | 派蒙（对话写）、冰神 `/plugins` 面板（撤销写） | 派蒙 / 派蒙·core/safety / 冰神面板 | 关键词识别、缓存维护、UI 展示 |
-| 2 | Skill 生态声明 | 冰神（唯一） | 派蒙 / 派蒙·core/safety | 扫目录、运行时装载、与派蒙 skill_review 协作 |
+| 1 | 用户授权记录 | 派蒙（对话写）、空执 `/plugins` 面板（撤销写） | 派蒙 / 派蒙·core/safety / 空执面板 | 关键词识别、缓存维护、UI 展示 |
+| 2 | Skill 生态声明 | 空执（唯一） | 派蒙 / 派蒙·core/safety | 扫目录、运行时装载、与派蒙 skill_review 协作 |
 | 3 | 知识库 | 草神（唯一） | 草神 / `/knowledge` 面板 | 推理、整合、语义召回、Prompt 调优 |
 | 4 | 记忆 memory/（含个人偏好、习惯） | 草神（唯一） | 派蒙（prefetch）/ 草神 / `/knowledge` 面板 | 抽取、归一、hygiene cron 整理 |
-| 5 | 活跃任务记录 | 生执 / 空执 / 各影 | 派蒙 / 三月面板 / 时执（归档时读出） | DAG 拆分、状态转移、轮次控制 |
 | 6 | Token 记录 | 原石（唯一） | 原石 | 费率查表、缓存折扣、多维聚合 |
 | 7 | 审计 / 归档 | 时执（唯一） | 时执 | 分层策略（热/冷/过期）、审计复盘 |
 | 8 | 理财数据 | 岩神（唯一） | 岩神 | 股价爬取、分红计算、资产管理 |
@@ -43,11 +42,11 @@
 | 10 | 定时任务 | 三月（唯一） | 三月 / 派蒙面板 | cron/interval/once 调度、响铃、失败退避 |
 | 11 | 订阅（subscriptions + feed_items）| 风神（采集写）/ 派蒙（订阅声明写）| 风神 / WebUI 面板 | 主题采集、去重、日报整理 |
 | 12 | 自检归档（selfcheck_runs + blob 目录）| 三月·SelfCheckService（唯一）| 三月 / WebUI `/selfcheck` 面板 | Quick 组件探针 + Deep check skill 产物归档；每 run 独立 blob 目录防覆盖 |
-| 16 | **Skill 自进化提案**（skill_proposals）| 四影·生执（propose 写）/ 四影·死执（review verdict 写）/ 冰神（apply 标记写）| 用户 `/plugins` 面板 / 冰神（apply 时读 approved）| 提案产生（生执 propose_skill stage）+ 质量审（死执 review_proposal stage）+ 用户审批 + 冰神落盘到 `.claude/skills/` |
+| 16 | **Skill 自进化提案**（skill_proposals）| 四影·生执（propose / revise 写）/ 四影·死执（review verdict 写）/ 用户面板（user_feedback / decision 写）/ 四影·空执（apply 标记写）| 用户 `/plugins` 面板 / 空执（apply 时读 approved）| 提案产生 + 质量审 + 用户审批 / 提建议改写 + 空执落盘到 `skills/`。LRU 队列上限 25；单次 propose 最多 5 个；月度 cron 清 30 天前 pending |
 
 > 编号不连续是历史原因：8.5/8.6/8.7（理财扩展）/ 11.5（feed event）/ 13/14/15（push_archive / llm_profile / llm_route）等子域跳号；上表只列**主域**，13 个主域是当前活跃域数。详细 schema 见 [`paimon/foundation/irminsul/_db/_schema.sql`](../../paimon/foundation/irminsul/_db/_schema.sql)。
 
-> **自进化域的"多写入者"特例**：通常一个域一个唯一写入者；skill_proposals 例外——四影 propose 阶段写、四影 review 阶段更新 verdict、冰神 apply 时标 applied，三个写入者按状态机阶段分工不冲突。**写盘到磁盘**仍归冰神（apply 时写 `.claude/skills/<name>/SKILL.md` + 注册 skill_declarations）。详见 [自进化体系](../evolution.md) §L3。
+> **自进化域的"多写入者"特例**：通常一个域一个唯一写入者；skill_proposals 例外——四影 propose 阶段写、四影 revise 阶段更新内容、四影 review 阶段更新 verdict、用户面板更新 user_feedback / decision、空执 apply 时标 applied，五个写入者按状态机阶段分工不冲突。**写盘到磁盘**归空执（apply 时写 `skills/<name>/SKILL.md` + 注册声明）。详见 [自进化体系](../evolution.md) §L3。
 
 > **"读取者"的范围**：上表只列**直接调用世界树 API 的模块**。间接消费者（如派蒙 `/stat` 展示 token、派蒙推送需要理财内容、三月面板展示任务）**通过对应服务层模块**读取，不直接调世界树——这是"世界树管字节、服务层管语义"的直接体现。
 
@@ -66,16 +65,15 @@
 
 | 数据域 | 可读 | 可写（架构约束：单一来源） |
 |---|---|---|
-| 用户授权 | 派蒙 / 派蒙·core/safety（启动读）、冰神面板（UI） | 派蒙（对话写）、冰神 `/plugins` 面板（撤销写） |
-| Skill 生态声明 | 派蒙 / 派蒙·core/safety（启动读） | 冰神（唯一） |
+| 用户授权 | 派蒙 / 派蒙·core/safety（启动读）、空执面板（UI） | 派蒙（对话写）、空执 `/plugins` 面板（撤销写） |
+| Skill 生态声明 | 派蒙 / 派蒙·core/safety（启动读） | 空执（唯一） |
 | 知识库 | 草神 / `/knowledge` 面板 | 草神 |
 | 记忆 | 派蒙（prefetch）/ 草神 / `/knowledge` 面板 | 草神（唯一） |
-| 活跃任务 | 派蒙 / 三月 / 时执 | 生执 / 空执 / 各影 |
 | Token 记录 | 原石 | 原石 |
 | 审计 / 归档 | 时执 | 时执 |
 | 理财数据 | 岩神 | 岩神 |
 | 聊天会话 | 派蒙 / 时执（归档时） | 派蒙 |
-| Skill 自进化提案 | 用户 `/plugins` 面板 / 冰神（apply 时读 approved） | 四影·生执（propose） / 四影·死执（set_review_verdict） / 冰神（mark_applied） |
+| Skill 自进化提案 | 用户 `/plugins` 面板 / 空执（apply 时读 approved） | 四影·生执（propose / revise） / 四影·死执（set_review_verdict） / 空执（mark_applied） |
 
 > 具体"谁什么时候来读 / 写、为什么"详见各服务层模块的职能文档和 [权限与契约](../permissions.md)。
 
@@ -98,11 +96,10 @@
 [世界树] 派蒙·会话创建  s-20260422-001
 [世界树] 派蒙·会话保存  s-20260422-001 (12 msgs)
 [世界树] 派蒙·会话删除  s-20260322-007
-[世界树] 冰神·Skill 声明  bili (builtin, sensitivity=normal)
-[世界树] 冰神·Skill 移除  old-plugin
-[世界树] 草神·记忆写入  user/default: python 偏好
+[世界树] 空执·Skill 声明  bili (builtin, sensitivity=normal)
+[世界树] 空执·Skill 移除  old-plugin
+[世界树] 草神·记忆写入  user/default: python 偏好（来源 /remember 或 会话压缩末尾经验提取）
 [世界树] 草神·知识写入  python/asyncio-basics
-[世界树] 生执·活跃任务创建  task-abc123
 [世界树] 空执·任务状态更新  task-abc123: pending → running
 [世界树] 时执·任务归档  task-abc123 → 归档库
 [世界树] 岩神·分红记录写入  600519 (2026-04-20)
@@ -141,7 +138,7 @@ await irminsul.authz_set(
 
 ```text
 1. 世界树 initialize（建表 / 建目录 / 路径校验就绪 / schema 迁移）
-2. 冰神启动：扫 skills/ → skill_declare（幂等写入）→ 从世界树 load plugin 历史声明
+2. 空执启动：扫 skills/ → skill_declare（幂等写入）→ 从世界树 load plugin 历史声明
 3. 派蒙 / 死执启动：
    a. 世界树.skill_snapshot() → 本地缓存
    b. 世界树.authz_snapshot() → 本地缓存
@@ -167,7 +164,6 @@ paimon/foundation/irminsul/
 ├── skills.py            # SkillRepo + SkillDecl 数据类
 ├── knowledge.py         # KnowledgeRepo（纯文件层，无 SQL）
 ├── memory.py            # MemoryRepo + Memory/MemoryMeta（SQL 索引 + 文件 body）
-├── task.py              # TaskRepo + TaskEdict/Subtask/FlowEntry/ProgressEntry
 ├── token.py             # TokenRepo + TokenRow
 ├── audit.py             # AuditRepo + AuditEntry
 ├── dividend.py          # DividendRepo（聚合 WatchlistRepo + ScoreSnapshotRepo + ChangeEventRepo）+ WatchlistEntry / ScoreSnapshot / ChangeEvent dataclass
@@ -233,62 +229,6 @@ CREATE TABLE IF NOT EXISTS memory_index (
 );
 CREATE INDEX IF NOT EXISTS idx_memory_type_subject ON memory_index(mem_type, subject);
 CREATE INDEX IF NOT EXISTS idx_memory_ttl ON memory_index(ttl);
-
--- ============ 域 5: 活跃任务（4 张表）============
-CREATE TABLE IF NOT EXISTS task_edicts (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    creator TEXT NOT NULL,                     -- '生执'/'派蒙'/...
-    status TEXT NOT NULL,                      -- 'pending'|'planning'|'running'|'completed'|'failed'
-    lifecycle_stage TEXT NOT NULL DEFAULT 'hot', -- 'hot'|'cold'|'archived'
-    session_id TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    archived_at REAL                           -- NULL = 活跃
-);
-CREATE INDEX IF NOT EXISTS idx_task_status ON task_edicts(status);
-CREATE INDEX IF NOT EXISTS idx_task_lifecycle ON task_edicts(lifecycle_stage);
-CREATE INDEX IF NOT EXISTS idx_task_session ON task_edicts(session_id);
-
-CREATE TABLE IF NOT EXISTS task_subtasks (
-    id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    parent_id TEXT,
-    assignee TEXT NOT NULL,                    -- '草神'/'雷神'/...
-    description TEXT NOT NULL,
-    status TEXT NOT NULL,
-    result TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    updated_at REAL NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES task_edicts(id)
-);
-CREATE INDEX IF NOT EXISTS idx_subtask_task ON task_subtasks(task_id);
-CREATE INDEX IF NOT EXISTS idx_subtask_status ON task_subtasks(status);
-
-CREATE TABLE IF NOT EXISTS task_flow_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id TEXT NOT NULL,
-    from_agent TEXT NOT NULL,
-    to_agent TEXT NOT NULL,
-    action TEXT NOT NULL,
-    payload TEXT NOT NULL DEFAULT '',          -- JSON
-    created_at REAL NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES task_edicts(id)
-);
-CREATE INDEX IF NOT EXISTS idx_flow_task ON task_flow_history(task_id);
-
-CREATE TABLE IF NOT EXISTS task_progress_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id TEXT NOT NULL,
-    subtask_id TEXT,
-    agent TEXT NOT NULL,
-    progress_pct INTEGER NOT NULL DEFAULT 0,
-    message TEXT NOT NULL DEFAULT '',
-    created_at REAL NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES task_edicts(id)
-);
-CREATE INDEX IF NOT EXISTS idx_progress_task ON task_progress_log(task_id);
 
 -- ============ 域 6: Token 记录（迁自原 primogem.db）============
 CREATE TABLE IF NOT EXISTS token_usage (
@@ -433,7 +373,7 @@ async def token_aggregate(
 例：
 - `[世界树] 派蒙·授权写入  skill/bili → permanent_allow`
 - `[世界树] 原石·写入 Token 记录  session=abc123, 消耗=$0.0123`
-- `[世界树] 冰神·Skill 标记孤儿  bili`
+- `[世界树] 空执·Skill 标记孤儿  bili`
 
 读操作不打日志（避免噪音）。schema 初始化 / 迁移打 INFO。
 

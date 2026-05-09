@@ -1,4 +1,4 @@
-"""Skill 目录文件系统监听 —— 冰神 B-2 热加载
+"""Skill 目录文件系统监听 —— 时执 · 热重载
 
 参考 openclaw agents/skills/refresh.ts 的 chokidar watcher 设计：
 - 只关心 `<skills_dir>/*/SKILL.md` 事件（避免 FD 耗尽 + 无关文件打扰）
@@ -28,7 +28,7 @@ except ImportError:
     _WATCHDOG_OK = False
 
 if TYPE_CHECKING:
-    from paimon.skill_loader.registry import SkillRegistry
+    from paimon.shades.asmoday.registry import SkillRegistry
     from paimon.foundation.irminsul import Irminsul
     from paimon.llm.model import Model
 
@@ -134,13 +134,13 @@ class SkillHotLoader:
     def start(self) -> bool:
         """启动 watcher。返回 True 表示成功启动。"""
         if not _WATCHDOG_OK:
-            logger.warning("[冰神·watcher] watchdog 未安装，热加载不可用")
+            logger.warning("[时执·watcher] watchdog 未安装，热加载不可用")
             return False
 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            logger.warning("[冰神·watcher] 无运行中事件循环，热加载不可用")
+            logger.warning("[时执·watcher] 无运行中事件循环，热加载不可用")
             return False
 
         handler = _SkillEventHandler(
@@ -155,7 +155,7 @@ class SkillHotLoader:
         observer.daemon = True
         observer.start()
         self._observer = observer
-        logger.info("[冰神·watcher] 已启动监听 {}", self._registry.skills_dir)
+        logger.info("[时执·watcher] 已启动监听 {}", self._registry.skills_dir)
         return True
 
     def stop(self) -> None:
@@ -165,7 +165,7 @@ class SkillHotLoader:
                 self._observer.stop()
                 self._observer.join(timeout=2.0)
             except Exception as e:
-                logger.debug("[冰神·watcher] stop 异常: {}", e)
+                logger.debug("[时执·watcher] stop 异常: {}", e)
             self._observer = None
 
         for _, (_, timer) in list(self._pending.items()):
@@ -208,6 +208,6 @@ class SkillHotLoader:
                 )
         except Exception as e:
             logger.error(
-                "[冰神·watcher] dispatch {} ({}) 异常: {}",
+                "[时执·watcher] dispatch {} ({}) 异常: {}",
                 skill_dir, event_type, e,
             )

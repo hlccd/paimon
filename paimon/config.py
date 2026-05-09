@@ -78,7 +78,7 @@ class Config(BaseSettings):
     angel_tool_timeout_seconds: int = 300
     angel_total_timeout_seconds: int = 600
 
-    # 冰神 skill 热重载（默认关闭，生产避免意外启用）
+    # 时执 skill 热重载（默认关闭，生产避免意外启用）
     # 开启后：watchdog 监听 skills/*/SKILL.md，create/modify 过死执审查，delete 标孤儿
     skills_hot_reload: bool = False
 
@@ -90,7 +90,7 @@ class Config(BaseSettings):
     # 默认 3；超过上限视为"尽力而为"返回最后一轮产物
     shades_max_rounds: int = 3
 
-    # 时执·生命周期闭环（docs/shades/istaroth.md §核心能力）
+    # 派蒙·会话生命周期清扫（docs/shades/istaroth.md §核心能力）
     # 三月定时调度时执清扫；各阈值都可在 .env 覆盖
     lifecycle_sweep_enabled: bool = True
     lifecycle_sweep_interval_hours: int = 6      # 清扫频率（建议 [1, 168]）

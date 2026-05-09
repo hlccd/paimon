@@ -134,3 +134,13 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
     else:
         await run_session_chat(msg, channel, session)
 
+    # chat / skill 路径都计 nudge counter：用户高频走 skill 路径（如 web-search）
+    # 也是「反复使用同种工具」的可复用模式信号，不该被排除。fire-and-forget。
+    if state.irminsul:
+        import asyncio as _asyncio
+        from paimon.shades.istaroth._propose_trigger import maybe_nudge_session
+        _asyncio.create_task(
+            maybe_nudge_session(session, state.irminsul),
+            name=f"chat-nudge-{session.id[:8]}",
+        )
+

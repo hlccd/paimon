@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from paimon.archons.base import Archon
 from paimon.foundation.irminsul import Irminsul
-from paimon.foundation.irminsul.task import Subtask, TaskEdict
 from paimon.llm.model import Model
 
 
@@ -16,8 +15,5 @@ class FurinaArchon(Archon):
     description = "archon 本体 namespace 壳；游戏服务在 furina_game/ 子包"
     allowed_tools: set[str] = set()
 
-    async def execute(
-        self, task: TaskEdict, subtask: Subtask, model: Model, irminsul: Irminsul,
-        prior_results: list[str] | None = None,
-    ) -> str:
+    async def execute(self) -> str:
         return f"[{self.name}] archon 本体不参与执行；游戏功能在 furina_game/"

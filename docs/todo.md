@@ -50,7 +50,7 @@
   - `ai_core/rag/tools.py` **工具向量化**（Qdrant 存工具描述，LLM 动态检索）—— 对标 skill 生态；多起来后解决"工具列表太长 LLM 挑不中"
   - `ai_core/handle_ai.py` **意图分类 + 分流** —— 对标派蒙意图路由
   - `ai_core/memory/` **双路记忆系统** —— 对标世界树 memory 域 + 草神
-  - `ai_core/mcp/client.py` **无状态 MCP 客户端** —— skill_loader 加 MCP 源
+  - `ai_core/mcp/client.py` **无状态 MCP 客户端** —— 空执加 MCP 源
   - `ai_core/heartbeat/` **心跳自主决策** —— 对标三月主动性
   - 建议：不要整体照搬；按子系统分别评估、独立立项、逐个吸收
 
@@ -79,7 +79,7 @@
   - 不搭训练基础设施（当前 ROI 为负）
 
 - [ ] **Prompt 自动调优** —— 长期方向
-  - 短期：直接编辑 `.claude/skills/X/SKILL.md` 或 `paimon/templates/paimon.t`
+  - 短期：直接编辑 `skills/X/SKILL.md` 或 `paimon/templates/paimon.t`
   - 长期：从 feedback 记忆里聚合"高频纠正模式" → 用自进化提案机制凑成 prompt 改进提案
 
 ## 3. 技术选型层面

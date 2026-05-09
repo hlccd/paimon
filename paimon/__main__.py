@@ -231,7 +231,7 @@ async def main() -> int:
             print(f"[三月·守护] bg 任务清理异常: {e}", file=sys.stderr)
 
         for name, cleanup in [
-            ("冰神·watcher", lambda: state.skill_hot_loader.stop() if state.skill_hot_loader else None),
+            ("空执·watcher", lambda: state.skill_hot_loader.stop() if state.skill_hot_loader else None),
             ("三月", lambda: state.march.stop() if state.march else None),
             ("地脉", lambda: state.leyline.stop() if state.leyline else None),
             ("世界树", lambda: state.irminsul.close() if state.irminsul else None),

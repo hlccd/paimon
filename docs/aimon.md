@@ -16,7 +16,7 @@
 
 整个 AIMON 采用**存储层 / 服务层**分离：
 
-- **世界树**是全系统**唯一存储层**。所有持久化数据（会话 / 授权 / skill 声明 / 知识 / 记忆 / 活跃任务 / token / 审计 / 理财）统一落盘。
+- **世界树**是全系统**唯一存储层**。所有持久化数据（会话 / 授权 / skill 声明 / 知识 / 记忆 / token / 审计 / 理财）统一落盘。
 - **其他所有模块**（派蒙 / 四影 / 七神 / 晨星 / 三月 / 地脉 / 神之心 / 原石）都是**服务层**。持有业务逻辑，**不自建 SQLite 或独立文件库**。
 - 一句话：**世界树管"字节"，服务层管"语义"**。
 
@@ -27,19 +27,20 @@
   - 意图分类 + 4 出口路由 + 出口人格化
   - **安全闸**（[paimon/core/safety/](../paimon/core/safety/)）
     - `task_review`：入口任务级审（`/evolve` 触发自进化前调用）
-    - `review_skill_declaration`：skill 装载审（skill_loader 装载 plugin / AI 自进化生成 skill 时调）
+    - `review_skill_declaration`：skill 装载审（空执装载 plugin / AI 自进化生成 skill 时调）
     - `detect_sensitive`：敏感串过滤（memory / 知识库写入路径）
 - **3 个出口**（按任务类型路由）
   - `chat` —— 闲聊、单问单答、复杂分析（派蒙浅层 LLM 直答）
   - `skill` —— 单步任务（直调 skill：[topic / web-search / bili / xhs / check ...](../skills/)）
   - `/agents` —— **分析 / 调研 / 决策辅助**（天使多视角讨论，输出纪要不落地）
   - `/evolve` —— **自进化提案触发**（凝练当前会话为可复用 skill 草案，进 `/plugins` 待审）
-- **【自进化提案管线】四影**（生 / 审 / 派 / 收）
-  - [**生执·纳贝里士**](shades/naberius.md)：**生** — `propose_skill` 凝练 skill 草案落 skill_proposals 域
-  - [**死执·若纳瓦**](shades/jonova.md)：**审** — `review_proposal` 审提案质量，写 verdict + skill_proposals.review_verdict
-  - [**时执·伊斯塔露**](shades/istaroth.md)：**收** — archive 归档 + summary + 自进化触发 hook + L1 记忆抽取 + 生命周期清扫
-  - 触发路径：用户主动 `/evolve` / 时执 archive hook（浅池判 should_propose 自动触发）/ 三月 cron 月度扫
-  - 落盘归冰神（apply：派蒙 safety 审 + 写 `skills/<name>/SKILL.md` + 注册 skill_declarations）
+- **【自进化提案管线】四影**（生执 / 死执 / 空执 / 时执）
+  - [**生执·纳贝里士**](shades/naberius.md) — 凝练 skill 草案；按用户反馈重写
+  - [**死执·若纳瓦**](shades/jonova.md) — 审草案质量并裁决（通过 / 要修 / 直拒）
+  - [**空执·阿斯莫代**](shades/asmoday.md) — skill 域写入与管理（提案落盘 + 启动装载 + 声明注册 + `/plugins` 面板）
+  - [**时执·伊斯塔露**](shades/istaroth.md) — 自进化触发 + 自进化两个 cron + skill 热重载 + 生命周期清扫
+  - 触发路径：用户主动 `/evolve` / 对话每 5 条消息浅判 / 月度扫描
+  - 落盘归空执（派蒙安全审 + 写 `skills/<name>/SKILL.md` + 注册声明 + 立即热加载）
 - **【议事辅助】天使**（晨星 leader + 11 协同天使，**不落地，只出纪要**）
   - **职能定位**：分析 / 调研 / 决策辅助（"该不该做 X" / "选 A 还是 B" / "评估这个方案"）
   - **晨星**：天使体系的 leader，调度（assemble → dispatch+speak loop → synthesize）；本身也是天使的一员
@@ -48,13 +49,13 @@
 - **【业务模块】七神**（各业务域的业务接口 + 数据域归属 + 面板归属 + cron）
   - **职能定位**：每位七神是对应业务域的**业务接口 + 唯一写入者**；不进 LLM 对话流，跟自进化主链路并行存在
   - 7 个 archon class 全部保留（铁律：七神不删）；按当前是否承接业务分两类
-  - **A 类（5 个 · 业务接口 + cron + 面板）**：
+  - **A 类（4 个 · 业务接口 + cron + 面板）**：
     - [风神·巴巴托斯](archons/venti.md)：信息采集业务接口（feed_items / feed_events 域）+ `/feed` `/sentiment` 面板 + `feed_collect` cron + 站点登录代理
     - [岩神·摩拉克斯](archons/zhongli.md)：红利股业务接口（scoring / dividend 域）+ `/wealth` 面板 + `dividend_scan` `stock_watch` cron + scorer
-    - [草神·纳西妲](archons/nahida.md)：知识 / 记忆 / 偏好业务接口（**memory 域唯一写入者**）+ `/knowledge` 面板 + `memory_hygiene` `kb_hygiene` cron + 时执 extract_experience 收尾收口于草神
+    - [草神·纳西妲](archons/nahida.md)：知识 / 记忆 / 偏好业务接口（**memory 域唯一写入者**）+ `/knowledge` 面板 + `memory_hygiene` `kb_hygiene` cron + 跨会话记忆经验提取（由时执会话压缩触发，写入归草神）
     - [水神·芙宁娜](archons/furina.md)：游戏业务接口（mihoyo 域）+ `/game` 面板 + `mihoyo_collect` `mihoyo_game_collect` cron + `mihoyo_game` sub type
-    - [冰神·冰之女皇](archons/tsaritsa.md)：skill 生态业务接口（**skill 域唯一写入者**；AI 自进化提案经 `/plugins` 用户审 + 派蒙 safety 审后由冰神 apply 落盘）+ `/plugins` 面板（含授权撤销 + "自进化提案"待审 UI）+ skill_loader 扫盘
-  - **B 类（2 个 · namespace 永久壳，新职能待挂）**：
+  - **B 类（3 个 · namespace 永久壳，新职能待挂）**：
+    - [冰神·冰之女皇](archons/tsaritsa.md)：原 skill 域职能（skill 写入 / `/plugins` 面板 / 自进化落盘）已全部移交空执
     - [雷神·巴尔泽布](archons/raiden.md) / [火神·玛薇卡](archons/mavuika.md)
     - 按七神保留铁律留 ~30 行壳；新职能待挂（见 [`docs/todo.md`](todo.md)）
 - **【全局支撑层】**
@@ -100,7 +101,7 @@
    ├── chat       → 派蒙浅层 LLM 直答（含复杂分析 / 推理）
    ├── skill      → skill 直调（topic / web-search / bili / xhs ...）
    ├── /agents    → 天使体系讨论（晨星召集协同天使）
-   └── /evolve    → 四影自进化提案管线（propose_skill → review_proposal → 落 skill_proposals 域待审）
+   └── /evolve    → 四影自进化提案管线（生执凝练 → 死执质量审 → 进面板待审）
 ```
 
 skill 路径**单 tool 超时**返错给 LLM 自愈、**整体超时**直接 reply 错误终止。
@@ -110,20 +111,19 @@ skill 路径**单 tool 超时**返错给 LLM 自愈、**整体超时**直接 rep
 ```text
 chat / skill:    LLM 输出 ───────────→ 派蒙 → channel → 用户
 /agents:         协同天使发言（流式）→ 晨星综合 → 派蒙 → channel → 用户
-/evolve:         propose+review 完毕 → 派蒙提示"已落 /plugins 待审" → 用户
+/evolve:         生执凝练 + 死执审完毕 → 派蒙提示"已落 /plugins 待审" → 用户
 三月提醒:        定时任务触发 → 三月 → 派蒙 → channel → 用户
 ```
 
 **派蒙是用户对话的唯一出入口**——三月响铃 / 晨星 / 自进化提案等需要回话给用户时都经派蒙人格化送达；派蒙挂掉时三月只做拉起 + 暂存，绝不代发。
 
-> Web 面板交互（`/feed` / `/wealth` / `/game` / `/knowledge` / `/plugins` / `/sentiment` / `/tasks` 等）不走对话流，是独立的 webui API 直读 irminsul / skill_loader 路径，跟派蒙对话出入口并行存在。
+> Web 面板交互（`/feed` / `/wealth` / `/game` / `/knowledge` / `/plugins` / `/sentiment` / `/tasks` 等）不走对话流，是独立的 webui API 直读 irminsul + 空执 SkillRegistry 路径，跟派蒙对话出入口并行存在。
 
-### 2.3 自进化提案流（/evolve / archive hook / 月度 cron）
+### 2.3 自进化提案流（/evolve / chat 累积 / 月度 cron）
 
 ```text
 触发源（三选一）：
   - 用户主动 `/evolve` 命令
-  - 时执 archive 收尾 hook（浅池 LLM 判 should_propose；防递归 marker）
   - 三月 cron `skill_evolve_monthly`（每月 1 日 04:00 扫近 30 天任务）
    │
 派蒙·task_review（入口审，仅 /evolve 显式触发时调）
@@ -138,24 +138,20 @@ chat / skill:    LLM 输出 ───────────→ 派蒙 → chan
    - reject      → 联动 status=rejected
    │
 [用户在 /plugins#proposals 面板审]
-   ├─ 同意 → status=approved → **冰神 apply**（派蒙 skill_review + 写 SKILL.md + 注册 skill_declarations）
-   └─ 拒绝 → status=rejected（三月 cron 30 天后清）
+   ├─ 同意 → status=approved → **空执 apply**（派蒙安全审 + 写 SKILL.md + 注册声明 + 热加载）
+   └─ 拒绝 → status=rejected（时执 cron 30 天后清）
    │
-冰神 apply 完成 → status=applied（永不可删，作 skill 起源审计依据）
+空执 apply 完成 → status=applied（永不可删，作 skill 起源审计依据）
 ```
 
 **分工铁律**：
 - **派蒙** = 守门 + 路由 + 出口 + 全程安全闸（task_review / skill_review）
-- **四影** = 自进化提案管线（生 propose / 审 review_proposal / 收 archive+触发 hook）
-- **冰神** = skill 域唯一写入者（apply 落盘 + 注册）
+- **四影** = 自进化提案管线（生执凝练 / 死执质量审 / 空执落盘装载 / 时执归档+触发+热重载）
+- **空执** = skill 域写入与管理（提案落盘 + 启动装载 + 声明注册 + `/plugins` 面板）
 - **天使** = 议事辅助（不落地，只出纪要）
 - **三月** = 调度（cron / 响铃 / 自进化定时触发）
 
-**4 影 stage**：
-- `propose_skill`（生执 → 凝练 skill 草案落 skill_proposals 域）
-- `review_proposal`（死执 → 审提案质量，写 verdict）
-
-实现位置：`paimon/shades/{naberius,jonova,istaroth}/` + `paimon/skill_loader/{apply_proposal,proposal_cron}.py`
+实现位置：`paimon/shades/{naberius,jonova,asmoday,istaroth}/`
 
 ### 2.4 多视角讨论流（/agents）
 
@@ -193,9 +189,9 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 
 **自进化路径**（启动期已 permanent_allow）：
 ```text
-/evolve 命令 / archive hook → 派蒙 task_review 入口审 → propose+review 直跑
+/evolve 命令 → 派蒙 task_review 入口审 → propose+review 直跑（chat 累积浅判命中后直跑，不过 task_review）
   （propose_skill / review_proposal stage 启动期 permanent_allow，无需运行时询问）
-  → 落 skill_proposals 待用户面板审 → approved → 冰神 apply 时再过派蒙 skill_review
+  → 落 skill_proposals 待用户面板审 → approved → 空执 apply 时再过派蒙安全审
 ```
 
 **永久授权关键词**：用户必须明确说"永久 / 以后都..."才入库；只说"放行 / 同意 / 拒绝"仅本次有效。
@@ -203,15 +199,16 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 ### 2.6 新 skill 上线流程
 
 ```text
-冰神（扫 skills/ 目录 / 监听外部 plugin / AI 自生成）
-  ├── 启动扫的内置 skill → 直接写世界树（代码审查已把关，跳过死执）
-  └── 运行时新增（plugin / AI 生成 / 热重载）
-      → 死执审查权限声明
-         ├── 通过 → 冰神写世界树 + 失效派蒙 authz 缓存
-         └── 拒绝 → 冰神拒绝装载 + 写 audit
+启动期：空执扫 skills/ 目录 → 装载内存 SkillRegistry + 注册声明（代码已把关，跳过死执）
+运行时：
+  ├─ 用户在面板同意自进化提案 → 空执 apply（派蒙安全审 + 写盘 + 注册 + 热加载）
+  └─ 文件变化（手动改 / git pull）
+     → 时执 watcher 监听到 → 调 reload → 死执审权限声明
+        ├── 通过 → 写世界树 + 失效派蒙 authz 缓存
+        └── 拒绝 → 拒绝装载 + 写 audit
 ```
 
-冰神是 skill 生态的**唯一写入者**；派蒙只从世界树读，不扫 skills 目录。
+空执是 skill 域**唯一写入者**（启动装载 + 提案落盘）；时执负责热重载；派蒙只从世界树读，不扫 skills 目录。
 
 ### 2.7 推送流程（三段式 + 两种触发）
 
@@ -238,7 +235,7 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 - channel 的对话路径是派蒙独占的出入口
 
 **Web 面板**（用户在浏览器查数据 / 改配置）：
-- 不走对话流，是独立的交互通道（webui api 直读 irminsul / skill_loader）
+- 不走对话流，是独立的交互通道（webui api 直读 irminsul + 空执 SkillRegistry）
 - 不经派蒙人格化（拿数据展示而已，不需要包装）
 - 跟派蒙对话出入口**并行存在**，互不干扰
 

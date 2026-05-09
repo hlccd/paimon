@@ -48,20 +48,6 @@ def _is_allowed(path: Path) -> bool:
     return False
 
 
-def _is_task_workspace(path: Path) -> bool:
-    """是否在四影任务工作区 paimon_home/tasks/{task_id}/ 内。
-
-    任务工作区是 LLM 自产数据，多轮迭代必然覆盖；
-    USB-007 强制 overwrite 拦截只对宿主项目源码 / paimon_home 其他子目录生效，
-    避免错杀正常的 round 2 修订流程。
-    """
-    from paimon.config import config
-    try:
-        tasks_root = (Path(config.paimon_home).expanduser().resolve() / "tasks")
-        return path.is_relative_to(tasks_root)
-    except (ValueError, OSError, RuntimeError):
-        return False
-
 
 class FileOpsTool(BaseTool):
     name = "file_ops"
@@ -128,7 +114,7 @@ class FileOpsTool(BaseTool):
             overwrite = bool(kwargs.get("overwrite", False))
             # USB-007 破坏性操作确认：默认拒绝覆盖宿主项目源码 / 重要 user 数据
             # 但任务工作区 .paimon/tasks/{tid}/ 是 LLM 自产，多轮迭代必然覆盖 → 自动放行
-            if path.exists() and not overwrite and not _is_task_workspace(path):
+            if path.exists() and not overwrite:
                 return (
                     f"目标已存在: {path}（如需覆盖请加 overwrite=true；"
                     f"任务工作区 .paimon/tasks/* 默认允许覆盖，无需此参数）"

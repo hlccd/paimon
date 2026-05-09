@@ -31,7 +31,6 @@ from ..session import SessionRepo
 from ..skill_proposals import SkillProposalRepo
 from ..skills import SkillRepo
 from ..subscription import SubscriptionRepo
-from ..task import TaskRepo
 from ..token import TokenRepo
 from ..user_watchlist import UserWatchlistRepo
 from ._basics import _BasicsMixin
@@ -63,7 +62,6 @@ class Irminsul(
         self._skill_proposal: SkillProposalRepo | None = None
         self._knowledge: KnowledgeRepo | None = None
         self._memory: MemoryRepo | None = None
-        self._task: TaskRepo | None = None
         self._token: TokenRepo | None = None
         self._audit: AuditRepo | None = None
         self._dividend: DividendRepo | None = None
@@ -94,7 +92,6 @@ class Irminsul(
         self._skill_proposal = SkillProposalRepo(self._db)
         self._knowledge = KnowledgeRepo(self._knowledge_root)
         self._memory = MemoryRepo(self._db, self._memory_root)
-        self._task = TaskRepo(self._db)
         self._token = TokenRepo(self._db)
         self._audit = AuditRepo(self._db)
         self._dividend = DividendRepo(self._db)

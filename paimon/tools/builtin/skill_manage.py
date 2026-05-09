@@ -1,4 +1,4 @@
-"""skill_manage — Skill 生态管理工具（冰神用）
+"""skill_manage — Skill 生态管理工具（空执用）
 
 扫描 skills 目录、查看和注册 skill 声明到世界树。
 """

@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from paimon.archons.base import Archon
-from paimon.foundation.irminsul.task import Subtask, TaskEdict
 
 from ._alert import _AlertMixin
 from ._collect import _CollectMixin
@@ -39,9 +38,6 @@ class VentiArchon(_CollectMixin, _DigestMixin, _AlertMixin, _LoginMixin, Archon)
     def is_running(self, sub_id: str) -> bool:
         return sub_id in self._inflight
 
-    async def execute(
-        self, task: TaskEdict, subtask: Subtask, model: "Model", irminsul: "Irminsul",
-        prior_results: list[str] | None = None,
-    ) -> str:
+    async def execute(self) -> str:
         # 保留方法签名仅为满足 Archon ABC 约定（archon 实例不参与执行路径）
         return f"[{self.name}] 业务接口走 mixin + cron + /feed 面板，archon 本体不参与执行"

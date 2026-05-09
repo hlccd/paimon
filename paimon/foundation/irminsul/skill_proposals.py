@@ -1,10 +1,10 @@
 """Skill 自进化提案域 —— 世界树域 16
 
-唯一写入者：四影（生执 propose / 死执 review_proposal / 派蒙审批与冰神落盘）。
+唯一写入者：四影（生执 propose / 死执 review_proposal / 派蒙审批与空执落盘）。
 
 承载：四影从一次任务复盘里凝练出的 skill 草案 + 死执质量审 + 等用户审。
-**冰神**才是真正的 skill 写盘者；此域只是「提案 → 审批」中转，apply 后由冰神
-读 approved 提案、落 `.claude/skills/<name>/SKILL.md`、注册 skill_declarations。
+**空执**才是真正的 skill 写盘者；此域只是「提案 → 审批」中转，apply 后由空执
+读 approved 提案、落 `skills/<name>/SKILL.md`、注册 skill_declarations。
 
 存储：纯 SQLite 单表（草案文本量小 ≤ 4KB，不外置文件）。
 """
@@ -29,6 +29,9 @@ VERDICT_PASS = "pass"
 VERDICT_NEEDS_REVISE = "needs_revise"
 VERDICT_REJECT = "reject"
 
+# 未落盘 pending 队列上限：超过即移除最早的（LRU），防 LLM 失控刷 spam 占满表
+MAX_PENDING_QUEUE = 25
+
 
 @dataclass
 class SkillProposal:
@@ -50,6 +53,9 @@ class SkillProposal:
     decision_notes: str = ""
     decided_at: float | None = None
     applied_at: float | None = None
+    user_feedback: str = ""                    # 用户最近一次给草案的建议（驱动 revise）
+    revision_count: int = 0                    # 被用户提建议重写过的次数
+    revising_at: float | None = None           # 正在生执 revise 中的开始时间戳；None = 空闲
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -89,7 +95,7 @@ class SkillProposalRepo:
         if kind == "improve" and not target_skill.strip():
             raise ValueError("kind='improve' 时 target_skill 必填")
 
-        # 去重：已有 pending 同名同 kind → 直接返已存在 id
+        # 去重：已有 pending 同名同 kind → 直接返已存在 id（不算新增，不占队列名额）
         async with self._db.execute(
             "SELECT id FROM skill_proposals "
             "WHERE name = ? AND kind = ? AND status = ? LIMIT 1",
@@ -102,6 +108,32 @@ class SkillProposalRepo:
                 actor, name, existing[0],
             )
             return existing[0]
+
+        # 队列上限：pending 提案数 ≥ MAX_PENDING_QUEUE → 删最早的，腾出 1 个名额。
+        # 严格按 created_at ASC LRU 删，不区分 verdict 状态（用户原始诉求）。
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM skill_proposals WHERE status = ?",
+            (STATUS_PENDING,),
+        ) as cur:
+            n_pending_row = await cur.fetchone()
+        n_pending = (n_pending_row[0] if n_pending_row else 0) or 0
+        if n_pending >= MAX_PENDING_QUEUE:
+            # 一次可能要删多条（防 schema 历史遗留超额），保证插入新条后 ≤ MAX
+            n_to_evict = n_pending - MAX_PENDING_QUEUE + 1
+            async with self._db.execute(
+                "SELECT id, name FROM skill_proposals WHERE status = ? "
+                "ORDER BY created_at ASC LIMIT ?",
+                (STATUS_PENDING, n_to_evict),
+            ) as cur:
+                evict_rows = await cur.fetchall()
+            for eid, ename in evict_rows:
+                await self._db.execute(
+                    "DELETE FROM skill_proposals WHERE id = ?", (eid,),
+                )
+                logger.info(
+                    "[世界树] {}·Skill 提案队列满（{}/{}），LRU 移除最早 {} ({})",
+                    actor, n_pending, MAX_PENDING_QUEUE, ename, eid,
+                )
 
         prop_id = uuid.uuid4().hex[:12]
         now = time.time()
@@ -187,7 +219,7 @@ class SkillProposalRepo:
     async def approve(
         self, prop_id: str, *, decided_by: str = "user", actor: str,
     ) -> bool:
-        """用户同意 → status=approved（等冰神 apply）。
+        """用户同意 → status=approved（等空执 apply）。
 
         质量门保护：
         - 仅 status=pending 可 approve（已 rejected/applied 不可回流）
@@ -200,7 +232,8 @@ class SkillProposalRepo:
         cur = await self._db.execute(
             "UPDATE skill_proposals "
             "SET status = ?, decided_by = ?, decided_at = ?, updated_at = ? "
-            "WHERE id = ? AND status = ? AND review_verdict != ?",
+            "WHERE id = ? AND status = ? AND review_verdict != ? "
+            "AND revising_at IS NULL",
             (
                 STATUS_APPROVED, decided_by, now, now,
                 prop_id, STATUS_PENDING, VERDICT_NEEDS_REVISE,
@@ -212,7 +245,7 @@ class SkillProposalRepo:
             logger.info("[世界树] {}·Skill 提案 approve  {}", actor, prop_id)
         else:
             logger.warning(
-                "[世界树] {}·Skill 提案 approve 被拒  {}（已非 pending 或死执要求修订）",
+                "[世界树] {}·Skill 提案 approve 被拒  {}（已非 pending / 死执要求修订 / 正在重写中）",
                 actor, prop_id,
             )
         return ok
@@ -245,8 +278,135 @@ class SkillProposalRepo:
             )
         return ok
 
+    async def submit_user_feedback(
+        self, prop_id: str, feedback: str, *, actor: str = "用户",
+    ) -> bool:
+        """记录用户对草案的建议 + 标记 revising_at（不立即重写，仅入库 + 占用）。
+
+        重写动作由 shades.naberius.revise.revise_proposal 异步处理；本方法只把
+        feedback 写入、reset review_verdict（让死执下次重审）、并把 revising_at
+        设为现在（前端据此禁用同意/再提建议按钮，仅保留拒绝兜底）。
+
+        保护：
+        - 仅 status=pending 提案能接受 feedback（已 approved/rejected/applied 不允许）
+        - revising_at 已经非空（正在改）→ 拒绝（避免重复触发链路）
+        """
+        if not feedback.strip():
+            # 空 feedback 也允许：等价于"按原内容重审"，让卡在 needs_revise 的提案
+            # 走一遍重审通道。这样用户面板不需要为"重审"另开一个按钮。
+            feedback = ""
+        now = time.time()
+        cur = await self._db.execute(
+            "UPDATE skill_proposals "
+            "SET user_feedback = ?, review_verdict = '', review_notes = '', "
+            "    revising_at = ?, updated_at = ? "
+            "WHERE id = ? AND status = ? AND revising_at IS NULL",
+            (feedback, now, now, prop_id, STATUS_PENDING),
+        )
+        await self._db.commit()
+        ok = cur.rowcount > 0
+        if ok:
+            logger.info(
+                "[世界树] {}·Skill 提案收到反馈  {} feedback_len={} ",
+                actor, prop_id, len(feedback),
+            )
+        else:
+            logger.warning(
+                "[世界树] {}·Skill 提案反馈被拒  {}（已非 pending 或正在重写中）",
+                actor, prop_id,
+            )
+        return ok
+
+    async def mark_revising_done(self, prop_id: str) -> None:
+        """生执 revise + 死执 re-review 链路完成后清空 revising_at（前端解锁按钮）。
+
+        无论链路成功/失败/异常都该调一次（finally 兜底）；幂等不抛异常。
+        """
+        try:
+            now = time.time()
+            await self._db.execute(
+                "UPDATE skill_proposals "
+                "SET revising_at = NULL, updated_at = ? WHERE id = ?",
+                (now, prop_id),
+            )
+            await self._db.commit()
+        except Exception as e:
+            logger.warning("[世界树] mark_revising_done 异常 {}: {}", prop_id, e)
+
+    async def clear_stale_revising(self, *, timeout_seconds: float = 600) -> int:
+        """启动时清扫僵尸 revising_at（fire-and-forget chain 因服务重启 / 异常永
+        不返回时，revising_at 永远不会被清空，前端按钮永久 disabled）。
+
+        策略：revising_at 距今超过 timeout_seconds（默认 10 分钟）视作僵尸，清空。
+        实际链路 1-2 分钟跑完，10 分钟阈值给足容差。
+        """
+        cutoff = time.time() - timeout_seconds
+        cur = await self._db.execute(
+            "UPDATE skill_proposals "
+            "SET revising_at = NULL "
+            "WHERE revising_at IS NOT NULL AND revising_at < ?",
+            (cutoff,),
+        )
+        await self._db.commit()
+        n = cur.rowcount
+        if n:
+            logger.info("[世界树] 启动清扫僵尸 revising_at 提案 {} 条", n)
+        return n
+
+    async def update_content(
+        self, prop_id: str, *,
+        description: str | None = None,
+        triggers: str | None = None,
+        system_prompt: str | None = None,
+        allowed_tools: list[str] | None = None,
+        rationale: str | None = None,
+        bump_revision: bool = True,
+        actor: str,
+    ) -> bool:
+        """生执 revise_proposal 重写后写回 in-place。
+
+        仅传入需要更新的字段（None 跳过）；bump_revision=True 时 revision_count += 1。
+        同时 reset review_verdict（让死执重审）。仅 pending 提案可改。
+        """
+        sets: list[str] = []
+        params: list = []
+        if description is not None:
+            sets.append("description = ?"); params.append(description)
+        if triggers is not None:
+            sets.append("triggers = ?"); params.append(triggers)
+        if system_prompt is not None:
+            sets.append("system_prompt = ?"); params.append(system_prompt)
+        if allowed_tools is not None:
+            sets.append("allowed_tools = ?")
+            params.append(json.dumps(allowed_tools, ensure_ascii=False))
+        if rationale is not None:
+            sets.append("rationale = ?"); params.append(rationale)
+        if not sets:
+            return False
+        sets.append("review_verdict = ''")
+        sets.append("review_notes = ''")
+        if bump_revision:
+            sets.append("revision_count = revision_count + 1")
+        now = time.time()
+        sets.append("updated_at = ?"); params.append(now)
+        params.append(prop_id)
+        sql = (
+            f"UPDATE skill_proposals SET {', '.join(sets)} "
+            f"WHERE id = ? AND status = ?"
+        )
+        params.append(STATUS_PENDING)
+        cur = await self._db.execute(sql, tuple(params))
+        await self._db.commit()
+        ok = cur.rowcount > 0
+        if ok:
+            logger.info(
+                "[世界树] {}·Skill 提案内容更新  {} fields={}",
+                actor, prop_id, len(sets) - (3 if bump_revision else 2),
+            )
+        return ok
+
     async def mark_applied(self, prop_id: str, *, actor: str) -> bool:
-        """冰神落盘 + skill_declarations 注册完毕后调。"""
+        """空执落盘 + skill_declarations 注册完毕后调。"""
         now = time.time()
         cur = await self._db.execute(
             "UPDATE skill_proposals "
@@ -327,7 +487,8 @@ _SELECT_SQL = (
     "SELECT id, name, kind, target_skill, description, triggers, system_prompt, "
     "allowed_tools, rationale, proposed_by_session, proposed_by_task, "
     "review_verdict, review_notes, status, decided_by, decision_notes, "
-    "decided_at, applied_at, created_at, updated_at "
+    "decided_at, applied_at, user_feedback, revision_count, revising_at, "
+    "created_at, updated_at "
     "FROM skill_proposals"
 )
 
@@ -348,5 +509,8 @@ def _row_to_proposal(row) -> SkillProposal:
         review_verdict=row[11], review_notes=row[12],
         status=row[13], decided_by=row[14], decision_notes=row[15],
         decided_at=row[16], applied_at=row[17],
-        created_at=row[18], updated_at=row[19],
+        user_feedback=row[18] or "",
+        revision_count=row[19] or 0,
+        revising_at=row[20],
+        created_at=row[21], updated_at=row[22],
     )

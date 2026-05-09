@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from paimon.skill_loader.registry import SkillRegistry
-    from paimon.skill_loader.watcher import SkillHotLoader
+    from paimon.shades.asmoday.registry import SkillRegistry
+    from paimon.shades.istaroth.skill_watcher import SkillHotLoader
     from paimon.archons.furina_game import FurinaGameService
     from paimon.archons.venti import VentiArchon
     from paimon.archons.zhongli import ZhongliArchon
@@ -56,9 +56,7 @@ class RuntimeState:
     furina_game: "FurinaGameService | None" = None
     # 三月·自检服务（Quick 探针 + Deep 调度）
     selfcheck: "SelfCheckService | None" = None
-    # /task-list 编号缓存：channel_key -> (task_ids, expires_at)
     # docs/interaction.md §四：列表后短暂有效（TTL 10 分钟），重新 list 自动重编号
-    task_list_index: dict[str, tuple[list[str], float]] = field(default_factory=dict)
     # 后台未跟踪的 fire-and-forget task 防 GC（如 WebUI 断开后的 finalize_after_execute）。
     # Python asyncio 只对事件循环根任务保强引用；create_task 返回的任务若无外部引用，
     # 可能被提前 GC 并被日志静默 cancel。这里挂全局 set + task.add_done_callback(discard)。

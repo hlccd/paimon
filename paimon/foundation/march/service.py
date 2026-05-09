@@ -172,7 +172,7 @@ class MarchService:
 
         self._lifecycle_sweep_running = True
         try:
-            logger.info("[三月] 触发时执·生命周期清扫")
+            logger.info("[三月] 触发派蒙·会话清扫")
             await run_lifecycle_sweep(
                 self._irminsul, config,
                 session_mgr=state.session_mgr,

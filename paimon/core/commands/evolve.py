@@ -1,18 +1,13 @@
 """/evolve 自进化命令——主动触发 skill 提案产生。
 
 用法：
-- `/evolve` —— 反思当前会话最近的对话/任务，凝练 skill 草案
+- `/evolve` —— 反思当前会话最近的对话，凝练 skill 草案
 - `/evolve <提示>` —— 用户附加提示
 
-实现：直接调 propose_skill + review_proposal 函数链（不走 pipeline 编排）。
-跟 archive hook 的 `_run_propose_review_chain` 用同一个 helper，确保两条
-触发路径行为一致。
-
-跑前会过一道派蒙 task_review 入口安全审，防止用户输入恶意被注入到 prompt。
+实现：派蒙入口安全审 → 调生执 propose + 死执 review 函数链。
 """
 from __future__ import annotations
 
-import time
 import uuid
 
 from loguru import logger
@@ -23,14 +18,14 @@ from ._dispatch import CommandContext, command
 
 
 _EVOLVE_HEAD = (
-    "请反思当前会话最近的对话和任务，凝练**可复用**的 skill 草案。\n\n"
+    "请反思当前会话最近的对话，凝练**可复用**的 skill 草案。\n\n"
     "判断标准从严：单次问答、太琐碎、跟现有 skill 重叠 → 直接 SKIP 不要硬凑。"
 )
 
 
 @command("evolve")
 async def cmd_evolve(ctx: CommandContext) -> str:
-    """/evolve [提示] — 触发 propose_skill + review_proposal 链产生 skill 提案。"""
+    """/evolve [提示] — 触发生执 + 死执函数链产生 skill 提案。"""
     session_mgr = state.session_mgr
     if not session_mgr:
         return "会话管理器未初始化"
@@ -56,29 +51,19 @@ async def cmd_evolve(ctx: CommandContext) -> str:
         parts.append(f"\n用户附加提示：{user_hint}")
     if recent_brief:
         parts.append(f"\n## 最近会话片段（参考）\n{recent_brief}")
-    context = "\n".join(parts)
-
-    # 合成 TaskEdict（task_review + propose 链共用）
-    from paimon.foundation.irminsul.task import TaskEdict
-    from paimon.shades.istaroth._propose_trigger import (
-        PROPOSE_TRIGGER_MARKER, _run_propose_review_chain,
-    )
-
-    now = time.time()
-    syn_origin = TaskEdict(
-        id=uuid.uuid4().hex,
-        title=f"用户主动 /evolve{('：' + user_hint[:50]) if user_hint else ''}",
-        description=f"{PROPOSE_TRIGGER_MARKER}\n{context[:500]}",
-        creator="派蒙·/evolve",
-        status="completed",
-        session_id=session.id,
-        created_at=now, updated_at=now,
-    )
+    description = "\n".join(parts)
+    title = f"用户主动 /evolve{('：' + user_hint[:50]) if user_hint else ''}"
 
     # 派蒙入口安全审：防止用户输入注入或越权
     from paimon.core.safety import task_review
     try:
-        approved, reason = await task_review(syn_origin, state.model, state.irminsul)
+        approved, reason = await task_review(
+            title=title,
+            description=description,
+            session_id=session.id,
+            model=state.model,
+            irminsul=state.irminsul,
+        )
     except Exception as e:
         logger.warning("[派蒙·/evolve] task_review 异常，保守拒绝：{}", e)
         return f"安全审查异常，本次 /evolve 终止：{e}"
@@ -93,11 +78,13 @@ async def cmd_evolve(ctx: CommandContext) -> str:
         user_hint[:60], session.id[:8],
     )
 
+    from paimon.shades.istaroth._propose_trigger import run_propose_review_chain
     try:
-        await _run_propose_review_chain(
-            origin_task=syn_origin,
-            context=context,
-            trigger_reason=f"用户主动 /evolve{('：' + user_hint[:60]) if user_hint else ''}",
+        prop_ids = await run_propose_review_chain(
+            title=title,
+            description=description,
+            session_id=session.id,
+            origin_id=uuid.uuid4().hex,
             irminsul=state.irminsul,
             model=state.model,
         )
@@ -105,23 +92,28 @@ async def cmd_evolve(ctx: CommandContext) -> str:
         logger.error("[派蒙·/evolve] 提案产生异常：{}", e)
         return f"自进化提案产生失败：{e}"
 
-    # 查最新 pending 提案给用户反馈
-    props = await state.irminsul.skill_proposal_list(status="pending", limit=3)
-    if not props:
+    if not prop_ids:
         return (
             "✓ 自进化判定**未产出新提案**——LLM 看完最近对话认为没有值得沉淀的 skill。\n"
             "你也可以加 `/evolve <更具体的提示>` 引导方向。"
         )
 
-    latest = props[0]
-    verdict_label = {
+    verdict_label_map = {
         "pass": "死执·通过",
         "needs_revise": "死执·要修",
         "reject": "死执·拒",
         "": "死执·待审",
-    }.get(latest.review_verdict, "死执·待审")
-    return (
-        f"✓ 已产出新提案：**{latest.name}**（{verdict_label}）\n\n"
-        f"{latest.description}\n\n"
-        f"前往 `/plugins#proposals` 查看完整草案 + 同意/拒绝。"
-    )
+    }
+    lines = [f"✓ 已产出 **{len(prop_ids)}** 条新提案："]
+    for pid in prop_ids:
+        proposal = await state.irminsul.skill_proposal_get(pid)
+        if not proposal:
+            logger.warning("[派蒙·/evolve] 落档成功但 get(prop_id={}) 返 None", pid)
+            lines.append(f"- prop_id={pid}（详情读取失败）")
+            continue
+        verdict_label = verdict_label_map.get(proposal.review_verdict, "死执·待审")
+        lines.append(
+            f"- **{proposal.name}**（{verdict_label}）— {proposal.description}"
+        )
+    lines.append("\n前往 `/plugins#proposals` 查看完整草案 + 同意/拒绝。")
+    return "\n".join(lines)

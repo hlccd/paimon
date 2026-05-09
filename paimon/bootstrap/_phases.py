@@ -90,7 +90,11 @@ async def _ensure_mihoyo_collect_cron() -> None:
 
 
 async def _ensure_skill_proposal_cron() -> None:
-    """自进化提案 cron：月度扫描（每月 1 日 04:00）+ 周度 prune（周一 03:30）。"""
+    """自进化提案 cron：月度扫描（每月 1 日 04:00）+ 周度 prune（周一 03:30）。
+
+    顺带清扫僵尸 revising_at：fire-and-forget 链路因服务异常重启可能留下永远不
+    会被清空的 revising_at 标记，导致前端按钮永久 disabled。启动时清一次。
+    """
     try:
         from paimon.channels.webui.channel import PUSH_CHAT_ID
         existing = await state.march.list_tasks()
@@ -111,6 +115,15 @@ async def _ensure_skill_proposal_cron() -> None:
             logger.info("[自进化·启动] 已创建提案 prune cron（周一 03:30）")
     except Exception as e:
         logger.warning("[自进化·启动] 创建 cron 异常（不阻塞）: {}", e)
+
+    # 清扫僵尸 revising_at（不阻塞主启动；超过 10 分钟视作僵尸）
+    try:
+        if state.irminsul:
+            await state.irminsul.skill_proposal_clear_stale_revising(
+                timeout_seconds=600,
+            )
+    except Exception as e:
+        logger.warning("[自进化·启动] 清扫僵尸 revising_at 异常（不阻塞）: {}", e)
 
 
 async def _ensure_hygiene_cron() -> None:

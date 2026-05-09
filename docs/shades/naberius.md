@@ -1,37 +1,29 @@
 # 生执·纳贝里士
 
-> 隶属：[神圣规划](../aimon.md) / 四影 — **生**
+> 隶属：[神圣规划](../aimon.md) / 四影
 
-**定位**：从 task 上下文凝练 skill 草案。当前唯一 stage：**propose_skill**。
+**定位**：从任务 / 会话上下文凝练 skill 草案。
 
 ## 职能
 
-- 输入：task 标题 + 描述 + 子任务结果 + 现有 skill 列表
-- LLM 凝练：name / description / triggers / system_prompt / allowed_tools / rationale
-- 严格判定门槛（借鉴 hermes-agent）：判断不值得做时输出 `{"skip":true,"reason":"..."}` 短路退出，**不**写空提案污染面板
-- 落档：`irminsul.skill_proposal_create()` 写 skill_proposals 域 status=pending
+两件事：
 
-## 公开 API
+- **凝练新草案**：看上下文判断是否有"可复用工作模式"。值得就产出草案落待审队列；一次最多产出 5 条独立草案（防单次失控刷草案）；命名 / 类型 / 描述等字段都由 LLM 自己定。
+- **按反馈重写**：用户在面板对某草案提了建议后，按建议产出完整新版本覆盖原版（名字 / 类型不改，只改内容 + 触发条件 + 工具清单）。
 
-```python
-from paimon.shades.naberius import propose_skill
-result = await propose_skill(task, subtask, model, irminsul, prior_results)
-# 落档成功：'prop_id=<12hex>\n<草案概要>'
-# 短路：'SKIP: <reason>'
-```
-
-实现：[`paimon/shades/naberius/propose.py`](../../paimon/shades/naberius/propose.py)
+判断从严：单次问答 / 闲聊 / 临时事项 / 跟现有 skill 重叠 / 涉及隐私凭据 → 不产出。
 
 ## 触发路径
 
-- 用户主动 `/evolve` 命令（[`paimon/core/commands/evolve.py`](../../paimon/core/commands/evolve.py)）
-- 时执 archive 收尾 hook（[`paimon/shades/istaroth/_propose_trigger.py`](../../paimon/shades/istaroth/_propose_trigger.py)）
-- 三月 cron 月度扫描（[`paimon/skill_loader/proposal_cron.py`](../../paimon/skill_loader/proposal_cron.py)）
+| 入口 | 触发条件 |
+|---|---|
+| 普通对话 | 每 5 条用户消息后台浅判一次"是否值得沉淀" |
+| 任务归档 | 任务跑完时同样浅判 |
+| 用户主动 | `/evolve` 命令 |
+| 月度扫描 | 每月 1 日 04:00 看近 30 天任务汇总 |
 
-三条路径都跳过 plan 编排，直接调 `propose_skill` 函数；下游紧跟死执 `review_proposal`。
+四条路径都不走任务编排，直接调生执；下游紧接死执质量审。
 
 ## 跟死执的衔接
 
-propose_skill 输出首行 `prop_id=<12hex>`，死执 review_proposal 通过 `prior_results` 字符串解析 prop_id 拿到提案。
-
-死执 SKIP 的场景：propose 输出 `SKIP:` 时 review_proposal 短路 pass，不再发起 LLM 评审。
+生执产出多少条，死执循环审多少条，每条独立 verdict。生执判定不值得做时直接跳过死执，不发 LLM。

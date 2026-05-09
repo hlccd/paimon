@@ -109,7 +109,7 @@ async def handle_chat(
             # 严格排除的：
             #   - exec / file_ops —— 需要走四影安全审查
             #   - use_skill —— 会绕过 AuthzDecision 直接注入 skill 指令；改由意图分类走 skill 路径
-            #   - skill_manage —— 冰神专属
+            #   - skill_manage —— 空执专属
             #   - audio/video_process —— 重型，归七神
             _CHAT_TOOLS = {
                 "schedule",       # 定时任务（写世界树 scheduled_tasks 域，无副作用）
@@ -201,9 +201,9 @@ async def handle_chat(
             context_window_tokens=cfg.context_window_tokens,
         )
         if ratio >= _effective_compress_threshold_pct(cfg):
-            from paimon.shades import istaroth
+            from paimon.core.chat._compress import compress
             try:
-                compressed = await istaroth.compress(
+                compressed = await compress(
                     session,
                     model=model,
                     keep_recent_messages=max(cfg.context_keep_recent_messages, 0),
@@ -211,14 +211,14 @@ async def handle_chat(
                 )
             except Exception as e:
                 compressed = False
-                logger.warning("[时执·压缩] 会话{}上下文压缩调用异常: {}", session.id, e)
+                logger.warning("[派蒙·压缩] 会话{}上下文压缩调用异常: {}", session.id, e)
             if compressed:
                 total_tokens, ratio = model.update_session_context_stats(
                     session,
                     context_window_tokens=cfg.context_window_tokens,
                 )
                 logger.info(
-                    "[时执·压缩] 会话{}压缩后 {:.1f}% ({} tokens)",
+                    "[派蒙·压缩] 会话{}压缩后 {:.1f}% ({} tokens)",
                     session.id, ratio, total_tokens,
                 )
 

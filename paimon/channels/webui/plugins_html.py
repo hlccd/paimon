@@ -1,4 +1,4 @@
-"""冰神 · 插件面板（含授权管理）
+"""空执 · 插件面板（skill 生态 + 授权管理 + 自进化提案）
 
 按 docs/permissions.md：
   - Skill 生态：展示全部 skill 的敏感度、allowed_tools、敏感命中项
@@ -138,7 +138,7 @@ PLUGINS_CSS = """
         white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto;
     }
 
-    .btn-approve, .btn-reject, .btn-delete-prop {
+    .btn-approve, .btn-reject, .btn-revise, .btn-delete-prop {
         padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;
         border: 1px solid; background: transparent;
     }
@@ -147,8 +147,100 @@ PLUGINS_CSS = """
     .btn-approve:disabled { opacity: .35; cursor: not-allowed; }
     .btn-reject { border-color: var(--status-warning); color: var(--status-warning); }
     .btn-reject:hover { background: rgba(245,158,11,.1); }
+    .btn-revise { border-color: var(--gold-dark); color: var(--gold); }
+    .btn-revise:hover:not(:disabled) { background: rgba(245,200,80,.1); }
+    .btn-revise:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-reject:disabled { opacity: .35; cursor: not-allowed; }
     .btn-delete-prop { border-color: var(--status-error); color: var(--status-error); }
     .btn-delete-prop:hover { background: rgba(239,68,68,.1); }
+
+    /* 重写中状态条 */
+    .revising-banner {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 14px; margin-bottom: 12px;
+        background: rgba(245,200,80,.08); border: 1px solid rgba(245,200,80,.3);
+        border-radius: 6px;
+        color: var(--gold); font-size: 12px;
+    }
+    .revising-banner .pulse {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--gold);
+        animation: revising-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes revising-pulse {
+        0%, 100% { opacity: .3; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.4); }
+    }
+
+    /* 提建议改写 modal —— 风格对齐 /knowledge 的 form modal */
+    .modal-backdrop {
+        display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000;
+        align-items: center; justify-content: center;
+    }
+    .modal-backdrop.active { display: flex; }
+    .modal {
+        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
+        border-radius: 8px; max-width: 640px; width: 90%;
+        max-height: 85vh; overflow: auto; padding: 24px;
+    }
+    .modal-header {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 16px; padding-bottom: 12px;
+        border-bottom: 1px solid var(--paimon-border);
+    }
+    .modal-header h3 { color: var(--gold); font-size: 18px; font-weight: 600; }
+    .modal-header .modal-sub {
+        font-size: 12px; color: var(--text-muted); margin-top: 4px;
+        font-family: 'SF Mono', Monaco, Consolas, monospace;
+    }
+    .modal-close {
+        background: transparent; border: none; color: var(--text-muted); font-size: 22px;
+        cursor: pointer; padding: 0 6px;
+    }
+    .modal-close:hover { color: var(--text-primary); }
+    .form-body { padding: 8px 0; display: flex; flex-direction: column; gap: 14px; }
+    .form-field { display: flex; flex-direction: column; gap: 4px; }
+    .form-field label { font-size: 12px; color: var(--text-muted); }
+    .form-field textarea {
+        padding: 10px 12px; background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border); border-radius: 4px;
+        color: var(--text-primary); font-size: 13px;
+        font-family: inherit; line-height: 1.6;
+        min-height: 140px; resize: vertical;
+    }
+    .form-field textarea:focus { outline: none; border-color: var(--gold); }
+    .form-field .hint { font-size: 11px; color: var(--text-muted); font-style: italic; }
+    .form-tips {
+        background: var(--paimon-panel-light); border: 1px solid var(--paimon-border);
+        border-radius: 4px; padding: 10px 12px;
+        font-size: 12px; color: var(--text-secondary); line-height: 1.7;
+    }
+    .form-tips .tip-label { color: var(--gold); font-weight: 600; }
+    .form-tips ul { margin: 4px 0 0 18px; }
+    .form-actions {
+        display: flex; justify-content: flex-end; gap: 10px;
+        margin-top: 16px; padding-top: 12px;
+        border-top: 1px solid var(--paimon-border);
+    }
+    .btn-cancel {
+        padding: 6px 18px; background: transparent; border: 1px solid var(--paimon-border);
+        color: var(--text-secondary); border-radius: 4px; cursor: pointer; font-size: 13px;
+    }
+    .btn-cancel:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+    .btn-save {
+        padding: 6px 18px; background: var(--gold); color: #000;
+        border: none; border-radius: 4px; cursor: pointer;
+        font-size: 13px; font-weight: 600;
+    }
+    .btn-save:hover { background: var(--gold-dark); }
+    .btn-save:disabled { opacity: .5; cursor: not-allowed; }
+    .form-error {
+        margin-top: 10px; padding: 8px 12px;
+        background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3);
+        border-radius: 4px; color: var(--status-error); font-size: 12px;
+        display: none;
+    }
+    .form-error.active { display: block; }
 """
 
 
@@ -186,6 +278,38 @@ PLUGINS_BODY = """
                 <button class="sub-tab" data-status="rejected" onclick="switchProp('rejected',this)">已拒 <span id="propCntRejected"></span></button>
             </div>
             <div id="proposalsEl"><div class="empty-state">加载中...</div></div>
+        </div>
+    </div>
+
+    <!-- 提建议改写 modal -->
+    <div id="reviseModal" class="modal-backdrop" onclick="closeReviseModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div>
+                    <h3>提建议改写草案</h3>
+                    <div class="modal-sub" id="reviseModalSub"></div>
+                </div>
+                <button class="modal-close" onclick="closeReviseModal()">×</button>
+            </div>
+            <div class="form-body">
+                <div class="form-field">
+                    <label for="reviseFeedback">你的建议（可留空仅触发重审）</label>
+                    <textarea id="reviseFeedback" placeholder="例如：&#10;- 应该支持非米哈游游戏，比如英雄联盟、永劫无间&#10;- 步骤 3 写得不够具体，要展开下数据来源&#10;- triggers 描述太含糊，应该列出具体场景&#10;&#10;留空 → 退化为「按原内容重审」（适合挽救 verdict 不准的提案）"></textarea>
+                </div>
+                <div class="form-tips">
+                    <span class="tip-label">提交后会发生什么：</span>
+                    <ul>
+                        <li>生执根据你的建议重写完整草案（in-place 覆盖 system_prompt / triggers / 工具列表）</li>
+                        <li>死执自动重审一道，verdict 刷新</li>
+                        <li>revision_count +1，原建议留痕显示在卡片上</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn-cancel" onclick="closeReviseModal()">取消</button>
+                <button class="btn-save" id="reviseSubmitBtn" onclick="submitRevise()">提交重写</button>
+            </div>
+            <div id="reviseError" class="form-error"></div>
         </div>
     </div>
 """
@@ -359,8 +483,11 @@ PLUGINS_SCRIPT = """
             }
             var html = list.map(function(p){
                 var verdictBadge = badgeVerdict(p.review_verdict);
-                var canApprove = (p.status === 'pending' && p.review_verdict !== 'needs_revise' && p.review_verdict !== 'reject');
+                var isRevising = !!p.revising_at;
+                // 重写中：同意 / 提建议 → 锁；拒绝 → 仍可点（用户中止意图）；删除 → 不冲突
+                var canApprove = (p.status === 'pending' && p.review_verdict !== 'needs_revise' && p.review_verdict !== 'reject' && !isRevising);
                 var canReject = (p.status === 'pending');
+                var canRevise = (p.status === 'pending' && !isRevising);
                 var canDelete = (p.status === 'rejected');
 
                 var tools = (p.allowed_tools || []).map(function(t){
@@ -372,10 +499,22 @@ PLUGINS_SCRIPT = """
                 if(canApprove){
                     actionBtns += '<button class="btn-approve" onclick="event.stopPropagation();approveProp(\\''+esc(p.id)+'\\')">同意</button>';
                 } else if(p.status === 'pending') {
-                    var reason = p.review_verdict === 'needs_revise'
-                        ? '死执质量审建议修订；需要先重新产新版'
-                        : '死执质量审已直拒';
+                    var reason = isRevising
+                        ? '正在生执重写中，等重写完才能 approve'
+                        : (p.review_verdict === 'needs_revise'
+                            ? '死执质量审建议修订；需要先重新产新版'
+                            : '死执质量审已直拒');
                     actionBtns += '<button class="btn-approve" disabled title="'+esc(reason)+'">同意</button>';
+                }
+                if(p.status === 'pending'){
+                    var reviseLabel = (p.review_verdict === 'needs_revise')
+                        ? '提建议改写 / 重审'
+                        : '提建议改写';
+                    if(canRevise){
+                        actionBtns += '<button class="btn-revise" onclick="event.stopPropagation();reviseProp(\\''+esc(p.id)+'\\')">'+reviseLabel+'</button>';
+                    } else {
+                        actionBtns += '<button class="btn-revise" disabled title="正在重写中，等链路完成">'+reviseLabel+'</button>';
+                    }
                 }
                 if(canReject){
                     actionBtns += '<button class="btn-reject" onclick="event.stopPropagation();rejectProp(\\''+esc(p.id)+'\\')">拒绝</button>';
@@ -394,6 +533,18 @@ PLUGINS_SCRIPT = """
                 var decisionNotes = p.decision_notes
                     ? '<div class="prop-section"><div class="prop-section-label">用户决策理由</div><div class="prop-section-content">'+esc(p.decision_notes)+'</div></div>'
                     : '';
+                var userFeedback = p.user_feedback
+                    ? '<div class="prop-section"><div class="prop-section-label">用户上次建议（已并入新版）</div><div class="prop-section-content">'+esc(p.user_feedback)+'</div></div>'
+                    : '';
+                var revisionMark = (p.revision_count && p.revision_count > 0)
+                    ? ' <span class="desc" style="font-size:11px;">· 已重写 '+p.revision_count+' 次</span>'
+                    : '';
+
+                var revisingBanner = isRevising
+                    ? '<div class="revising-banner"><span class="pulse"></span>'
+                      + '生执正在按建议重写 → 死执重审中，完成立即解锁'
+                      + '</div>'
+                    : '';
 
                 return ''
                     +'<div class="prop-card" id="card-'+esc(p.id)+'">'
@@ -402,6 +553,7 @@ PLUGINS_SCRIPT = """
                     +'    <div class="prop-meta">'
                     +'      <span class="prop-name">'+esc(p.name)+'</span>'
                     +(kindLine ? ' <span class="desc" style="display:inline-block;margin-left:8px;">'+kindLine+'</span>' : '')
+                    + revisionMark
                     +'      <div class="prop-desc">'+esc(p.description || '（无描述）')+'</div>'
                     +'    </div>'
                     +'    <div class="prop-badges">'
@@ -409,6 +561,7 @@ PLUGINS_SCRIPT = """
                     +'    </div>'
                     +'  </div>'
                     +'  <div class="prop-body">'
+                    +    revisingBanner
                     +'    <div class="prop-section">'
                     +'      <div class="prop-section-label">触发线索</div>'
                     +'      <div class="prop-section-content">'+esc(p.triggers || '（未填）')+'</div>'
@@ -423,6 +576,7 @@ PLUGINS_SCRIPT = """
                     +'    </div>'
                     +    reviewNotes
                     +    decisionNotes
+                    +    userFeedback
                     +'    <div class="prop-section">'
                     +'      <div class="prop-section-label">SKILL 草案（system_prompt）</div>'
                     +'      <div class="prop-section-content code">'+esc(p.system_prompt || '（空）')+'</div>'
@@ -448,6 +602,32 @@ PLUGINS_SCRIPT = """
             loadProposals();
         };
 
+        var _revisingPollTimer = null;
+
+        function _hasRevising(list){
+            if(!list) return false;
+            for(var i = 0; i < list.length; i++){
+                if(list[i].revising_at) return true;
+            }
+            return false;
+        }
+
+        function _ensureRevisingPoll(active){
+            // 任意提案 revising 中 → 500ms 短间隔 polling，几乎实时；解锁后立即停 timer
+            // 链路 ~50s 内完成，期间 ~100 次请求；切走 tab 暂停（节省请求）
+            if(active && !_revisingPollTimer){
+                _revisingPollTimer = setInterval(function(){
+                    var panel = document.getElementById('proposals');
+                    if(panel && panel.classList.contains('active')){
+                        loadProposals();
+                    }
+                }, 500);
+            } else if(!active && _revisingPollTimer){
+                clearInterval(_revisingPollTimer);
+                _revisingPollTimer = null;
+            }
+        }
+
         async function loadProposals(){
             try {
                 var r = await fetch('/api/plugins/proposals?status=' + encodeURIComponent(_propCurrentStatus));
@@ -470,6 +650,8 @@ PLUGINS_SCRIPT = """
                 setCnt('propCntApproved', counts.approved || 0);
                 setCnt('propCntApplied', counts.applied || 0);
                 setCnt('propCntRejected', counts.rejected || 0);
+                // 检测是否有提案处于 revising 状态，决定是否需要 polling 实时刷新
+                _ensureRevisingPoll(_hasRevising(d.proposals));
             } catch(e){
                 document.getElementById('proposalsEl').innerHTML =
                     '<div class="empty-state">加载失败: '+esc(e.message)+'</div>';
@@ -477,7 +659,7 @@ PLUGINS_SCRIPT = """
         }
 
         window.approveProp = async function(propId){
-            if(!confirm('同意此提案？同意后冰神会落盘到 .claude/skills/ 并注册。')) return;
+            if(!confirm('同意此提案？同意后空执会落盘到 skills/ 并注册。')) return;
             try {
                 var r = await fetch('/api/plugins/proposals/'+propId+'/approve', {method:'POST'});
                 var d = await r.json();
@@ -497,6 +679,66 @@ PLUGINS_SCRIPT = """
                 var d = await r.json();
                 if(d.ok){ loadProposals(); } else { alert('拒绝失败: ' + (d.error || '未知')); }
             } catch(e){ alert('拒绝失败: ' + e.message); }
+        };
+
+        var _reviseTargetProp = null;
+
+        window.reviseProp = function(propId){
+            _reviseTargetProp = propId;
+            // 找到提案信息填到副标题，方便用户确认
+            var card = document.getElementById('card-' + propId);
+            var nameEl = card ? card.querySelector('.prop-name') : null;
+            var name = nameEl ? nameEl.textContent : propId;
+            document.getElementById('reviseModalSub').textContent =
+                'prop_id=' + propId + ' · ' + name;
+            document.getElementById('reviseFeedback').value = '';
+            document.getElementById('reviseError').classList.remove('active');
+            var btn = document.getElementById('reviseSubmitBtn');
+            btn.disabled = false;
+            btn.textContent = '提交重写';
+            document.getElementById('reviseModal').classList.add('active');
+            // 自动 focus 到 textarea，体验更连贯
+            setTimeout(function(){
+                document.getElementById('reviseFeedback').focus();
+            }, 50);
+        };
+
+        window.closeReviseModal = function(e){
+            if(e && e.target.id !== 'reviseModal') return;
+            document.getElementById('reviseModal').classList.remove('active');
+            _reviseTargetProp = null;
+        };
+
+        window.submitRevise = async function(){
+            if(!_reviseTargetProp) return;
+            var feedback = document.getElementById('reviseFeedback').value;
+            var btn = document.getElementById('reviseSubmitBtn');
+            var errEl = document.getElementById('reviseError');
+            errEl.classList.remove('active');
+            btn.disabled = true;
+            btn.textContent = '提交中...';
+            try {
+                var r = await fetch('/api/plugins/proposals/'+_reviseTargetProp+'/revise', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({feedback: feedback}),
+                });
+                var d = await r.json();
+                if(d.ok){
+                    closeReviseModal();
+                    setTimeout(loadProposals, 500);
+                } else {
+                    errEl.textContent = '提交失败: ' + (d.error || '未知');
+                    errEl.classList.add('active');
+                    btn.disabled = false;
+                    btn.textContent = '提交重写';
+                }
+            } catch(e){
+                errEl.textContent = '提交失败: ' + e.message;
+                errEl.classList.add('active');
+                btn.disabled = false;
+                btn.textContent = '提交重写';
+            }
         };
 
         window.deleteProp = async function(propId){

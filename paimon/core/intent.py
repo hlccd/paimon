@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from paimon.skill_loader.registry import SkillRegistry
+    from paimon.shades.asmoday.registry import SkillRegistry
     from paimon.llm.model import Model
     from paimon.session import Session
 

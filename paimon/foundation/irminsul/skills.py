@@ -1,6 +1,6 @@
 """Skill 生态声明域 —— 世界树域 2
 
-唯一写入者：冰神（扫 skills/ + 运行时装载 plugin + AI 自举生成）
+唯一写入者：空执（扫 skills/ + 运行时装载 plugin + AI 自进化提案落盘）
 读取者：派蒙 / 死执（启动 snapshot 灌缓存）
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ class SkillDecl:
     name: str
     source: str = "builtin"                   # 'builtin' | 'plugin' | 'ai_gen'
     origin: str = ""                          # ai_gen 场景记 proposed_by_session
-    sensitivity: str = "normal"               # 'normal' | 'sensitive' —— 冰神装载时由 allowed_tools 派生
+    sensitivity: str = "normal"               # 'normal' | 'sensitive' —— 空执装载时由 allowed_tools 派生
     description: str = ""
     triggers: str = ""
     allowed_tools: list[str] = field(default_factory=list)

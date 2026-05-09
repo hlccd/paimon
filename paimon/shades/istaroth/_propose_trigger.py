@@ -1,21 +1,16 @@
-"""时执 archive 收尾 hook：浅池 LLM 判 should_propose + 直接调 propose+review 链。
+"""自进化提案触发器：浅池 LLM 判 should_propose + 调生执 / 死执函数链。
 
-跟用户主动 `/evolve` 的区别：
-- `/evolve` 走 propose_skill + review_proposal 函数链（同此 hook 但走显式入口）
-- archive hook 跳过 plan，直接调 propose_skill / review_proposal 函数（节省 LLM 调用）
+唯一活跃入口：
+- `maybe_nudge_session(session, irminsul)` — chat / skill 路径完成时调
+  （每 NUDGE_THRESHOLD 条 user 消息满阈值才跑判定，借鉴 hermes-agent 计数器）
 
 借鉴 hermes-agent：
-- 严格判定门槛，绝大多数 task 应返 should_propose=false（避免每次 archive 都跑 propose）
-- 短路退出：should_propose=false → 0 后续调用
-- max 调用数：should_propose 判 1 + propose 1 + review 1 = 3 次浅池 call
-
-防递归：如果 task.description 含 _PROPOSE_TRIGGER_MARKER，archive 时跳过 hook
-（避免 archive hook 自己启动的 propose task 再次触发 hook）。
+- 严格判定门槛，绝大多数情况返 should_propose=false（短路退出）
+- max 调用数：should_propose 判 1 + propose 1 + review N 次浅池 call
 """
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from typing import TYPE_CHECKING
 
@@ -23,27 +18,12 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from paimon.foundation.irminsul import Irminsul
-    from paimon.foundation.irminsul.task import Subtask, TaskEdict
+    from paimon.session import Session
 
 
-# 防递归 marker：archive hook 自己启动的 propose flow 不再触发自身
-PROPOSE_TRIGGER_MARKER = "[propose-triggered]"
-
-
-_TRIGGER_PROMPT = """\
-你看下面这个任务的执行摘要，判断是否值得从中凝练一个**可复用的 skill** 沉淀下来。
-
-判断标准（**严格**，绝大多数 task 应返 false）：
-- ✓ 任务多步（≥4 步）且方法**可复用**（用户未来很可能用同样模式再做）
-- ✓ 解决了一类问题，不是一次性查询
-- ✓ 跟现有 skill 不重叠
-- ✗ 单次问答 / 闲聊 / 太琐碎（< 4 步搞定）→ false
-- ✗ 内容是个人临时需求（"今天吃啥"）→ false
-- ✗ 涉及个人隐私 / 临时凭据 → false
-
-只输出 JSON：{"propose": true/false, "reason": "≤30 字"}
-不要 markdown fence、不要任何额外文字。
-"""
+# nudge 阈值：每 N 条 user 消息触发一次 should_propose 判定
+# 5 条是 hermes-agent 的实证默认值，平衡"够多对话才能识别可复用模式"和"浅池调用频率"
+NUDGE_THRESHOLD = 5
 
 
 def _parse_trigger_json(text: str) -> dict | None:
@@ -66,149 +46,171 @@ def _parse_trigger_json(text: str) -> dict | None:
     return None
 
 
-def _build_summary_context(
-    task: "TaskEdict", subtasks: list["Subtask"], summary: dict,
-) -> str:
-    """拼任务执行摘要给浅池 LLM 看（should_propose 判定 + propose 凝练共用）。"""
-    completed = [s for s in subtasks if s.status == "completed"][:6]
-    sub_lines = "\n".join(
-        f"- [{s.assignee}] {s.description[:120]}\n  → {(s.result or '')[:300]}"
-        for s in completed
-    )
-    return (
-        f"## 任务\n{task.title}\n\n"
-        f"## 描述\n{task.description[:500]}\n\n"
-        f"## 子任务（{summary['completed']} 完成 / {summary['failed']} 失败）\n"
-        f"{sub_lines}\n"
-    )
-
-
-async def maybe_trigger_propose(
-    task: "TaskEdict",
-    subtasks: list["Subtask"],
-    summary: dict,
-    irminsul: "Irminsul",
-) -> None:
-    """archive 收尾 hook 主入口。
-
-    流程：
-    1. 防递归（task.description 含 marker 跳过）
-    2. 失败 / 无产出 task 跳过
-    3. 浅池 LLM 判 should_propose（1 call，绝大多数返 false 后短路）
-    4. yes → 直接调 propose_skill + review_proposal 函数链落 skill_proposals 表
-
-    所有异常吞掉（archive hook 不能阻塞主管线归档）。
-    """
-    # 1. 防递归
-    if PROPOSE_TRIGGER_MARKER in task.description:
-        return
-
-    # 2. 失败 / 无产出
-    if summary.get("completed", 0) < 1:
-        return
-    if summary.get("rounds", 0) < 1:
-        return
-
-    # 3. 浅池判 should_propose
-    from paimon.state import state as _state
-    if not _state.model:
-        return
-
-    context = _build_summary_context(task, subtasks, summary)
-    try:
-        raw, _ = await _state.model._stream_text(
-            messages=[
-                {"role": "system", "content": _TRIGGER_PROMPT},
-                {"role": "user", "content": context},
-            ],
-            component="时执·propose 触发",
-            purpose="should_propose",
-        )
-    except Exception as e:
-        logger.debug("[时执·propose 触发] LLM 调用失败：{}", e)
-        return
-
-    obj = _parse_trigger_json(raw)
-    if not obj or not obj.get("propose"):
-        return  # 短路退出（绝大多数 task 应走这条）
-
-    reason = str(obj.get("reason", ""))[:80]
-    logger.info(
-        "[时执·propose 触发] 判定 should_propose=true task={} reason={!r}",
-        task.id[:8], reason,
-    )
-
-    # 4. 调 propose + review 函数链
-    try:
-        await _run_propose_review_chain(task, context, reason, irminsul, _state.model)
-    except Exception as e:
-        logger.warning("[时执·propose 触发] 提案产生异常：{}", e)
-
-
-async def _run_propose_review_chain(
-    origin_task: "TaskEdict",
-    context: str,
-    trigger_reason: str,
+async def run_propose_review_chain(
+    *,
+    title: str,
+    description: str,
+    session_id: str,
+    origin_id: str,
     irminsul: "Irminsul",
     model,
-) -> None:
-    """直接调 propose_skill + review_proposal 函数（不走 plan/pipeline）。"""
-    from paimon.foundation.irminsul.task import Subtask, TaskEdict
+) -> list[str]:
+    """直接调生执 propose_skill + 死执 review_proposal。
+
+    返本次产生的全部 prop_id 列表（生执单次最多 5 个），SKIP 路径返空列表。
+    """
+    import re
     from paimon.shades.naberius.propose import propose_skill
     from paimon.shades.jonova.review_proposal import review_proposal
 
-    # 合成 task：description 加 marker 确保此 task 即便走 archive 也不会再触发自身
-    synthetic_task_id = uuid.uuid4().hex
-    now = time.time()
-    syn_task = TaskEdict(
-        id=synthetic_task_id,
-        title=f"自进化触发：{origin_task.title[:60]}",
-        description=(
-            f"{PROPOSE_TRIGGER_MARKER}\n"
-            f"基于已完成任务 {origin_task.id[:8]} 凝练 skill 草案。\n"
-            f"触发理由：{trigger_reason}\n\n{context}"
-        ),
-        creator="时执·propose 触发",
-        status="running",
-        session_id=origin_task.session_id,
-        created_at=now, updated_at=now,
-    )
-
-    propose_sub = Subtask(
-        id=f"prop-{synthetic_task_id[:8]}",
-        task_id=synthetic_task_id, parent_id=None,
-        assignee="propose_skill",
-        description="凝练 skill 草案",
-        status="running",
-        created_at=now, updated_at=now,
-    )
-
     propose_result = await propose_skill(
-        syn_task, propose_sub, model, irminsul, prior_results=None,
+        title=title,
+        description=description,
+        session_id=session_id,
+        origin_id=origin_id,
+        model=model,
+        irminsul=irminsul,
+        prior_results=None,
     )
     logger.info(
-        "[时执·propose 触发] propose 完成 origin_task={} result={!r}",
-        origin_task.id[:8], propose_result[:100],
+        "[自进化触发] propose 完成 origin={} result={!r}",
+        origin_id[:8], propose_result[:100],
     )
 
     # SKIP 路径：propose 自己判定不值得做，结束
     if propose_result.startswith("SKIP:"):
-        return
+        return []
 
-    # 调 review_proposal 自动审
-    review_sub = Subtask(
-        id=f"rev-{synthetic_task_id[:8]}",
-        task_id=synthetic_task_id, parent_id=None,
-        assignee="review_proposal",
-        description="审 propose 提案",
-        status="running",
-        created_at=now, updated_at=now,
-    )
+    # 解析所有 prop_id：propose_skill 成功路径多行 'prop_id=<12hex> name=<x>'
+    prop_ids: list[str] = []
+    seen: set[str] = set()
+    for m in re.finditer(r"prop_id=([0-9a-f]{12})", propose_result):
+        pid = m.group(1)
+        if pid not in seen:
+            seen.add(pid)
+            prop_ids.append(pid)
+    if not prop_ids:
+        logger.warning(
+            "[自进化触发] propose 输出无 prop_id origin={}", origin_id[:8],
+        )
+        return []
+
+    # 调死执 review_proposal 自动审
     review_result = await review_proposal(
-        syn_task, review_sub, model, irminsul,
+        model=model,
+        irminsul=irminsul,
         prior_results=[propose_result],
+        origin_id=origin_id,
     )
     logger.info(
-        "[时执·propose 触发] review 完成 origin_task={} verdict_text={!r}",
-        origin_task.id[:8], review_result[:100],
+        "[自进化触发] review 完成 origin={} verdict_text={!r}",
+        origin_id[:8], review_result[:100],
     )
+
+    return prop_ids
+
+
+# ─── chat 路径 nudge 触发器（hermes 风格计数器）────────────────────────────────
+
+_NUDGE_TRIGGER_PROMPT = """\
+你看下面这段最近的会话历史，判断用户是否在反复做某种**可复用的任务**，值得凝练成 skill。
+
+判断标准（**严格**，绝大多数会话应返 false）：
+- ✓ 用户多次（≥2 次）做相同**模式**的事（如"问 X 游戏新角色配队"出现 2 次以上）
+- ✓ 任务方法**可复用**：未来很可能再来一次同样的需求
+- ✓ 跟现有 skill 不重叠
+- ✗ 单次问答 / 闲聊 / 一次性查询 → false
+- ✗ 内容是临时事项（"今晚吃啥" / "周二有空吗"）→ false
+- ✗ 个人隐私 / 临时凭据 → false
+
+只输出 JSON：{"propose": true/false, "reason": "≤30 字"}
+不要 markdown fence、不要任何额外文字。
+"""
+
+
+async def maybe_nudge_session(session: "Session", irminsul: "Irminsul") -> None:
+    """chat / skill 路径完成后调（fire-and-forget）。
+
+    每 NUDGE_THRESHOLD 条 user 消息满阈值跑一次浅池 should_propose 判定；
+    判定 yes 则跑 propose+review 链产出提案落 skill_proposals 域。
+
+    所有异常吞掉（不能影响主流程；用户 chat 已经回复完了）。
+    """
+    try:
+        session._nudge_user_turns += 1
+    except AttributeError:
+        # 老 session 可能没此字段（重启前创建的），直接初始化
+        session._nudge_user_turns = 1
+
+    if session._nudge_user_turns < NUDGE_THRESHOLD:
+        logger.debug(
+            "[chat·nudge propose] session={} 计数 {}/{}",
+            session.id[:8], session._nudge_user_turns, NUDGE_THRESHOLD,
+        )
+        return
+
+    # reset 计数器（即便后面判 false，也不应连续每条都跑判定）
+    session._nudge_user_turns = 0
+
+    from paimon.state import state as _state
+    if not _state.model:
+        return
+
+    # 拼最近会话 context（最多 30 条，每条 ≤300 字）
+    recent = session.messages[-30:] if len(session.messages) > 1 else []
+    lines = []
+    for m in recent:
+        role = m.get("role")
+        content = m.get("content", "")
+        if role in ("user", "assistant") and content:
+            lines.append(f"[{role}] {str(content)[:300]}")
+    if not lines:
+        return
+    context = "\n".join(lines)[:5000]
+
+    # 浅池 1 call 判 should_propose
+    try:
+        raw, _ = await _state.model._stream_text(
+            messages=[
+                {"role": "system", "content": _NUDGE_TRIGGER_PROMPT},
+                {"role": "user", "content": f"## 最近 {len(recent)} 条会话\n\n{context}"},
+            ],
+            component="自进化触发",
+            purpose="should_propose_chat",
+        )
+    except Exception as e:
+        logger.debug("[chat·nudge propose] LLM 调用失败：{}", e)
+        return
+
+    obj = _parse_trigger_json(raw)
+    if not obj or not obj.get("propose"):
+        logger.debug(
+            "[chat·nudge propose] 判定 false session={} reason={!r}",
+            session.id[:8], (obj or {}).get("reason", ""),
+        )
+        return
+
+    reason = str(obj.get("reason", ""))[:80]
+    logger.info(
+        "[chat·nudge propose] 判定 should_propose=true session={} reason={!r}",
+        session.id[:8], reason,
+    )
+
+    origin_id = uuid.uuid4().hex
+    title = f"chat 自进化触发：{(session.name or '会话')[:50]}"
+    description = (
+        f"基于会话 {session.id[:8]} 的最近 {len(recent)} 条对话凝练 skill。\n"
+        f"触发理由：{reason}\n\n{context}"
+    )
+
+    try:
+        await run_propose_review_chain(
+            title=title,
+            description=description,
+            session_id=session.id,
+            origin_id=origin_id,
+            irminsul=irminsul,
+            model=_state.model,
+        )
+    except Exception as e:
+        logger.warning("[chat·nudge propose] 链路异常：{}", e)

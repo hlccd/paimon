@@ -4,7 +4,6 @@
 - 晨星：天使中的 leader，负责调度（assemble 召集 → dispatch+speak loop → synthesize）
 - 协同天使：11 个预定义角色（结构性 5 / 评估性 4 / 对抗性 2），由晨星按议题召集 3-5 个
 
-(原 paimon/angels/ 已重命名为 paimon/skill_loader/，「天使」语义专属此模块。)
 """
 from .council import CouncilResult, run_council
 from .morningstar import run_agents

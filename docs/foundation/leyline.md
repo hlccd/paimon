@@ -54,7 +54,7 @@ class Event:
 | `march.ring` | 三月 | 派蒙 | 推送响铃 → 派蒙投递给用户 |
 | `march.task_due` | 三月 | 三月内部 | 定时任务到期触发 |
 | `shade.authz_update` | 四影 | 派蒙 | 权限变更通知 → 派蒙更新本地缓存 |
-| `skill.loaded` | 冰神 | 派蒙 | 新 skill 上线 → 派蒙刷新注册表 |
+| `skill.loaded` | 空执 | 派蒙 | 新 skill 上线 → 派蒙刷新注册表 |
 | `error.log` | 任意模块 | 日志设施 | 异常广播（handler 异常自动触发） |
 
 ## 生命周期

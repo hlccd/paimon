@@ -58,7 +58,7 @@ async def _probe_irminsul(svc: "SelfCheckService") -> dict:
     counts: dict[str, int] = {}
     for tbl in (
         "authz_records", "skill_declarations", "memory_index",
-        "task_edicts", "task_subtasks", "token_usage", "audit_revisions",
+        "token_usage", "audit_revisions",
         "scheduled_tasks", "subscriptions", "feed_items",
         "session_records", "selfcheck_runs",
     ):

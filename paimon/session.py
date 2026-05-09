@@ -38,6 +38,10 @@ class Session:
     # 不入 SessionManager.sessions、不落世界树、不绑 channel_key，save 入口 short-circuit
     # 仅内存字段，不写 SessionRecord
     ephemeral: bool = False
+    # 自进化 nudge 计数器（borrowed from hermes-agent）：每次 chat 完成 +1，
+    # 满 propose_nudge_interval 触发一次浅池 should_propose 判定，跑完 reset 0。
+    # 内存字段不持久化（重启从 0 起，避免重启后立即触发误报）。
+    _nudge_user_turns: int = 0
 
 
 class SessionManager:

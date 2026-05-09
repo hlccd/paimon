@@ -8,6 +8,7 @@
   - **memory 域唯一写入者**（业务接口层面）
   - **概念归属**：知识 / 偏好（个人画像）
   - **Web 面板语义负责人**：`/knowledge` 面板（草神·智识，2 tab：📖 记忆 / 📚 知识库）
+  - **跨会话记忆经验提取**：从会话压缩 summary 抽 user/feedback/project/reference 4 类条目入库（由时执会话压缩末尾触发）
 - **Web 面板**：✅ `/knowledge` 面板（代码层 webui/api/{knowledge_kb,knowledge,authz}.py 直读 irminsul，不经草神实例）
 
 ## 当前状态：archon 本体 namespace 壳

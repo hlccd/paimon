@@ -1,9 +1,9 @@
 """派蒙·task_review — 入口任务级安全审查。
 
-入口任务级安全审：判断用户提交的请求是否安全（/evolve 命令、archive hook 自触发时调）。
+判断用户提交的请求是否安全（/evolve 命令、自进化触发器调用前）。
 
-容错策略（区分错误类型避免一刀切 fail-open，REL-002/007）：
-  - LLM 调用失败（网络/超时）→ fail-open 保持可用性 + audit 留痕
+容错策略：
+  - LLM 调用失败（网络/超时）→ fail-open 保持可用性 + 日志留痕
   - LLM 输出非合法 JSON / 缺 safe 字段 → fail-closed（防 prompt injection 绕审）
 """
 from __future__ import annotations
@@ -13,7 +13,6 @@ import json
 from loguru import logger
 
 from paimon.foundation.irminsul import Irminsul
-from paimon.foundation.irminsul.task import TaskEdict
 from paimon.llm.model import Model
 
 
@@ -33,33 +32,25 @@ _REVIEW_PROMPT = """\
 
 
 async def task_review(
-    task: TaskEdict,
+    *,
+    title: str,
+    description: str,
+    session_id: str = "",
     model: Model,
     irminsul: Irminsul,
 ) -> tuple[bool, str]:
-    """入口任务级安全审查。"""
+    """入口任务级安全审查。返回 (safe, reason)。"""
     messages = [
         {"role": "system", "content": _REVIEW_PROMPT},
-        {"role": "user", "content": f"请审查以下请求:\n\n{task.title}\n{task.description}"},
+        {"role": "user", "content": f"请审查以下请求:\n\n{title}\n{description}"},
     ]
 
-    # Step 1: LLM 调用 — 失败 fail-open（保持可用性）+ audit 留痕
+    # Step 1: LLM 调用 — 失败 fail-open（保持可用性）
     try:
         raw, usage = await model._stream_text(messages, component="派蒙·安全审", purpose="入口审查")
-        await model._record_primogem(task.session_id, "派蒙·安全审", usage, purpose="入口审查")
+        await model._record_primogem(session_id, "派蒙·安全审", usage, purpose="入口审查")
     except Exception as e:
-        logger.error("[派蒙·安全审] LLM 调用失败，跳过审查（fail-open，已 audit）: {}", e)
-        try:
-            await irminsul.flow_append(
-                task_id=task.id,
-                from_agent="派蒙",
-                to_agent="派蒙·安全审",
-                action="security_review_skipped",
-                payload={"reason": "llm_call_failed", "error": str(e)[:200]},
-                actor="派蒙·安全审",
-            )
-        except Exception:
-            pass
+        logger.error("[派蒙·安全审] LLM 调用失败，跳过审查（fail-open）: {}", e)
         return True, ""
 
     # Step 2: JSON 解析 — 失败 fail-closed（防止 prompt injection 让 LLM 输出非 JSON 绕审）
@@ -75,48 +66,18 @@ async def task_review(
             "[派蒙·安全审] LLM 输出非合法 JSON，保守拒绝: {} 原始={}",
             e, raw[:200],
         )
-        try:
-            await irminsul.flow_append(
-                task_id=task.id, from_agent="派蒙", to_agent="派蒙·安全审",
-                action="security_review",
-                payload={"safe": False, "reason": "llm_output_not_json", "raw": raw[:200]},
-                actor="派蒙·安全审",
-            )
-        except Exception:
-            pass
         return False, "审查 LLM 输出非合法 JSON（疑似 prompt injection 尝试）"
 
     if not isinstance(result, dict) or "safe" not in result:
         logger.warning("[派蒙·安全审] LLM 输出缺 safe 字段，保守拒绝: {}", raw[:200])
-        try:
-            await irminsul.flow_append(
-                task_id=task.id, from_agent="派蒙", to_agent="派蒙·安全审",
-                action="security_review",
-                payload={"safe": False, "reason": "missing_safe_field", "raw": raw[:200]},
-                actor="派蒙·安全审",
-            )
-        except Exception:
-            pass
         return False, "审查 LLM 输出缺 safe 字段"
 
     safe = bool(result.get("safe"))
     reason = str(result.get("reason", ""))
 
     if safe:
-        logger.info("[派蒙·安全审] 审查通过: {}", task.title[:60])
+        logger.info("[派蒙·安全审] 审查通过: {}", title[:60])
     else:
-        logger.warning("[派蒙·安全审] 审查拒绝: {} — {}", task.title[:60], reason)
-
-    try:
-        await irminsul.flow_append(
-            task_id=task.id,
-            from_agent="派蒙",
-            to_agent="派蒙·安全审",
-            action="security_review",
-            payload={"safe": safe, "reason": reason},
-            actor="派蒙·安全审",
-        )
-    except Exception as e:
-        logger.warning("[派蒙·安全审] audit 写入失败（不阻塞）: {}", e)
+        logger.warning("[派蒙·安全审] 审查拒绝: {} — {}", title[:60], reason)
 
     return safe, reason
