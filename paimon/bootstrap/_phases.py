@@ -89,6 +89,30 @@ async def _ensure_mihoyo_collect_cron() -> None:
         logger.warning("[水神·游戏·启动] 创建 cron 异常（不阻塞）: {}", e)
 
 
+async def _ensure_skill_proposal_cron() -> None:
+    """自进化提案 cron：月度扫描（每月 1 日 04:00）+ 周度 prune（周一 03:30）。"""
+    try:
+        from paimon.channels.webui.channel import PUSH_CHAT_ID
+        existing = await state.march.list_tasks()
+        types_present = {t.task_type for t in existing}
+        if "skill_evolve_monthly" not in types_present:
+            await state.march.create_task(
+                chat_id=PUSH_CHAT_ID, channel_name="webui", prompt="",
+                trigger_type="cron", trigger_value={"expr": "0 4 1 * *"},
+                task_type="skill_evolve_monthly", source_entity_id="all",
+            )
+            logger.info("[自进化·启动] 已创建月度扫描 cron（每月 1 日 04:00）")
+        if "skill_proposal_prune" not in types_present:
+            await state.march.create_task(
+                chat_id=PUSH_CHAT_ID, channel_name="webui", prompt="",
+                trigger_type="cron", trigger_value={"expr": "30 3 * * 1"},
+                task_type="skill_proposal_prune", source_entity_id="all",
+            )
+            logger.info("[自进化·启动] 已创建提案 prune cron（周一 03:30）")
+    except Exception as e:
+        logger.warning("[自进化·启动] 创建 cron 异常（不阻塞）: {}", e)
+
+
 async def _ensure_hygiene_cron() -> None:
     """草神·记忆 + 知识库整理 cron：周一 00:00 / 00:10 错峰，避免两个同时跑。"""
     try:

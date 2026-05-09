@@ -30,6 +30,7 @@ from ._phases import (
     _ensure_dividend_cron,
     _ensure_hygiene_cron,
     _ensure_mihoyo_collect_cron,
+    _ensure_skill_proposal_cron,
     _ensure_startup_subscriptions,
 )
 
@@ -157,6 +158,8 @@ async def create_app(cfg: Config) -> list[Channel]:
     _furina_game_reg()
     from paimon.core.memory_classifier import register_task_types as _hygiene_reg
     _hygiene_reg()
+    from paimon.skill_loader.proposal_cron import register_task_types as _proposal_reg
+    _proposal_reg()
 
     # 订阅类型注册（venti.collect_subscription dispatch 时按 binding_kind 查表）
     # venti 注册 'manual'（用户手填）；其他 archon 各自实装自己的 binding_kind
@@ -175,6 +178,7 @@ async def create_app(cfg: Config) -> list[Channel]:
     await _ensure_dividend_cron(cfg)
     await _ensure_mihoyo_collect_cron()
     await _ensure_hygiene_cron()
+    await _ensure_skill_proposal_cron()
 
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision
