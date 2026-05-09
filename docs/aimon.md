@@ -26,28 +26,27 @@
   - 接入：WebUI / Telegram / QQ
   - 意图分类 + 4 出口路由 + 出口人格化
   - **安全闸**（[paimon/core/safety/](../paimon/core/safety/)）
-    - `task_review`：入口任务级审（pipeline 第一步）
-    - `scan_plan`：DAG 敏感操作扫描 + 批量授权（生执编排后调）
-    - `review_skill_declaration`：skill 热加载审（skill_loader 调）
+    - `task_review`：入口任务级审（`/evolve` 触发自进化前调用）
+    - `review_skill_declaration`：skill 装载审（skill_loader 装载 plugin / AI 自进化生成 skill 时调）
     - `detect_sensitive`：敏感串过滤（memory / 知识库写入路径）
-- **4 个出口**（按任务类型路由）
-  - `chat` —— 闲聊、单问单答（派蒙浅层 LLM 直答）
+- **3 个出口**（按任务类型路由）
+  - `chat` —— 闲聊、单问单答、复杂分析（派蒙浅层 LLM 直答）
   - `skill` —— 单步任务（直调 skill：[topic / web-search / bili / xhs / check ...](../skills/)）
-  - `/task` —— **复杂任务落地**（四影管线，写 skill / 写代码 / 改代码 / 修 bug 等工程产物）
   - `/agents` —— **分析 / 调研 / 决策辅助**（天使多视角讨论，输出纪要不落地）
-- **【落地引擎】四影**（生 / 审 / 派 / 收 — 复杂任务落地引擎）
-  - [**生执·纳贝里士**](shades/naberius.md)：**生** — DAG 编排 + 产出工程产物（spec/design/code/simple_code/exec/chat 6 个动作）
-  - [**死执·若纳瓦**](shades/jonova.md)：**审** — 评审循环（review_spec/design/code）+ 静态自检（py_compile/ruff/pytest）
-  - [**空执·阿斯莫代**](shades/asmoday.md)：**派** — 拓扑分层 dispatch + stage 路由表 + 失败重试 + 触发 saga
-  - [**时执·伊斯塔露**](shades/istaroth.md)：**收** — 归档 + summary.md + saga 补偿执行（调生执 exec）+ 生命周期清扫
-  - 9 个 stage（assignee 字段值）：spec / design / code / review_spec / review_design / review_code / simple_code / exec / chat
+  - `/evolve` —— **自进化提案触发**（凝练当前会话为可复用 skill 草案，进 `/plugins` 待审）
+- **【自进化提案管线】四影**（生 / 审 / 派 / 收）
+  - [**生执·纳贝里士**](shades/naberius.md)：**生** — `propose_skill` 凝练 skill 草案落 skill_proposals 域
+  - [**死执·若纳瓦**](shades/jonova.md)：**审** — `review_proposal` 审提案质量，写 verdict + skill_proposals.review_verdict
+  - [**时执·伊斯塔露**](shades/istaroth.md)：**收** — archive 归档 + summary + 自进化触发 hook + L1 记忆抽取 + 生命周期清扫
+  - 触发路径：用户主动 `/evolve` / 时执 archive hook（浅池判 should_propose 自动触发）/ 三月 cron 月度扫
+  - 落盘归冰神（apply：派蒙 safety 审 + 写 `skills/<name>/SKILL.md` + 注册 skill_declarations）
 - **【议事辅助】天使**（晨星 leader + 11 协同天使，**不落地，只出纪要**）
   - **职能定位**：分析 / 调研 / 决策辅助（"该不该做 X" / "选 A 还是 B" / "评估这个方案"）
   - **晨星**：天使体系的 leader，调度（assemble → dispatch+speak loop → synthesize）；本身也是天使的一员
   - **协同天使**：11 个预定义角色（结构性 5 / 评估性 4 / 对抗性 2），晨星按议题挑 3-5 个参与讨论
   - 实现：[`paimon/morningstar/`](../paimon/morningstar/)
 - **【业务模块】七神**（各业务域的业务接口 + 数据域归属 + 面板归属 + cron）
-  - **职能定位**：每位七神是对应业务域的**业务接口 + 唯一写入者**；不进 LLM 对话流，跟 `/task` 主链路并行存在
+  - **职能定位**：每位七神是对应业务域的**业务接口 + 唯一写入者**；不进 LLM 对话流，跟自进化主链路并行存在
   - 7 个 archon class 全部保留（铁律：七神不删）；按当前是否承接业务分两类
   - **A 类（5 个 · 业务接口 + cron + 面板）**：
     - [风神·巴巴托斯](archons/venti.md)：信息采集业务接口（feed_items / feed_events 域）+ `/feed` `/sentiment` 面板 + `feed_collect` cron + 站点登录代理
@@ -57,41 +56,29 @@
     - [冰神·冰之女皇](archons/tsaritsa.md)：skill 生态业务接口（**skill 域唯一写入者**；AI 自进化提案经 `/plugins` 用户审 + 派蒙 safety 审后由冰神 apply 落盘）+ `/plugins` 面板（含授权撤销 + "自进化提案"待审 UI）+ skill_loader 扫盘
   - **B 类（2 个 · namespace 永久壳，新职能待挂）**：
     - [雷神·巴尔泽布](archons/raiden.md) / [火神·玛薇卡](archons/mavuika.md)
-    - 原写代码 / exec 职能已转生执 produce_*；按七神保留铁律留 ~30 行壳；新职能待挂（见 [`docs/todo.md`](todo.md)）
+    - 按七神保留铁律留 ~30 行壳；新职能待挂（见 [`docs/todo.md`](todo.md)）
 - **【全局支撑层】**
   - **存储层（唯一）**：[**世界树**](foundation/irminsul.md) —— 13 个主数据域统一落盘（含域 16 skill 自进化提案）
   - **服务层（无状态）**：[**地脉**](foundation/leyline.md)（事件总线）、[**神之心**](foundation/gnosis.md)（LLM 资源池）
   - **服务层（有状态，落盘走世界树）**：[**三月女神**](foundation/march.md)（守护 + 调度 + 推送响铃）、[**原石**](foundation/primogem.md)（token / 花费统计）
 
-### 4 出口路由表
+### 出口路由表
 
-按任务三维特征分流：
-
-| 要执行 | 要多步 | 要多视角 | → 出口 |
-|---|---|---|---|
-| 0 | 0 | 0 | `chat`（闲聊） |
-| 1 | 0 | 0 | `skill`（直调 skill） |
-| 1 | 1 | 0 | `/task`（四影） |
-| · | · | 1 | `/agents`（晨星） |
-
-多视角是最强信号——一旦命中，前两维不论。
+| 用户场景 | 出口 |
+|---|---|
+| 闲聊 / 单问单答 / 复杂分析 / 推理 | `chat` |
+| 单步明确动作（粘贴域名链接 / 触发关键词） | `skill` |
+| 多视角讨论 / 决策辅助 | `/agents` |
+| 凝练当前会话为可复用 skill 草案 | `/evolve` |
 
 #### 边界样例
 
 | 用户消息 | 出口 |
 |---|---|
-| "装饰器是什么" / "30 分钟后提醒我" | chat |
+| "装饰器是什么" / "30 分钟后提醒我" / "帮我整理一下这周的 git log" | chat |
 | "搜一下 RBAC 库" / "看看米游社签到了" | skill |
-| "写个 todo 服务" / "采集新闻+摘要+推送" | /task |
 | "用 sqlite 还是 postgres" / "应不应该上 RBAC" | /agents |
-
-#### 运行时升级（兜底）
-
-初始分类不准时，主持人**问 user 确认后**升级（不允许静默切换）：
-- chat → /task / /agents（发现要执行多步）
-- skill → /task（超出单步 skill 范畴）
-- /task → /agents（spec 报歧义）
-- /agents → /task（共识落地）
+| "把刚才那段流程沉淀成 skill" | /evolve |
 
 ### 跨模块参考
 
@@ -108,71 +95,67 @@
 
 ```text
 用户 → channel（WebUI / TG / QQ）→ 派蒙
-  （安全审 + 意图分类）
+  （意图分类 + 安全过滤）
    │
-   ├── chat       → 派蒙浅层 LLM 直答
+   ├── chat       → 派蒙浅层 LLM 直答（含复杂分析 / 推理）
    ├── skill      → skill 直调（topic / web-search / bili / xhs ...）
-   ├── /task      → 四影管线（生执编排 → [派蒙批量授权] → 空执派发 → 生执/死执 → 时执归档）
-   └── /agents    → 天使体系讨论（晨星召集协同天使）
+   ├── /agents    → 天使体系讨论（晨星召集协同天使）
+   └── /evolve    → 四影自进化提案管线（propose_skill → review_proposal → 落 skill_proposals 域待审）
 ```
 
-skill 路径**单 tool 超时**返错给 LLM 自愈、**整体超时**直接 reply 错误终止（不再升级到四影）。
+skill 路径**单 tool 超时**返错给 LLM 自愈、**整体超时**直接 reply 错误终止。
 
 ### 2.2 响应流（系统 → 用户）
 
 ```text
 chat / skill:    LLM 输出 ───────────→ 派蒙 → channel → 用户
-/task:           四影产物 → 时执收尾 → 派蒙 → channel → 用户
 /agents:         协同天使发言（流式）→ 晨星综合 → 派蒙 → channel → 用户
+/evolve:         propose+review 完毕 → 派蒙提示"已落 /plugins 待审" → 用户
 三月提醒:        定时任务触发 → 三月 → 派蒙 → channel → 用户
 ```
 
-**派蒙是用户对话的唯一出入口**——三月响铃 / 四影 / 晨星等需要回话给用户时都经派蒙人格化送达；派蒙挂掉时三月只做拉起 + 暂存，绝不代发。
+**派蒙是用户对话的唯一出入口**——三月响铃 / 晨星 / 自进化提案等需要回话给用户时都经派蒙人格化送达；派蒙挂掉时三月只做拉起 + 暂存，绝不代发。
 
 > Web 面板交互（`/feed` / `/wealth` / `/game` / `/knowledge` / `/plugins` / `/sentiment` / `/tasks` 等）不走对话流，是独立的 webui API 直读 irminsul / skill_loader 路径，跟派蒙对话出入口并行存在。
 
-### 2.3 典型复杂任务流（/task）
-
-以"帮我写一个 XX 功能"为例：
+### 2.3 自进化提案流（/evolve / archive hook / 月度 cron）
 
 ```text
-用户 → channel → 派蒙
+触发源（三选一）：
+  - 用户主动 `/evolve` 命令
+  - 时执 archive 收尾 hook（浅池 LLM 判 should_propose；防递归 marker）
+  - 三月 cron `skill_evolve_monthly`（每月 1 日 04:00 扫近 30 天任务）
    │
-派蒙·安全审 task_review（入口审）
+派蒙·task_review（入口审，仅 /evolve 显式触发时调）
    │
-[四影管线 round 循环]
+生执·propose_skill：凝练 skill 草案
+   ├─ SKIP（不值得做）→ 短路退出
+   └─ 落 skill_proposals 域 status=pending
    │
-生执·plan → DAG（节点带 stage 标签）
+死执·review_proposal：审 → 写 review_verdict
+   - pass        → 用户面板可同意
+   - needs_revise → 用户面板 approve 按钮 disabled，要重产
+   - reject      → 联动 status=rejected
    │
-派蒙·安全审 scan_plan + 批量授权（询问敏感操作）
+[用户在 /plugins#proposals 面板审]
+   ├─ 同意 → status=approved → **冰神 apply**（派蒙 skill_review + 写 SKILL.md + 注册 skill_declarations）
+   └─ 拒绝 → status=rejected（三月 cron 30 天后清）
    │
-空执·dispatch（按 _STAGE_ROUTER 路由到各影）
-   ├→ 生执·produce_*  （spec/design/code/simple_code/exec/chat）
-   └→ 死执·review_*   （review_spec/design/code）
-   │
-死执 verdict ≠ pass → 回 round 2，生执·plan revise
-   │
-全部 round 完或 round_cap_hit
-   │
-[失败路径] 时执·saga（反序补偿，调生执 exec 反向执行）
-   │
-时执·archive（成功/失败都归档 + summary.md + 审计）
-   │
-派蒙出口人格化送达 → channel → 用户
+冰神 apply 完成 → status=applied（永不可删，作 skill 起源审计依据）
 ```
 
 **分工铁律**：
-- **派蒙** = 守门 + 路由 + 出口 + 全程安全闸（任务审 / DAG 审 / skill 审）
-- **四影** = 复杂任务落地引擎（生 / 审 / 派 / 收）
+- **派蒙** = 守门 + 路由 + 出口 + 全程安全闸（task_review / skill_review）
+- **四影** = 自进化提案管线（生 propose / 审 review_proposal / 收 archive+触发 hook）
+- **冰神** = skill 域唯一写入者（apply 落盘 + 注册）
 - **天使** = 议事辅助（不落地，只出纪要）
-- **七神** = 值班模块（cron / 面板 / 概念归属，跟 /task 主链路无关）
+- **三月** = 调度（cron / 响铃 / 自进化定时触发）
 
-**9 个 stage**（assignee 字段值，asmoday 据此路由各影）：
-- `spec` / `design` / `code`（生执 → 调对应 skill workflow）
-- `review_spec` / `review_design` / `review_code`（死执 → 评审产 verdict）
-- `simple_code` / `exec` / `chat`（生执 → 纯 LLM tool-loop）
+**4 影 stage**：
+- `propose_skill`（生执 → 凝练 skill 草案落 skill_proposals 域）
+- `review_proposal`（死执 → 审提案质量，写 verdict）
 
-实现位置：`paimon/shades/{naberius,jonova,asmoday,istaroth}/`
+实现位置：`paimon/shades/{naberius,jonova,istaroth}/` + `paimon/skill_loader/{apply_proposal,proposal_cron}.py`
 
 ### 2.4 多视角讨论流（/agents）
 
@@ -195,7 +178,7 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 派蒙 → channel → 用户
 ```
 
-输出是**纪要**（给人看的），不写代码、不调外部 API；用户拿结论自己决定后再 `/task` 落地。
+输出是**纪要**（给人看的），不写代码、不调外部 API；用户拿结论自己决定下一步。
 
 ### 2.5 权限询问流程
 
@@ -208,10 +191,11 @@ loop（最多 12 轮发言 / 30 LLM 上限）
   └── 敏感权限无记录 → 询问用户，按答复处理
 ```
 
-**/task 路径**（死执批量询问）：
+**自进化路径**（启动期已 permanent_allow）：
 ```text
-生执编排 DAG → 死执扫描 DAG 敏感操作 → 排除已永久放行的项
-  → 剩余一次性打包询问（全同意 / 逐项 / 拒绝）
+/evolve 命令 / archive hook → 派蒙 task_review 入口审 → propose+review 直跑
+  （propose_skill / review_proposal stage 启动期 permanent_allow，无需运行时询问）
+  → 落 skill_proposals 待用户面板审 → approved → 冰神 apply 时再过派蒙 skill_review
 ```
 
 **永久授权关键词**：用户必须明确说"永久 / 以后都..."才入库；只说"放行 / 同意 / 拒绝"仅本次有效。

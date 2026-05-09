@@ -4,7 +4,6 @@
 根据用户消息 + 可用 Skills + 会话上下文，判断任务类型：
 - chat: 闲聊/问候/知识问答 → 派蒙直接回复
 - skill:<name>: 简单任务，某个 skill 可处理 → 天使调度
-- complex: 复杂任务，需多步骤协作 → 四影（未实现时回退普通对话）
 
 **两层架构**：
   1. 规则引擎前置（本文件 _rule_classify）：对高置信度 pattern 直接判定，
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class IntentResult:
-    kind: str  # "chat" | "skill" | "complex"
+    kind: str  # "chat" | "skill"
     skill_name: str = ""
 
 
@@ -95,37 +94,32 @@ _CLASSIFY_PROMPT = """\
 ## 可用 Skills
 {skill_catalog}
 
-## 三选一
+## 二选一
 
-**chat** — 闲聊、问候、知识问答、**定时任务设置**、**URL 抓取**、**读写记忆/知识**
+**chat** — 闲聊、问候、知识问答、**定时任务设置**、**URL 抓取**、**读写记忆/知识**、复杂分析
   - 本次消息包含一个或几个单一动作，派蒙自己就能完成（含调用一个内置工具）
 
 **skill:<name>** — **本次消息本身**包含某 skill 的触发特征（例如粘贴了对应域名的链接）
   - ⚠️ 必须：`skill 的 triggers 关键词` 实际出现在本次消息里
   - ❌ 不允许：因为历史对话聊过这个 skill、或因为话题"相关"就返回 skill
 
-**complex** — 本次消息明确要写代码 / 重构 / 多节点协同 / 多角度深度分析
-
 ## 反例（都应该判 chat）
 
 | 用户消息 | ✗ 错误 | ✓ 正确 |
 |---|---|---|
-| "每 10 秒推送一条测试给我" | skill:bili / complex | **chat** |
+| "每 10 秒推送一条测试给我" | skill:bili | **chat** |
 | "帮我抓一下 example.com/x" | skill:任意 | **chat** |
 | "记住我老婆叫小红" | skill:xhs | **chat** |
-| "30 分钟后提醒我开会" | complex | **chat** |
-
-## 反例（都应该判 chat 而非复用历史的 skill）
+| "30 分钟后提醒我开会" | skill:任意 | **chat** |
 
 即使**历史上**用户用过 bili/xhs skill，如果**本次消息**没有相关链接或明确意图，仍然判 chat。
 
 ## 判定顺序
 1. 本次消息是否包含某 skill 的触发关键词？→ skill:<name>
-2. 本次消息是否明确要写代码 / 多节点协同？→ complex
-3. 其他一律 → chat
+2. 其他一律 → chat
 
 ## 输出格式
-只输出一个标签：`chat` / `skill:bili` / `complex`
+只输出一个标签：`chat` / `skill:bili`
 不要输出 markdown、引号、句号、解释。"""
 
 
@@ -208,10 +202,6 @@ async def classify_intent(
             return IntentResult(kind="chat")
         logger.info("[派蒙·意图] skill:{}", skill_name)
         return IntentResult(kind="skill", skill_name=skill_name)
-
-    if label == "complex":
-        logger.info("[派蒙·意图] complex → 四影管线")
-        return IntentResult(kind="complex")
 
     logger.info("[派蒙·意图] chat")
     return IntentResult(kind="chat")

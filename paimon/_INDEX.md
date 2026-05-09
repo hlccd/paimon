@@ -82,12 +82,11 @@ webui/
 | `chat/_runtime.py` | `_require_runtime()` 模式：从 state 取 cfg/session_mgr/model |  |
 | `chat/_prompt.py` | 系统提示词 |  |
 | `chat/session.py` | 会话级 chat helper |  |
-| `chat/shades_bridge.py` | 四影路径桥接 → `enter_shades_pipeline_background` |  |
 | `commands/_dispatch.py` | `/cmd` 总分发器 | `dispatch_command()` |
 | `commands/{session,task,subscribe,dividend,memory,selfcheck,stat,help}.py` | 各命令实现 | 一文件一命令 |
 | `commands/task_index.py` | 任务编号缓存 |  |
-| `commands/evolve.py` | `/evolve` 自进化提案触发（走四影 propose_skill + review_proposal） |  |
-| `intent.py` | LLM 意图分类 → complex/skill/chat | `classify_intent()` |
+| `commands/evolve.py` | `/evolve` 自进化提案触发（直调 propose_skill + review_proposal） |  |
+| `intent.py` | LLM 意图分类 → chat / skill | `classify_intent()` |
 | `safety.py` | 敏感信息正则（密钥/卡号/身份证） | `detect_sensitive()` |
 | `pre_filter.py` | 入口轻量安全过滤（shell danger/prompt injection；NFKC 归一化防绕过） | `pre_filter()` |
 | `authz/` | 权限缓存（AuthzCache + 决策） |  |
@@ -133,7 +132,7 @@ irminsul/
 
 ---
 
-## archons/ — 七神（cron / 面板 / 概念归属，跟 /task 主链路无关）
+## archons/ — 七神（cron / 面板 / 概念归属，跟自进化主链路并行）
 
 `base.py` — `Archon` ABC + `_invoke_skill_workflow`（保留：venti/zhongli digest 等内部 LLM 调用仍用）
 
@@ -153,25 +152,25 @@ irminsul/
 
 | 文件 | 神 | 状态 |
 |---|---|---|
-| `raiden.py` | 雷神 | namespace 壳，~30 行；原写代码 4 件套已转生执 produce_design/code + simple_run |
-| `mavuika.py` | 火神 | namespace 壳，~30 行；原 exec tool-loop 已转生执 simple_run("exec") |
+| `raiden.py` | 雷神 | namespace 壳 ~30 行；新职能待挂 |
+| `mavuika.py` | 火神 | namespace 壳 ~30 行；新职能待挂 |
 
 ---
 
-## shades/ — 四影（生 / 审 / 派 / 收 — 自进化提案管线）
+## shades/ — 四影（生 / 审 / 收 — 自进化提案管线）
 
 | 路径 | 影 | 关键词 | 职责 |
 |---|---|---|---|
-| `pipeline/` | — | — | 主控（prepare 入口审 + execute DAG 跑） |
-| `naberius/` | 生执 | **生** | 编排 DAG（plan）+ propose_skill（凝练 skill 草案）+ simple_run（exec/chat 兜底）|
-| `jonova/` | 死执 | **审** | review_proposal（审 skill 提案质量，写 verdict + skill_proposals.review_verdict） |
-| `asmoday.py` | 空执 | **派** | 拓扑分层 dispatch + `_STAGE_ROUTER` 路由 4 stage（propose_skill/review_proposal/exec/chat）|
-| `istaroth/` | 时执 | **收** | 归档 + summary.md + saga 补偿（调生执 exec）+ 生命周期清扫 |
-| `_helpers/` | — | — | 无主公共 helper（runner_helpers / revise_helpers / stages） |
+| `naberius/` | 生执 | **生** | propose_skill 凝练 skill 草案落 skill_proposals 域 |
+| `jonova/` | 死执 | **审** | review_proposal 审 skill 提案质量，写 verdict |
+| `istaroth/` | 时执 | **收** | archive + summary.md + 自进化触发 hook + L1 记忆抽取 + 生命周期清扫 |
+| `_helpers/` | — | — | 公共 helper（runner_helpers）|
+| `_check_parser.py` | — | — | check skill 产物解析（被 morningstar / selfcheck 复用） |
+| `_lifecycle.py` | — | — | 时执生命周期 sweep（三月 cron 触发） |
+| `_task_summary.py` | — | — | task summary 回溯（webui /tasks 详情用） |
 
-> 当前 4 stage：propose_skill（凝练 skill 草案）/ review_proposal（审提案质量）
-> + exec（saga 补偿）/ chat（异常兜底）。
-> 详见 [docs/evolution.md](../docs/evolution.md) §L3。
+> 触发器：用户主动 `/evolve` / 时执 archive hook / 三月月度 cron。
+> 落盘归冰神（apply：派蒙 safety + 写 SKILL.md + 注册）。详见 [docs/evolution.md](../docs/evolution.md) §L3。
 
 ---
 
@@ -179,9 +178,8 @@ irminsul/
 
 | 文件 | 职责 | 调用方 |
 |---|---|---|
-| `task_review.py` | 入口任务级安全审 | pipeline.prepare |
-| `plan_scan.py` | DAG 敏感操作扫描 + 批量授权 | pipeline._authorize |
-| `skill_review.py` | skill 热加载审 | skill_loader.registry |
+| `task_review.py` | 入口任务级安全审 | `/evolve` 命令、archive hook |
+| `skill_review.py` | skill 装载审 | skill_loader.registry / apply_proposal |
 | `sensitive_filter.py` | 敏感串过滤（密钥/身份证等） | memory / 知识库写入路径 |
 
 ---
@@ -259,8 +257,9 @@ __main__ → bootstrap → 各服务初始化
 渠道层 (qq/tg/webui) → core.chat.entry → core.intent
                               ↓
                   ├─ chat: model 直接答
-                  ├─ skill: angels.registry → core.chat._handler
-                  └─ complex: shades.pipeline → archons.* (subprocess skill)
+                  ├─ skill: skill_loader.registry → core.chat._handler
+                  ├─ /agents: morningstar 多视角讨论
+                  └─ /evolve: shades 自进化（propose_skill → review_proposal → skill_proposals 待审）
                                     ↑
                   全部读写都经 → foundation.irminsul（世界树）
                   全部 LLM 都经 → foundation.gnosis + llm.*

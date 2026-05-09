@@ -1,12 +1,11 @@
 """任务摘要回溯：给 /task-index、WebUI 详情面板共用的纯函数。
 
 数据落点：
-- 写代码任务 → 时执归档时写 `.paimon/tasks/<id>/summary.md`
-- 所有任务 → 管线末尾 `_notify_progress` 把 `_compose_final` 的产物经 march.ring_event
-  推到 push_archive（`actor='四影'`，`extra.task_id=<id>`）
-- 子任务级 → asmoday 把 _STAGE_ROUTER 派出的影函数返回写进 `task_subtasks.result`
+- 时执归档时写 `.paimon/tasks/<id>/summary.md`
+- push_archive 里 `actor='时执'` 且 `extra.task_id=<id>` 匹配的最终消息
+- 子任务级 → 各 stage 函数返回写进 `task_subtasks.result`
 
-任何一个有内容就够展示。这个模块负责按"信息密度"逐级回退。
+任何一个有内容就够展示。这个模块按"信息密度"逐级回退。
 """
 from __future__ import annotations
 

@@ -156,27 +156,6 @@ KNOWLEDGE_CSS = """
     }
     .mono { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 12px; color: var(--text-secondary); }
 
-    /* 文书归档卡片 */
-    .archive-card {
-        margin-bottom: 12px; padding: 14px 18px;
-        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 8px;
-    }
-    .archive-header {
-        display: flex; justify-content: space-between; align-items: baseline;
-        margin-bottom: 10px;
-    }
-    .archive-title { font-size: 14px; font-weight: 500; color: var(--text-primary); }
-    .archive-task-id { font-size: 11px; color: var(--text-muted); font-family: monospace; }
-    .archive-artifacts { display: flex; flex-wrap: wrap; gap: 8px; }
-    .archive-artifact {
-        padding: 4px 10px; background: var(--paimon-panel-light);
-        border: 1px solid var(--paimon-border); border-radius: 4px;
-        cursor: pointer; font-size: 12px; color: var(--text-secondary);
-        font-family: monospace;
-    }
-    .archive-artifact:hover { border-color: var(--gold); color: var(--gold); }
-    .archive-artifact .count { color: var(--gold); margin-left: 4px; }
 
     /* 模态 */
     .modal-backdrop {

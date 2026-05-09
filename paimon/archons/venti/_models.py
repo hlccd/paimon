@@ -5,7 +5,7 @@
 单一入口：
 - `collect_subscription()` —— 话题订阅后台采集入口（subprocess 直调 web-search skill，
   批量 LLM 早报，交三月响铃推送）
-- `execute()` 已废除（asmoday 不再调本节点；通用执行职能由四影自己承担）
+- `execute()` 是 ABC 兜底，archon 实例不参与执行路径
 """
 from __future__ import annotations
 

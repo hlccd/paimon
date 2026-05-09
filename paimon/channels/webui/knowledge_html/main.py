@@ -1,11 +1,10 @@
 """草神 · 世界树面板（/knowledge）
 
-三大 tab（草神职责范围内的世界树数据可视化入口）：
+两 tab（草神业务接口范围）：
   📖 记忆 —— L1 memory 域，4 类 pill 切换；支持新建 + 删除
   📚 知识库 —— knowledge 域（category/topic 结构化条目）；支持新建 + 编辑 + 删除
-  📄 文书归档 —— 四影任务 workspace 产物（只读，由四影管线产出）
 
-其他世界树域（授权 / skill / 任务 / 理财 / 订阅 / 自检 / token）归相应神的专属面板管。
+其他世界树域（授权 / skill / 任务 / 理财 / 订阅 / 自检 / token / 自进化提案）归相应神的专属面板管。
 """
 
 from paimon.channels.webui.theme import (
@@ -27,7 +26,7 @@ KNOWLEDGE_BODY = """
         <div class="page-header">
             <div>
                 <h1>📚 世界树</h1>
-                <div class="sub">跨会话记忆 · 结构化知识库 · 四影文书产物归档</div>
+                <div class="sub">跨会话记忆 · 结构化知识库</div>
             </div>
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>
         </div>
@@ -35,7 +34,6 @@ KNOWLEDGE_BODY = """
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('memory',this)">📖 记忆 <span class="tab-count" id="countMem"></span></button>
             <button class="tab-btn" onclick="switchTab('kb',this)">📚 知识库 <span class="tab-count" id="countKb"></span></button>
-            <button class="tab-btn" onclick="switchTab('archives',this)">📄 文书归档 <span class="tab-count" id="countArc"></span></button>
         </div>
 
         <div id="memory" class="tab-panel active">
@@ -65,9 +63,6 @@ KNOWLEDGE_BODY = """
             <div id="kbEl"><div class="empty-state">加载中...</div></div>
         </div>
 
-        <div id="archives" class="tab-panel">
-            <div id="archivesEl"><div class="empty-state">加载中...</div></div>
-        </div>
     </div>
 
     <!-- 详情 modal（查看全文用，只读） -->

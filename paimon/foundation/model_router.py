@@ -47,7 +47,7 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("死执", "skill 声明审查"),
     ("时执", "上下文压缩"),
     ("时执", "L1 记忆提取"),
-    ("空执", "动态路由"),  # 占位：当前 asmoday 不发 LLM；面板标 ⚠ 未接入 router
+    ("空执", "动态路由"),  # 占位：空执已合并到其它影，无独立 LLM 调用
     # 四影 · stage 子调用
     ("生执·propose_skill", "凝练 skill 草案"),
     ("死执·review_proposal", "审 skill 提案"),

@@ -29,7 +29,6 @@ KNOWLEDGE_SCRIPT_1 = """
             if(btn) btn.classList.add('active');
             var el=document.getElementById(id); if(el) el.classList.add('active');
             if(id==='kb' && !window._kbLoaded) loadKb();
-            if(id==='archives' && !window._arcLoaded) loadArchives();
         };
 
         // ---------- 记忆 tab ----------

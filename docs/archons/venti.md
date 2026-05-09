@@ -14,11 +14,7 @@
   - **数据收集者角色**：向三月请求响铃或被三月按定时器唤起
 - **Web 面板**：✅ 信息流面板（`/feed` 条目级）+ ✅ 舆情看板（`/sentiment` 事件级聚合）
 
-## ⚠️ 当前状态（2026-05 解耦后）
-
-`execute()` 内部业务已移除（asmoday 不再调本节点），**非四影功能完整保留**：
-
-### 保留（非四影功能）
+## 当前实装清单
 
 - `feed_collect` cron（订阅采集 + LLM digest）
 - `/feed` 面板 + `/sentiment` 舆情看板
@@ -28,9 +24,7 @@
 - `is_running()` 状态查询（前端"采集中"角标 + 防并发重入）
 - 4 个 mixin：`_CollectMixin` / `_DigestMixin` / `_AlertMixin` / `_LoginMixin`
 
-### 移除
-
-- `service.py:execute()` 内部"通用采集 tool-loop"（asmoday 不再调本节点 execute）
+archon 本体 `execute()` 不参与执行，业务接口完全通过 mixin + cron + webui 面板体现。
 
 ---
 

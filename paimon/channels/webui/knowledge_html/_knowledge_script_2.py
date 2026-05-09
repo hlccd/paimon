@@ -107,59 +107,6 @@ KNOWLEDGE_SCRIPT_2 = """                }
             }
         };
 
-        // ---------- 文书归档 tab ----------
-        async function loadArchives(){
-            var el = document.getElementById('archivesEl');
-            try{
-                var r = await fetch('/api/knowledge/archives/list');
-                var d = await r.json();
-                var items = d.items || [];
-                var cc = document.getElementById('countArc');
-                if(cc) cc.textContent = items.length ? items.length : '';
-                if(!items.length){
-                    el.innerHTML = '<div class="empty-state">暂无文书归档。<br><br>四影管线产出的 spec/design/code 产物会自动归档在这里；用 <code>/task &lt;需求&gt;</code> 触发一次复杂任务就能看到</div>';
-                    window._arcLoaded = true;
-                    return;
-                }
-                el.innerHTML = items.map(function(it){
-                    var artifacts = it.artifacts.map(function(a){
-                        var label = a.name;
-                        if(a.file_count) label += ' <span class="count">('+a.file_count+')</span>';
-                        else label += ' <span class="count">'+fmtSize(a.size)+'</span>';
-                        return '<div class="archive-artifact" onclick="openArchive(\\''+esc(it.task_id)+'\\',\\''+esc(a.name)+'\\')">' + label + '</div>';
-                    }).join('');
-                    return '<div class="archive-card">'
-                        + '<div class="archive-header">'
-                        +   '<div class="archive-title">'+esc(it.title || '(未命名任务)')+'</div>'
-                        +   '<div class="archive-task-id">'+esc(it.task_id)+' · '+fmtTime(it.created_at)+'</div>'
-                        + '</div>'
-                        + '<div class="archive-artifacts">'+artifacts+'</div>'
-                        + '</div>';
-                }).join('');
-                window._arcLoaded = true;
-            }catch(e){
-                el.innerHTML = '<div class="empty-state">加载失败: '+esc(e.message)+'</div>';
-            }
-        }
-
-        window.openArchive = async function(task_id, artifact){
-            document.getElementById('modalTitle').textContent = task_id + ' · ' + artifact;
-            document.getElementById('modalBody').textContent = '加载中...';
-            document.getElementById('modalMeta').innerHTML = '';
-            document.getElementById('modal').classList.add('active');
-            try{
-                var r = await fetch('/api/knowledge/archives/read?task_id='+encodeURIComponent(task_id)+'&artifact='+encodeURIComponent(artifact));
-                var d = await r.json();
-                if(d.error){
-                    document.getElementById('modalBody').textContent = '读取失败: ' + d.error;
-                    return;
-                }
-                document.getElementById('modalBody').textContent = d.body || '(空)';
-            }catch(e){
-                document.getElementById('modalBody').textContent = '读取失败: ' + e.message;
-            }
-        };
-
         window.closeModal = function(e){
             if(e && e.target.id !== 'modal') return;
             document.getElementById('modal').classList.remove('active');
@@ -173,12 +120,10 @@ KNOWLEDGE_SCRIPT_2 = """                }
 
         window.refreshAll = function(){
             window._kbLoaded = false;
-            window._arcLoaded = false;
             loadMem(_currentMemType);
             var active = document.querySelector('.tab-panel.active');
             if(!active) return;
             if(active.id==='kb') loadKb();
-            else if(active.id==='archives') loadArchives();
         };
 
         window.onload = function(){ loadMem('user'); };

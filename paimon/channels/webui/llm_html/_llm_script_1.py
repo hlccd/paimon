@@ -363,7 +363,7 @@ LLM_SCRIPT_1 = """
         // 当前未接入 ModelRouter 的 component（代码不读路由，配了也不生效）
         // 面板上 selector disabled + ⚠ 标记
         var DISABLED_COMPONENTS = {
-            '空执': '当前 asmoday 仅做 DAG 路由，不发 LLM 调用',
+            '空执': '空执已合并到生执 / 死执 / 时执，不独立发 LLM',
             'video_process': '当前直连 mimo_key，未接入 router',
             'audio_process': '当前直连 mimo_key，未接入 router',
         };

@@ -1,13 +1,12 @@
-"""四影管线公共运行时 helper（无主，各影共享）。
+"""四影 + morningstar + selfcheck 公共运行时 helper。
 
-跟七神解耦的独立实现：
 - read_skill_body：读 SKILL.md 正文 + ${CLAUDE_SKILL_DIR} 替换
 - setup_tools：构造 (tools list, executor)
 - extract_result：5 级 fallback 抓 LLM 末轮文本
 - load_feedback_memories_block：拉 feedback 类记忆
 - invoke_skill_workflow：统一 skill 驱动工作流入口
 
-使用方：生执 produce_*（spec/design/code/_simple）+ 死执 review。
+使用方：生执 propose_skill / 死执 review_proposal / morningstar 多视角讨论 / 三月自检。
 """
 from __future__ import annotations
 
@@ -143,8 +142,7 @@ async def load_feedback_memories_block(
 ) -> str:
     """拉 feedback 类记忆 → 拼成 markdown 段落注入 system prompt 末尾。
 
-    跟 archons/base.py:_load_feedback_memories_block 等价。
-    四影管线 execute 路径用，cron 路径不用。
+    四影 stage 路径用，cron 路径不用。
     """
     if irminsul is None:
         return ""
@@ -197,8 +195,7 @@ async def invoke_skill_workflow(
 ) -> str:
     """统一 skill 驱动工作流：读 SKILL.md body 作为 system prompt，启动 tool-loop。
 
-    跟 archons/base.py:_invoke_skill_workflow 等价（独立实现，不继承）。
-    使用方：生执 produce_*（spec/design/code）+ 死执 review。
+    使用方：morningstar scout / 三月自检 Deep（propose_skill / review_proposal 不调 skill 驱动）。
     """
     from paimon.session import Session
     try:

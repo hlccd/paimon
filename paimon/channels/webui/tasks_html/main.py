@@ -1,11 +1,10 @@
-"""三月 · 任务观测面板（三 tab：定时任务 / 系统任务 / 深度任务）
+"""三月 · 任务观测面板（双 tab：定时任务 / 系统任务）
 
 # ---- 大 string const 切片 chunks（自动生成） ----
 
 - 定时任务：用户主动创建的 cron/interval/once（task_type='user'）
 - 系统任务：archon 注册的内部周期任务（方案 D，task_type != 'user'），
-  如风神订阅采集 / 岩神红利股扫描
-- 深度任务：四影管线复杂任务（原 "四影任务"，2026-04-29 更名为 "深度任务"）
+  如风神订阅采集 / 岩神红利股扫描 / 自进化 cron
 
 docs/interaction.md §四 WebUI。
 """
@@ -30,16 +29,12 @@ TASKS_BODY = """
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('scheduled',this)">定时任务 <span class="tab-count" id="countScheduled"></span></button>
             <button class="tab-btn" onclick="switchTab('system',this)">系统任务 <span class="tab-count" id="countSystem"></span></button>
-            <button class="tab-btn" onclick="switchTab('complex',this)">深度任务 <span class="tab-count" id="countComplex"></span></button>
         </div>
         <div id="scheduled" class="tab-panel active">
             <div id="taskGrid"><div class="empty-state">加载中...</div></div>
         </div>
         <div id="system" class="tab-panel">
             <div id="systemGrid"><div class="empty-state">加载中...</div></div>
-        </div>
-        <div id="complex" class="tab-panel">
-            <div id="complexGrid"><div class="empty-state">点击查看深度任务</div></div>
         </div>
     </div>
 

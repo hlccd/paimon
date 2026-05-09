@@ -1,42 +1,42 @@
 # 死执·若纳瓦
 
-> 隶属：[神圣规划](../aimon.md) / 四影 — **审**（评审 + 自检）
-> 调用关系：生执出产物 → 死执审 verdict → 不通过 → 生执 revise
+> 隶属：[神圣规划](../aimon.md) / 四影 — **审**
 
-**定位**：质量审 — 给生执的产物（spec / design / code）打 verdict。
-原"安全审"职能（task review / scan plan / skill review）已上提派蒙 [`paimon/core/safety/`](../../paimon/core/safety/)。
+**定位**：自进化提案质量审。当前唯一 stage：**review_proposal**。
 
-## 核心能力
+> 安全审（`task_review` / `review_skill_declaration` / `detect_sensitive`）在派蒙
+> [`paimon/core/safety/`](../../paimon/core/safety/)，不归死执。
 
-### 1. 评审循环（review_spec / review_design / review_code）
+## 职能
 
-为生执的产物打 verdict（pass / revise / redo），驱动多轮迭代。
+输入：从 prior_results 解析的 prop_id → 读 skill_proposals 域里的草案。
 
-- **轻量路径**：产物小（spec/design < 2000 字，code < 200 行）→ 一次 LLM JSON 调用，按 P0/P1/P2/P3 分级
-- **重型路径**：产物大 → 调 [`check`](../../skills/check/) skill，解析 `.check/candidates.jsonl` → ReviewVerdict
+LLM 审 4 维度：
+1. 草案完整度（system_prompt 不空泛 / triggers 清晰 / 步骤可执行）
+2. 跟现有 skill 是否重叠（拉 skill_declarations 列表对比）
+3. allowed_tools 是否最小权限（敏感工具是否真需要）
+4. 边界是否清晰（什么时候用 / 不该用）
 
-输出 schema：`{level: pass|revise|redo, summary: str, issues: list[{subtask_id, reason, suggestion}]}`
+输出 ReviewVerdict 协议 JSON：
+```json
+{"level": "pass|revise|redo", "summary": "≤150 字总评", "issues": [...]}
+```
 
-实现：[`paimon/shades/jonova/review.py`](../../paimon/shades/jonova/review.py)
-
-### 2. 静态自检（self_check）
-
-py_compile + ruff + pytest 三件套，写 `self-check.log`。
-
-调用方：
-- 生执 produce_code 跑完 skill 后**即时调一次**（自调，给 LLM 反馈让它继续修）
-- 死执 review_code 重型路径里也间接通过 check skill 调
-
-实现：[`paimon/shades/jonova/self_check.py`](../../paimon/shades/jonova/self_check.py)
+同步写 skill_proposals.review_verdict + review_notes（用户面板展示用）：
+- `level=pass` → verdict='pass'
+- `level=revise` → verdict='needs_revise'（用户面板 approve 按钮 disabled）
+- `level=redo` → verdict='reject'（联动 status=rejected）
 
 ## 公开 API
 
-- `review`（统一入口，按 stage 路由到 review_spec/design/code）
-- `run_self_check`（静态质量门）
+```python
+from paimon.shades.jonova import review_proposal
+verdict_text = await review_proposal(task, subtask, model, irminsul, prior_results)
+# 返 JSON 字符串
+```
 
-> 安全审（`task_review` / `scan_plan` / `review_skill_declaration`）在派蒙 [`paimon/core/safety/`](../../paimon/core/safety/)，不归死执。
+实现：[`paimon/shades/jonova/review_proposal.py`](../../paimon/shades/jonova/review_proposal.py)
 
-## 与派蒙的边界
+## SKIP 短路
 
-- **派蒙**（[paimon/core/safety/](../../paimon/core/safety/)）：所有"安全审" — task / DAG / skill 三个时点
-- **死执**（本节点）：所有"质量审" — 评审产物 + 静态自检
+prior_results 含 `SKIP:`（生执判定不值得做）→ 死执直接返 `{"level":"pass","summary":"生执判定无需提案"}`，不发 LLM。

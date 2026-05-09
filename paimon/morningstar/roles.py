@@ -9,8 +9,7 @@
 （拆议题 + 调 tool 收资料），协同天使负责发言。讨论时晨星 dispatch 选定协同天使，
 把对应 prompt 注入 LLM call；同 history 共享给所有协同（每次发言看上文 6 条避免 token 爆炸）。
 
-写代码 / 工程类挖掘（拆需求 / 架构 / 实施 / 测试 / 审查）走 /task 四影管线，
-不在天使池里重复造视角。
+写代码 / 工程类挖掘请去 Claude Code 等专业 IDE，不在天使池里造视角。
 """
 from __future__ import annotations
 

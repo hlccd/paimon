@@ -3,8 +3,8 @@
 职责：
   - 运行中：活跃会话上下文压缩（_compress.compress）
   - 结束后 · 归档：任务归档 + 审计 + summary.md（_archive.archive）
+  - 结束后 · 自进化触发：archive hook 浅池判 should_propose（_propose_trigger）
   - 结束后 · 经验提取：跨会话记忆抽取（_experience.extract_experience）
-  - 失败后 · saga 补偿：反向回滚已成功节点（saga.run_compensations，调生执 exec）
 
 参考 claude-code-deep-dive 的压缩设计：
   1. 阈值考虑 max_output_tokens + safety_buffer（调用方 chat.py 负责计算）
@@ -13,9 +13,10 @@
   4. 连续失败 3 次 → session.auto_compact_disabled 熔断
 
 子模块：
-- _archive.py    —— archive() + _maybe_write_task_summary()
-- _compress.py   —— compress() + _is_tool_related + _adjust_keep_start_for_tool_pairs + _build_memory_block + _strip_code_fence
-- _experience.py —— extract_experience()（L1 跨会话记忆提取）
+- _archive.py        —— archive() + _maybe_write_task_summary()
+- _propose_trigger.py —— archive hook 自动判 should_propose 触发提案链
+- _compress.py       —— compress() + 工具配对 + 4 段 prompt
+- _experience.py     —— extract_experience()（L1 跨会话记忆提取）
 """
 from __future__ import annotations
 
@@ -30,12 +31,10 @@ _compress.extract_experience = _experience.extract_experience
 from ._archive import archive
 from ._compress import MAX_CONSECUTIVE_COMPACT_FAILURES, compress
 from ._experience import extract_experience
-from .saga import run_compensations
 
 __all__ = [
     "MAX_CONSECUTIVE_COMPACT_FAILURES",
     "archive",
     "compress",
     "extract_experience",
-    "run_compensations",
 ]

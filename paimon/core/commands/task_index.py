@@ -90,9 +90,9 @@ async def _build_task_list_index(channel_key: str) -> list:
 
 @command("task-list")
 async def cmd_task_list(ctx: CommandContext) -> str:
-    """/task-list — 列最近 7 天的深度任务（按 updated_at DESC 取 20 条）。
+    """/task-list — 列最近 7 天的 task 记录（按 updated_at DESC 取 20 条）。
 
-    docs/interaction.md §2.3.2 / §四：列表后写 channel 级编号缓存，TTL 10 分钟，
+    docs/interaction.md：列表后写 channel 级编号缓存，TTL 10 分钟，
     /task-index N 用同 channel_key 取回。
     """
     if not state.irminsul:
@@ -102,7 +102,7 @@ async def cmd_task_list(ctx: CommandContext) -> str:
     if not items:
         return (
             "📋 最近 7 天暂无深度任务\n"
-            "（用 /task <描述> 强制走四影管线；或自然语言里描述复杂任务派蒙会自动判定）"
+            "（用 /evolve 触发自进化提案；archive hook + 月度 cron 也会自动产出）"
         )
 
     import time as _time

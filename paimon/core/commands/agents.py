@@ -35,7 +35,7 @@ async def cmd_agents(ctx: CommandContext) -> str:
         state.session_mgr.switch(ctx.msg.channel_key, main_session.id)
 
     # 入口立即 append user 占位 + save：让讨论跑期间用户切 tab / 重连能看到自己发的指令
-    # 跟 entry.py:119 /task 路径一致；morningstar 末尾只 append assistant 配对
+    # morningstar 末尾只 append assistant 配对
     # 带 meta=skip_llm 让 LLM 下次主对话看不到这条；UI 可见
     main_session.messages.append({
         "role": "user", "content": ctx.msg.text, "meta": _MERGE_META,

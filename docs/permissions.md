@@ -34,24 +34,14 @@
    b. 从世界树加载历史 plugin 声明
 3. 派蒙启动：
    a. 从世界树一次性读 skill 声明 + 用户授权记录 → AuthzCache
-   b. 自动放行：9 个四影 stage + builtin skill（subject_type="stage"）
+   b. 自动放行：自进化 stage（propose_skill / review_proposal）+ builtin skill
 ```
 
 ## 运行时决策
 
-`/task` 复杂任务路径：
-```
-生执 plan 出 DAG（节点带 sensitive_ops）
-  ↓
-派蒙·core/safety/scan_plan(plan, AuthzCache)
-  ├ permanent_deny → 剔除
-  ├ permanent_allow → 放行
-  └ 无记录 → 派蒙批量询问用户（一次性确认）
-  ↓
-空执 dispatch 各影
-```
-
 `/skill` 单步路径：派蒙运行前查 AuthzCache → 命中即放行 / 未记录则单项询问。
+
+`/evolve` 自进化触发路径：派蒙 task_review 入口审 → propose+review 链直跑（stage 启动时已 permanent_allow，无需运行时询问）。
 
 ## 用户答复识别（派蒙铁律）
 

@@ -16,7 +16,7 @@ async def archive(
     failure_reason: str | None = None,
     rounds: int | None = None,
 ) -> None:
-    """四影管线末尾：归档任务 + 写审计。
+    """归档任务 + 写审计 + 触发自进化提案 hook。
 
     failure_reason 非空时走失败路径：任务状态标 failed，审计 event 用 task_failed。
     成功路径下额外接受 rounds（总轮次）用于审计记录。

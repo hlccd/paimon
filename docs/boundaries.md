@@ -2,39 +2,38 @@
 
 > 隶属：[神圣规划](aimon.md)
 
-模块职责归属速查，按场景分类（生 / 审 / 派 / 收 + 派蒙安全闸 + 七神业务接口）。
+模块职责归属速查（派蒙安全闸 + 四影自进化管线 + 天使 + 七神业务接口）。
 
 ## 1. 入口 & 意图
 
 | 场景 | 归属 | 关键区分点 |
 |---|---|---|
-| 意图识别（粗）| 派蒙 | 走哪条出口（chat / skill / /task / /agents） |
-| 闲聊响应 | 派蒙 | 浅层 LLM 直答，不经四影/天使 |
+| 意图识别（粗）| 派蒙 | 走哪条出口（chat / skill / /agents / /evolve） |
+| 闲聊响应 / 复杂分析 | 派蒙 | 浅层 LLM 直答，不经四影/天使 |
 | 出口人格化 | 派蒙 | 所有对话回复经派蒙包装 |
 
 ## 2. 安全与审查
 
 | 场景 | 归属 | 关键区分点 |
 |---|---|---|
-| 入口安全审 | 派蒙 `core/safety/task_review` | 入口任务级合规/越权审查 |
+| 入口安全审 | 派蒙 `core/safety/task_review` | 入口任务级合规/越权审查（/evolve 命令、archive hook 自触发时调）|
 | 关键词预过滤 | 派蒙 `core/pre_filter.py` | shell 破坏命令直接 block / prompt injection warn |
-| DAG 敏感扫描 + 批量授权 | 派蒙 `core/safety/scan_plan` | 生执编排后调 |
-| skill 热加载审 | 派蒙 `core/safety/skill_review` | skill_loader 注册前调 |
+| skill 装载审 | 派蒙 `core/safety/skill_review` | skill_loader 装载 plugin / AI 自进化生成 skill 时调 |
 | 敏感串过滤（密钥/身份证）| 派蒙 `core/safety/sensitive_filter` | memory / 知识库写入路径用 |
-| 产物质量审 | 死执 review_* stage | spec/design/code 评审循环（生执出活 → 死执打 verdict）|
-| 静态自检 | 死执 self_check | py_compile + ruff + pytest |
+| 自进化提案质量审 | 死执 `review_proposal` stage | 写 review_verdict ∈ {pass, needs_revise, reject} 同步 skill_proposals 域 |
 | 流程审计 | 时执 | archive + summary.md，执行链路复盘 |
 
-## 3. 编排 & 执行（四影：生 / 审 / 派 / 收）
+## 3. 自进化提案管线（四影：生 / 审 / 收）
 
 | 场景 | 归属 | 关键区分点 |
 |---|---|---|
-| 任务编排（DAG 拆分）| 生执 plan | LLM 输出 DAG（assignee=stage 名）+ 多轮 revise |
-| 产出工程产物 | 生执 produce | spec/design/code（调对应 skill）+ simple_code/exec/chat（LLM tool-loop）|
-| 评审循环 | 死执 review | review_spec/design/code 出 verdict |
-| 拓扑分发 | 空执 | _STAGE_ROUTER 派各影 + 失败重试 |
-| 失败补偿 | 时执 saga | 反序对 completed 节点跑补偿（调生执 exec）|
-| 归档 | 时执 archive | 任务结束（成功/失败）→ 落档 + 审计 |
+| 凝练 skill 草案 | 生执 `propose_skill` stage | 看 task 上下文 LLM 输出 skill 草案落 skill_proposals 域；不值得做时输出 SKIP 短路 |
+| 提案质量审 | 死执 `review_proposal` stage | 审完整度 / 跟现有 skill 重叠 / tool 越权 / 边界清晰 |
+| 触发：用户主动 | 派蒙 `/evolve` 命令 | 直调 propose+review 链 |
+| 触发：archive hook | 时执 `_propose_trigger.py` | 浅池 LLM 判 should_propose 自动触发 |
+| 触发：定时 | 三月 cron `skill_evolve_monthly` | 每月 1 日 04:00 扫近 30 天任务 |
+| 归档 | 时执 archive | 任务结束 → 落档 + 审计 + 触发 hook |
+| 落盘（apply）| 冰神 `skill_loader/apply_proposal.py` | 用户审过后写 SKILL.md + 注册 skill_declarations |
 
 ## 4. 时间 & 归档
 
@@ -64,15 +63,15 @@
 | **AI 自进化提案落盘** | 冰神（apply：读 approved → 派蒙 skill_review → 写 `.claude/skills/`）| skill_proposals.mark_applied 后正式生效；冰神仍是 skill 域唯一写入者 |
 | 物理实现 | `paimon/skill_loader/`（冰神语义壳）+ webui `/plugins` 面板（含"自进化提案"tab）| 代码层模块名是 skill_loader，语义归属仍是冰神 |
 
-> **自进化跟"写代码"是两件事**：自进化提案产出的是**skill 草案**（name + description + system_prompt + allowed_tools 等），由冰神 apply 时落 `.claude/skills/<name>/SKILL.md`；这条链路**不走** `/task` 的 spec/design/code 工程产物管线。详见 [自进化](evolution.md)。
+> 自进化提案产出的是**skill 草案**（name + description + system_prompt + allowed_tools 等），由冰神 apply 时落 `.claude/skills/<name>/SKILL.md`。详见 [自进化](evolution.md)。
 
 ## 7. 权限画像与授权
 
 | 场景 | 归属 | 关键区分点 |
 |---|---|---|
 | 权限画像（权威存储）| 世界树 authz 域 | 跨模块统一持久化 |
-| 本地缓存 | 派蒙 AuthzCache | 启动读世界树；运行时四影通知更新 |
-| stage 维度授权 | 派蒙 `core/safety/scan_plan` | subject_type=stage |
+| 本地缓存 | 派蒙 AuthzCache | 启动读世界树；运行时通知更新 |
+| stage 维度授权 | bootstrap 启动期自动放行 | propose_skill / review_proposal 默认 permanent_allow |
 | 永久授权写入 | 派蒙 | 识别"永久"关键词 → 写世界树 + 自更新缓存 |
 | 授权查看 / 撤销 | **冰神**（webui `/plugins` 面板）| 冰神语义负责人：UI 入口直读 + 写世界树 |
 
@@ -82,7 +81,7 @@
 |---|---|---|
 | 推送内容整理 | 数据收集者（风神 / 岩神 等）| 谁的数据谁整理 |
 | 静默归档（cron 推送）| 三月 ring_event | 落 push_archive 域 → webui 红点抽屉，**不打断对话流** |
-| 用户对话推送 | 派蒙 | 三月响铃 / 四影产物 / 晨星纪要等需要对话回话时经派蒙人格化 |
+| 用户对话推送 | 派蒙 | 三月响铃 / 自进化提案产出 / 晨星纪要等需要对话回话时经派蒙人格化 |
 
 ## 9. Web 面板（独立交互通道，不走对话流）
 
@@ -93,9 +92,9 @@
 | `/feed` `/sentiment` | 风神 | irminsul feed_items / feed_events |
 | `/wealth` | 岩神 | irminsul scoring / dividend 域 |
 | `/game` | 水神 | irminsul mihoyo 域 |
-| `/knowledge` | 草神 | irminsul memory / knowledge / archives |
-| `/plugins` | 冰神 | skill_loader + irminsul authz |
-| `/tasks` | 时执 | irminsul task 域 |
+| `/knowledge` | 草神 | irminsul memory / knowledge |
+| `/plugins` | 冰神 | skill_loader + irminsul skill_declarations + skill_proposals + authz |
+| `/tasks` | 时执 | irminsul scheduled_tasks 域 |
 
 ## 10. 数据域业务接口（七神承接）
 
@@ -105,10 +104,11 @@
 |---|---|---|
 | memory（记忆）| 草神 | 时执 extract_experience 收尾 / 用户 `/remember` / 草神 hygiene cron |
 | knowledge（知识库）| 草神 | 用户面板编辑 / 文档归档 |
-| skill 声明 | 冰神 | skill_loader 启动扫入 + 运行时审过 |
+| skill 声明 | 冰神 | skill_loader 启动扫入 + 运行时审过 + 自进化提案 apply |
+| skill_proposals（自进化提案）| 四影 + 冰神 | 生执 propose 写 / 死执 review 写 verdict / 冰神 apply 标 applied |
 | feed_items / feed_events（信息流）| 风神 | feed_collect cron + 事件聚类 |
 | scoring / dividend（红利股）| 岩神 | dividend_scan cron + 用户关注股 |
 | mihoyo 账号 / 抽卡 / 便笺 | 水神 | mihoyo_collect cron + 用户绑定 |
-| task 任务域 | 时执 | 四影管线归档 / 生命周期清扫 |
+| task 任务域 | 时执 | 自进化触发的内部 task 归档 / 生命周期清扫 |
 | authz 授权 | 派蒙 + 冰神 | 派蒙写永久授权；冰神面板撤销 |
 | token / cost | 原石 | 各模块 LLM 调用自动计 |

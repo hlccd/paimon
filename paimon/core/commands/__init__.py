@@ -4,7 +4,7 @@
 - _dispatch.py     —— CommandContext / @command 装饰器 / dispatch_command 路由
 - session.py       —— /new /sessions /switch /stop /clear /rename /delete
 - stat.py          —— /stat 原石统计
-- task.py          —— /tasks /task /skills
+- task.py          —— /tasks /skills
 - agents.py        —— /agents 多视角讨论（晨星召集天使）
 - memory.py        —— /remember
 - subscribe.py     —— /subscribe /subs；导出 create_subscription（外部 API）

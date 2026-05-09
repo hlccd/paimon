@@ -57,14 +57,12 @@ TASKS_SCRIPT = """
             document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
             document.getElementById(key).classList.add('active');
             btn.classList.add('active');
-            if(key==='complex')loadComplex();
             // scheduled / system 共用 /api/tasks 一次拉完；切过去不用重拉
             if((key==='scheduled'||key==='system') && !window._tasksLoaded) loadTasks();
         };
         window.refreshAll=function(){
             window._tasksLoaded=false;
             loadTasks();
-            if(document.getElementById('complex').classList.contains('active')) loadComplex();
         };
 
         // 渲染单张卡（user / system 共用）
@@ -224,100 +222,12 @@ TASKS_SCRIPT = """
             }
         };
 
-        window.loadComplex=async function(){
-            var el=document.getElementById('complexGrid');
-            el.innerHTML='<div class="empty-state">加载中...</div>';
-            try{
-                var r=await fetch('/api/tasks/complex');
-                var data=await r.json();
-                var tasks=data.tasks||[];
-                var cc=document.getElementById('countComplex');
-                if(cc) cc.textContent=tasks.length?tasks.length:'';
-                if(!tasks.length){
-                    el.innerHTML='<div class="empty-state"><div class="empty-icon">&#128221;</div>最近 7 天暂无深度任务<br><br>用 /task &lt;描述&gt; 或自然语言描述复杂任务，派蒙会路由到四影管线</div>';
-                    return;
-                }
-                el.innerHTML=tasks.map(function(t){
-                    var label=STATUS_LABEL[t.status]||t.status||'?';
-                    var badgeCls=STATUS_BADGE[t.status]||'badge-pending';
-                    var badge='<span class="task-badge '+badgeCls+'">'+esc(label)+'</span>';
-                    var subInfo=t.subtask_total?(t.subtask_completed+'/'+t.subtask_total+' 子任务'+(t.subtask_failed?(' · '+t.subtask_failed+' 失败'):'')):'无子任务';
-                    return '<div class="task-card clickable" onclick="openComplex(\\''+esc(t.id)+'\\')">'
-                        +'<div class="task-header"><span class="task-id">'+esc(t.id.substring(0,12))+'</span>'+badge+'</div>'
-                        +'<div class="task-prompt">'+esc(t.title||'(无标题)')+'</div>'
-                        +'<div class="task-meta">'
-                        +'<span class="task-meta-item">'+esc(t.creator||'-')+'</span>'
-                        +'<span class="task-meta-item">'+esc(subInfo)+'</span>'
-                        +'<span class="task-meta-item">耗时 '+fmtDuration(t.duration_seconds)+'</span>'
-                        +'<span class="task-meta-item">'+fmtTime(t.created_at)+'</span>'
-                        +'</div>'
-                        +'</div>';
-                }).join('');
-            }catch(e){
-                el.innerHTML='<div class="empty-state">加载失败: '+esc(e.message||e)+'</div>';
-            }
-        };
-
-        window.openComplex=async function(id){
-            var modal=document.getElementById('taskModal');
-            var body=document.getElementById('modalBody');
-            modal.classList.add('show');
-            body.innerHTML='<div class="empty-state">加载中...</div>';
-            try{
-                var r=await fetch('/api/tasks/complex/'+encodeURIComponent(id));
-                if(!r.ok){ body.innerHTML='<div class="empty-state">加载失败 (HTTP '+r.status+')</div>'; return; }
-                var data=await r.json();
-                var t=data.task||{};
-                var subs=data.subtasks||[];
-                var label=STATUS_LABEL[t.status]||t.status||'?';
-                var badgeCls=STATUS_BADGE[t.status]||'badge-pending';
-                var head='<h2>📌 '+esc(t.title||'(无标题)')+'</h2>'
-                    +'<div class="meta-row">'
-                    +'<span class="task-badge '+badgeCls+'">'+esc(label)+'</span>'
-                    +'<span>创建：'+fmtTimeFull(t.created_at)+'</span>'
-                    +'<span>耗时：'+fmtDuration(t.duration_seconds)+'</span>'
-                    +'<span>创建者：'+esc(t.creator||'-')+'</span>'
-                    +'<span>id: '+esc((t.id||'').substring(0,12))+'</span>'
-                    +'</div>';
-                if(t.description && t.description!==t.title){
-                    head+='<div class="task-prompt" style="margin-bottom:16px">'+esc(t.description.substring(0,500))+'</div>';
-                }
-                var subsHtml='';
-                if(subs.length){
-                    subsHtml='<table class="subtask-table">'
-                        +'<thead><tr><th class="col-icon"></th><th>负责</th><th>描述</th><th>裁决</th><th>round</th><th class="col-result">结果摘录</th></tr></thead><tbody>';
-                    subs.forEach(function(s){
-                        subsHtml+='<tr>'
-                            +'<td class="col-icon">'+(SUB_ICON[s.status]||'·')+'</td>'
-                            +'<td>'+esc(s.assignee||'-')+'</td>'
-                            +'<td>'+esc(s.description||'').substring(0,80)+'</td>'
-                            +'<td>'+esc(s.verdict_status||'-')+'</td>'
-                            +'<td>'+s.round+'</td>'
-                            +'<td class="col-result">'+esc((s.result||'').substring(0,200))+'</td>'
-                            +'</tr>';
-                    });
-                    subsHtml+='</tbody></table>';
-                }else{
-                    subsHtml='<div class="empty-state" style="padding:20px">无子任务</div>';
-                }
-                var summary='';
-                if(data.summary_md){
-                    summary='<h3 style="font-size:14px;color:var(--text-muted);margin-top:16px">摘要 (summary.md)</h3>'
-                        +'<div class="summary-md">'+esc(data.summary_md)+'</div>';
-                }
-                body.innerHTML=head+'<h3 style="font-size:14px;color:var(--text-muted)">子任务 ('+subs.length+')</h3>'+subsHtml+summary;
-            }catch(e){
-                body.innerHTML='<div class="empty-state">加载失败: '+esc(e.message||e)+'</div>';
-            }
-        };
-
         window.closeModal=function(){
             document.getElementById('taskModal').classList.remove('show');
         };
 
         window.onload=function(){
             loadTasks();   // 渲染 scheduled + system 两 grid + 更新双计数
-            loadComplex(); // 提前拉一次只为更新 complex 计数 chip；渲染会被下次 switch 覆盖
         };
         setInterval(function(){
             // 仅刷新当前 tab，避免不必要的请求；system / scheduled 共享同一 API
@@ -326,8 +236,6 @@ TASKS_SCRIPT = """
             if(active.id==='scheduled'||active.id==='system'){
                 window._tasksLoaded=false;
                 loadTasks();
-            }else if(active.id==='complex'){
-                loadComplex();
             }
         },30000);
     })();

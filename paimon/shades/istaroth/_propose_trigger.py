@@ -1,7 +1,7 @@
 """时执 archive 收尾 hook：浅池 LLM 判 should_propose + 直接调 propose+review 链。
 
 跟用户主动 `/evolve` 的区别：
-- `/evolve` 走完整四影管线（plan → propose_skill → review_proposal）
+- `/evolve` 走 propose_skill + review_proposal 函数链（同此 hook 但走显式入口）
 - archive hook 跳过 plan，直接调 propose_skill / review_proposal 函数（节省 LLM 调用）
 
 借鉴 hermes-agent：

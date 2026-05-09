@@ -1,9 +1,8 @@
 """风神主类 VentiArchon：__init__ + is_running + 4 mixin（采集/日报/预警/...）。
 
-⚠️ 当前状态（2026-05 解耦后）：
-- execute() 内部"通用采集 tool-loop"已移除（asmoday 不再调本节点 execute）
-- 保留：_inflight / is_running / _CollectMixin / _DigestMixin / _AlertMixin / _LoginMixin
-- 保留功能：feed_collect cron / /feed 面板 / LLM digest（订阅 + 事件型）/ 站点扫码 cookies
+archon 本体 execute 不参与执行；业务接口走 mixin + cron + webui 面板。
+保留：_inflight / is_running / _CollectMixin / _DigestMixin / _AlertMixin / _LoginMixin
+功能：feed_collect cron / /feed 面板 / LLM digest（订阅 + 事件型）/ 站点扫码 cookies
 """
 from __future__ import annotations
 
@@ -44,6 +43,5 @@ class VentiArchon(_CollectMixin, _DigestMixin, _AlertMixin, _LoginMixin, Archon)
         self, task: TaskEdict, subtask: Subtask, model: "Model", irminsul: "Irminsul",
         prior_results: list[str] | None = None,
     ) -> str:
-        # execute 内部业务已移除（搬到 paimon/shades/naberius/）
-        # asmoday 不再调本节点；保留方法签名仅为满足 Archon ABC 约定
-        return f"[{self.name}] execute 路径已解耦，请参考 docs/archons/venti.md"
+        # 保留方法签名仅为满足 Archon ABC 约定（archon 实例不参与执行路径）
+        return f"[{self.name}] 业务接口走 mixin + cron + /feed 面板，archon 本体不参与执行"

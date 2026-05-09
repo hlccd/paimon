@@ -51,7 +51,7 @@ def _is_allowed(path: Path) -> bool:
 def _is_task_workspace(path: Path) -> bool:
     """是否在四影任务工作区 paimon_home/tasks/{task_id}/ 内。
 
-    任务工作区是 LLM 自产数据（spec/design/code），多轮迭代必然覆盖；
+    任务工作区是 LLM 自产数据，多轮迭代必然覆盖；
     USB-007 强制 overwrite 拦截只对宿主项目源码 / paimon_home 其他子目录生效，
     避免错杀正常的 round 2 修订流程。
     """

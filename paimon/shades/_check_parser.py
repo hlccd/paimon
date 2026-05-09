@@ -3,7 +3,7 @@
 check skill 在目标路径写 `.check/candidates.jsonl`，每行一条 finding 记录；
 多轮迭代会重复记录同一 id，最后一条视为最新状态。
 
-死执 review_* stage（`paimon/shades/jonova/review.py`）+ 三月自检 Deep 档都需要同样的解析：
+三月自检 Deep 档 + morningstar scout 调 check skill 时需要同样的解析：
 - 按 `id` 去重保留最新
 - 过滤掉 `REJECTED` / `DEFERRED`，只保留 `CANDIDATE` / `CONFIRMED`
 - 按 severity (P0/P1/P2/P3) 统计
@@ -56,8 +56,8 @@ def parse_candidates_file(path: Path) -> list[dict]:
 def parse_candidates_tree(root: Path) -> list[dict]:
     """在 root 下递归查找所有 `.check/candidates.jsonl`，合并解析。
 
-    死执 review_* stage 在 task workspace 下可能有多个阶段产物（spec/design/code 各自
-    `.check/`），需要 rglob 汇总。三月自检只在项目根单层，可以直接用 `parse_candidates_file`。
+    某些场景下 task workspace 可能有多个 `.check/` 子目录，需要 rglob 汇总。
+    三月自检只在项目根单层，可以直接用 `parse_candidates_file`。
     """
     all_findings: list[dict] = []
     for cand in root.rglob(".check/candidates.jsonl"):

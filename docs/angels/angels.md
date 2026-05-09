@@ -12,7 +12,7 @@
 
 ## 11 个协同天使
 
-按职能分 3 类（**专为分析决策设计，写代码相关挖掘走 `/task` 四影管线**）：
+按职能分 3 类（**专为分析决策设计**，工程产物 / 写代码请去 Claude Code 等专业 IDE）：
 
 | 类别 | 天使 | 职责 |
 |---|---|---|
@@ -64,7 +64,7 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 - 依赖外部事实（"Redis vs Postgres"）→ collect
 - 项目内事实（"我现在 paimon 架构合理吗"）→ collect（指 `source_hint=project` 读项目代码）
 
-**工具白名单**：`web_search / topic / knowledge / memory / file_ops / glob`。**禁 exec**（议题讨论不触副作用）；要 exec 的事走 `/task`。
+**工具白名单**：`web_search / topic / knowledge / memory / file_ops / glob`。**禁 exec**（议题讨论不触副作用）。
 
 **信息需求最多 4 条**；超 4 条时 plan_info 自己挑最重要的。
 
@@ -113,23 +113,23 @@ loop（最多 12 轮发言 / 30 LLM 上限）
 
 ## 不适用 / 限制
 
-- **不写代码 / 不调外部 API**：纯讨论引擎，输出纪要给人看；用户拿结论自己 `/task` 落地
-- **慢 + 贵**：典型 3 角色 × 4 轮 ≈ 9 LLM 调用 / 1-2 分钟 / ~¥0.003；scout 阶段不 skip 时 +30~50% token（plan_info 1 次 + collect tool-loop 1 次 + 各天使 system context 多 ~3-4k 字背景）
+- **不写代码 / 不调外部 API**：纯讨论引擎，输出纪要给人看；用户拿结论自己决定下一步
+- **慢 + 贵**：典型 3 角色 × 4 轮 ≈ 9 LLM 调用 / 1-2 分钟 / ~¥0.003；scout 阶段不 skip 时 +30~50% token
 - **同 LLM 扮多角色 mode collapse 风险**：靠 system prompt 拉视角差异，理论上不同模型实例对抗深度更大但 MVP 不做
-- **/stop 跑期间无效**：见 [todo §6](../todo.md#6-stop-在-skill--agents-跑期间无效)
+- **/stop 跑期间无效**：见 [todo](../todo.md)
 
 ## 与四影的边界
 
-| 维度 | 四影（/task）| 天使（/agents）|
+| 维度 | 四影（/evolve 自进化）| 天使（/agents 议事）|
 |---|---|---|
-| 出口语义 | 落产物（写代码 / 文档） | 出纪要（决策辅助） |
-| 流程结构 | DAG 多节点串/并行 | 圆桌讨论循环 |
-| 角色 | 9 stage（生 / 审 / 派 / 收）| 11 协同天使（视角发言） |
-| 主持 | 派蒙·安全审 → 生执·plan → 空执·dispatch（生执 produce / 死执 review）→ 时执·archive | 晨星 |
-| 中断 | /stop 可中断 prepare 阶段 | /stop 暂不生效 |
-| 典型耗时 | 几分钟（含工具调用） | 1-3 分钟 |
+| 出口语义 | 凝练 skill 草案落 skill_proposals 待审 | 出纪要（决策辅助） |
+| 流程结构 | propose_skill → review_proposal 串行 | 圆桌讨论循环 |
+| 角色 | 4 stage（propose_skill / review_proposal / exec / chat）| 11 协同天使（视角发言） |
+| 主持 | 派蒙·入口审 → 生执·propose → 死执·review → 时执·archive | 晨星 |
+| 用户介入 | 必经 `/plugins` 面板审批 | 看纪要直接决定 |
+| 典型耗时 | 30 秒 - 1 分钟 | 1-3 分钟 |
 
-四影**落地**、天使**讨论**，互不交叉。
+四影**自进化**、天使**讨论**，互不交叉。
 
 ## 跨模块参考
 

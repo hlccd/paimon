@@ -1,9 +1,6 @@
-"""任务相关指令：/tasks 列定时任务 + /task 强走四影管线。"""
+"""任务相关指令：/tasks 列定时任务 + /skills 列可用 skill。"""
 from __future__ import annotations
 
-from loguru import logger
-
-from paimon.channels.base import IncomingMessage
 from paimon.state import state
 
 from ._dispatch import CommandContext, command
@@ -48,54 +45,6 @@ async def cmd_tasks(ctx: CommandContext) -> str:
             f"  {t.id} | {status} | {t.trigger_type} | 下次: {next_str} | {display}{err}"
         )
     return "\n".join(lines)
-
-
-_TASK_DOMAIN_HELP = (
-    "- `/task <描述>` 发起一个复杂任务 ← **带参数才开启任务**\n"
-    "- `/tasks` 定时任务列表\n"
-    "- `/task-list` 历史任务\n"
-    "- `/task-index [N]` 任务详情"
-)
-
-
-@command("task")
-async def cmd_task(ctx: CommandContext) -> str:
-    """/task <描述> — 发起复杂任务；无参时返任务领域 help。"""
-    if not ctx.args:
-        return _TASK_DOMAIN_HELP
-
-    session_mgr = state.session_mgr
-    if not session_mgr:
-        return "会话管理器未初始化"
-
-    session = session_mgr.get_current(ctx.msg.channel_key)
-    if not session:
-        session = session_mgr.create()
-        session_mgr.switch(ctx.msg.channel_key, session.id)
-
-    # 四影管线耗时长，不能 await 阻塞 SSE；复用 chat.enter_shades_pipeline_background
-    # _reply 必须透传：pipeline 要用 make_reply(task_msg) 拿 reply 推 notice（docs/interaction.md）
-    task_msg = IncomingMessage(
-        channel_name=ctx.msg.channel_name,
-        chat_id=ctx.msg.chat_id,
-        text=ctx.args,
-        _reply=ctx.msg._reply,
-    )
-    # 入口立即 persist user 占位：让任务跑期间切 tab/刷新能看到自己发的 /task 指令。
-    # 外层 on_channel_message:155 的 _persist_turn(msg.text, final) 走 case 2 补 assistant。
-    # 不经 _persist_turn 抽象层直接操作 session —— 保证 append + save 一定生效且
-    # 日志里能直接看到"入口 persist user"凭证（否则任务跑几分钟后才知道到底有没有生效）。
-    session.messages.append({"role": "user", "content": ctx.msg.text})
-    await session_mgr.save_session_async(session)
-    logger.info(
-        "[派蒙·四影·入口 persist] task_user={!r} (session={} msgs={})",
-        ctx.msg.text[:60], session.id[:8], len(session.messages),
-    )
-    from paimon.core.chat import enter_shades_pipeline_background
-    return await enter_shades_pipeline_background(
-        task_msg, ctx.channel, session,
-        persist_user_text=ctx.msg.text,
-    )
 
 
 @command("skills")

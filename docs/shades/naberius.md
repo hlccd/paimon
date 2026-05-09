@@ -1,61 +1,37 @@
 # 生执·纳贝里士
 
-> 隶属：[神圣规划](../aimon.md) / 四影 — **生**（编排 + 产出）
-> 调用关系：生执出 DAG → 派蒙审 → 空执派 → 生执 produce / 死执 review → 时执收
+> 隶属：[神圣规划](../aimon.md) / 四影 — **生**
 
-**定位**：统一承担"生" — DAG 编排 + 产物生产，是四影体量最大的影。
-是 9 stage 中 6 个产物 stage（spec / design / code / simple_code / exec / chat）的归属（其余 3 个 review_* 归死执）。
+**定位**：从 task 上下文凝练 skill 草案。当前唯一 stage：**propose_skill**。
 
-## 两段职能
+## 职能
 
-### 1. 编排（plan）
-
-LLM 把任务拆成 DAG。每个节点带 `assignee` 字段（即 stage 名）告诉空执派给谁。
-
-- 写代码任务（trivial / simple / complex）走硬编码模板（不调 LLM 编排）
-- 其他任务走 LLM 编排 → JSON 解析 → 容错三层兜底（tolerant_parse / 重试 / salvage）
-- 多轮 revise（基于死执 verdict）：保留 pass 节点 + 重出 problem 节点
-
-实现：[`paimon/shades/naberius/plan.py`](../../paimon/shades/naberius/plan.py) + [`code_pipeline.py`](../../paimon/shades/naberius/code_pipeline.py)
-
-### 2. 产出（produce）
-
-#### Skill 驱动 stage（调对应 skill workflow）
-
-| stage | skill | 产物 |
-|---|---|---|
-| `spec` | requirement-spec | `workspace/spec.md` |
-| `design` | architecture-design | `workspace/design.md` |
-| `code` | code-implementation | `workspace/code/` + 自检日志 |
-
-实现：[`paimon/shades/naberius/produce.py`](../../paimon/shades/naberius/produce.py)
-
-#### 纯 LLM tool-loop stage
-
-| stage | 用途 | tools |
-|---|---|---|
-| `simple_code` | trivial 任务直接 LLM 写代码 | file_ops, exec |
-| `exec` | shell / 部署 / 重型工具（saga 补偿也用） | exec |
-| `chat` | 通用 LLM 推理 / 兜底 | file_ops |
-
-统一入口 `simple_run(stage, ...)`，实现：[`paimon/shades/naberius/_simple.py`](../../paimon/shades/naberius/_simple.py)
+- 输入：task 标题 + 描述 + 子任务结果 + 现有 skill 列表
+- LLM 凝练：name / description / triggers / system_prompt / allowed_tools / rationale
+- 严格判定门槛（借鉴 hermes-agent）：判断不值得做时输出 `{"skip":true,"reason":"..."}` 短路退出，**不**写空提案污染面板
+- 落档：`irminsul.skill_proposal_create()` 写 skill_proposals 域 status=pending
 
 ## 公开 API
 
 ```python
-from paimon.shades.naberius import plan, produce_spec, produce_design, produce_code, simple_run
+from paimon.shades.naberius import propose_skill
+result = await propose_skill(task, subtask, model, irminsul, prior_results)
+# 落档成功：'prop_id=<12hex>\n<草案概要>'
+# 短路：'SKIP: <reason>'
 ```
 
-- `plan(task, model, irminsul, *, previous_plan, verdict, round)` — 编排
-- `produce_spec / produce_design / produce_code(task, sub, model, irminsul, prior_results)` — 产物
-- `simple_run(stage, task, sub, model, irminsul, prior_results)` — simple_code/exec/chat 共用
+实现：[`paimon/shades/naberius/propose.py`](../../paimon/shades/naberius/propose.py)
 
-## 多轮迭代（轮次控制）
+## 触发路径
 
-死执 review_* 节点产出 verdict 后回流到生执 plan：
-- `pass` → 跳出循环
-- `revise` → round+1，保留 completed 节点，重出 problem 节点
-- `redo` → round+1，完全采用 LLM 新 plan
-- `round_cap_hit` → 强制返回最后一轮产物
+- 用户主动 `/evolve` 命令（[`paimon/core/commands/evolve.py`](../../paimon/core/commands/evolve.py)）
+- 时执 archive 收尾 hook（[`paimon/shades/istaroth/_propose_trigger.py`](../../paimon/shades/istaroth/_propose_trigger.py)）
+- 三月 cron 月度扫描（[`paimon/skill_loader/proposal_cron.py`](../../paimon/skill_loader/proposal_cron.py)）
 
-cap = 3（生执硬上限），超过即停止迭代。
+三条路径都跳过 plan 编排，直接调 `propose_skill` 函数；下游紧跟死执 `review_proposal`。
+
+## 跟死执的衔接
+
+propose_skill 输出首行 `prop_id=<12hex>`，死执 review_proposal 通过 `prior_results` 字符串解析 prop_id 拿到提案。
+
+死执 SKIP 的场景：propose 输出 `SKIP:` 时 review_proposal 短路 pass，不再发起 LLM 评审。

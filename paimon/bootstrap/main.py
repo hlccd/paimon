@@ -132,7 +132,7 @@ async def create_app(cfg: Config) -> list[Channel]:
         else:
             state.skill_hot_loader = None
 
-    # 风神单例（供三月 cron 触发订阅采集；四影管线已解耦，asmoday 不再调本实例）
+    # 风神单例（供三月 cron 触发订阅采集 + webui 直读 mixin 数据）
     from paimon.archons.venti import (
         VentiArchon,
         register_task_types as _venti_reg,

@@ -1,13 +1,7 @@
-"""水神·芙宁娜 — 评审 archon 子包。
+"""水神·芙宁娜 — archon 子包（namespace 壳）。
 
-职责（docs/aimon.md §2.3.4 水神）：
-- 严格审查方案 / 代码 / 文档 / 架构（_ReviewMixin）
-- 输出结构化 verdict（pass / revise / redo + issues 列表）
-- 大产物走 check skill；轻量产物走简化 LLM review
-
-子模块：
-- _review.py  —— review_spec/design/code + _lightweight_review + check skill 调用
-- service.py  —— FurinaArchon 主类 + execute（路由到 review_*）
+archon 本体只是 namespace 壳；游戏功能在姊妹子包 `furina_game/`（FurinaGameService），
+保留 `/game` 面板 + mihoyo cron + 米哈游账号订阅类型。
 """
 from __future__ import annotations
 
