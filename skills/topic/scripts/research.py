@@ -64,6 +64,11 @@ def run(
     range_from, range_to = date_window(days)
     log.info(f"topic={topic!r} sources={sources} 窗口={range_from}~{range_to}")
 
+    # 需要 cookies 的源：跑前先 check，缺失就标 missing_cookies 不调 collector
+    # 避免 LLM 拿着只有 1 源数据当全部，输出"奇怪"还不知道原因
+    from paimon.foundation.site_cookies import cookies_exists
+    _COOKIE_REQUIRED = {"zhihu", "xhs", "tieba", "weibo"}
+
     items_by_source: dict[str, list[Item]] = {}
     errors: dict[str, str] = {}
 
@@ -71,6 +76,11 @@ def run(
         collect_fn = _SOURCE_TABLE.get(src)
         if not collect_fn:
             errors[src] = f"未知 source: {src}"
+            continue
+        if src in _COOKIE_REQUIRED and not cookies_exists(src):
+            log.warn(f"{src} 缺 cookies，跳过；请去 webui /feed「站点登录」tab 扫码")
+            items_by_source[src] = []
+            errors[src] = "missing_cookies"
             continue
         try:
             items = collect_fn(topic, range_from, range_to, limit=enrich_limit)

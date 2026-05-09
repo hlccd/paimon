@@ -128,13 +128,6 @@ def to_markdown_brief(report: Report, *, top_n: int = 10) -> str:
     lines.append(f"> 时间窗 {report.range_from} ~ {report.range_to}")
     lines.append("")
 
-    if report.errors:
-        err_str = "; ".join(
-            f"{_SOURCE_NAME.get(s, s)}={m[:40]}" for s, m in report.errors.items()
-        )
-        lines.append(f"> 采集错误：{err_str}")
-        lines.append("")
-
     if report.ranked:
         n = min(top_n, len(report.ranked))
         lines.append(f"## 综合 Top {n}")
@@ -149,24 +142,31 @@ def to_markdown_brief(report: Report, *, top_n: int = 10) -> str:
                 lines.append(head)
         lines.append("")
 
-    # 各源 raw items：让 LLM 写「各源讨论重点」时能基于本源 top 5 实际内容总结
-    # 格式精简，只给标题 + 简短 body 摘要（80 字让 LLM 有更多原料判断正负分化）
-    nonempty_sources = [
-        (src, items) for src, items in report.items_by_source.items() if items
-    ]
-    if nonempty_sources:
-        lines.append("## 各源原始素材（供归纳「各源讨论重点」+「情绪分析」用）")
+    # 各源采集情况：列**所有跑过的源**——有数据的列前 5 条让 LLM 归纳，
+    # 缺 cookies / 失败 / 真无数据 都要标出来让 LLM 在「各源讨论重点」里告知用户原因
+    if report.items_by_source:
+        lines.append("## 各源采集情况（供归纳「各源讨论重点」+「情绪分析」用）")
         lines.append("")
-        for src, items in nonempty_sources:
+        for src, items in report.items_by_source.items():
             src_name = _SOURCE_NAME.get(src, src)
-            items_sorted = sorted(items, key=lambda it: it.score, reverse=True)
-            lines.append(f"### {src_name}（{len(items)} 条，下列前 5）")
-            for it in items_sorted[:5]:
-                snippet = _summarize(it.body, max_chars=80)
-                if snippet:
-                    lines.append(f"- {it.title} — {snippet}")
-                else:
-                    lines.append(f"- {it.title}")
+            err = report.errors.get(src, "")
+            if items:
+                items_sorted = sorted(items, key=lambda it: it.score, reverse=True)
+                lines.append(f"### {src_name}（{len(items)} 条，下列前 5）")
+                for it in items_sorted[:5]:
+                    snippet = _summarize(it.body, max_chars=80)
+                    if snippet:
+                        lines.append(f"- {it.title} — {snippet}")
+                    else:
+                        lines.append(f"- {it.title}")
+            elif err == "missing_cookies":
+                lines.append(f"### {src_name} — ⚠️ 缺 cookies（去 webui `/feed`「站点登录」扫码）")
+            elif err == "无结果" or err == "no_data":
+                lines.append(f"### {src_name} — 本次未拉到内容")
+            elif err:
+                lines.append(f"### {src_name} — ⚠️ 采集失败：{err[:80]}")
+            else:
+                lines.append(f"### {src_name} — 无数据")
             lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
