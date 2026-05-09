@@ -47,11 +47,19 @@ async def archive(
 
     await irminsul.task_update_lifecycle(task.id, stage="cold", actor="时执")
 
-    # 若任务有关联工作区（三阶段写代码任务），生成 summary.md 供派蒙呈现
+    # 若任务有关联工作区，生成 summary.md 供派蒙呈现
     try:
         await _maybe_write_task_summary(task, subtasks, summary, failure_reason)
     except Exception as e:
         logger.warning("[时执] 生成 summary.md 失败（不影响归档）: {}", e)
+
+    # 自进化 hook：成功任务且非 propose 触发自身时，浅池 LLM 判 should_propose
+    if not failure_reason:
+        try:
+            from ._propose_trigger import maybe_trigger_propose
+            await maybe_trigger_propose(task, subtasks, summary, irminsul)
+        except Exception as e:
+            logger.debug("[时执·propose 触发] 异常（不影响归档）: {}", e)
 
     if failure_reason:
         logger.warning(
