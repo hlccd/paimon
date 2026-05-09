@@ -158,7 +158,7 @@ irminsul/
 
 ---
 
-## shades/ — 四影（生 / 审 / 派 / 收 — v8 自进化定位）
+## shades/ — 四影（生 / 审 / 派 / 收 — 自进化提案管线）
 
 | 路径 | 影 | 关键词 | 职责 |
 |---|---|---|---|
@@ -169,9 +169,8 @@ irminsul/
 | `istaroth/` | 时执 | **收** | 归档 + summary.md + saga 补偿（调生执 exec）+ 生命周期清扫 |
 | `_helpers/` | — | — | 无主公共 helper（runner_helpers / revise_helpers / stages） |
 
-> v8（2026-05）四影从"写代码管线"重定位到"自进化提案管线"：
-> 删除 produce_*/review_*（写代码）+ self_check + code_pipeline；新增 propose_skill /
-> review_proposal 两个 stage。`exec`（saga 补偿）+ `chat`（异常兜底）保留。
+> 当前 4 stage：propose_skill（凝练 skill 草案）/ review_proposal（审提案质量）
+> + exec（saga 补偿）/ chat（异常兜底）。
 > 详见 [docs/evolution.md](../docs/evolution.md) §L3。
 
 ---

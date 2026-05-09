@@ -1,6 +1,6 @@
 """任务工作区（复杂任务的隔离目录）
 
-每个 `/task` 任务分配独立目录用于落产物（v8 自进化定位下产物不再是代码）：
+每个 `/task` 任务分配独立目录用于落产物：
 
   .paimon/tasks/{task_id_prefix}/
   ├── proposal.md        生执 propose_skill 草案（可选）
@@ -11,9 +11,6 @@
 - 工作区路径由 task_id 计算，无需世界树存储（纯 fs 约定）
 - 各 stage 通过 `get_workspace_path(task_id)` 定位
 - 时执生命周期 sweep 清 archived 任务时一并清工作区（见 _lifecycle.py）
-
-历史：v7 之前承载"草神 spec / 雷神 design+code / 水神 review_*"三阶段写代码产物，
-v8 完全废弃写代码后改为通用任务工作区。
 """
 from __future__ import annotations
 
@@ -63,7 +60,7 @@ def cleanup_workspace(task_id: str) -> bool:
 
 # ---------- 草神·文书归档面板用 ----------
 
-# 归档面板感兴趣的顶层产物（v8 自进化定位）
+# 归档面板感兴趣的顶层产物
 _ARCHIVE_ARTIFACTS = ["proposal.md", "review.json", "summary.md"]
 
 

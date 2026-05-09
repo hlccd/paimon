@@ -39,7 +39,7 @@ class Subtask:
     id: str
     task_id: str
     parent_id: str | None
-    assignee: str                             # 四影 stage 名（v8）：'propose_skill'/'review_proposal'/'exec'/'chat'
+    assignee: str                             # 四影 stage 名：'propose_skill'/'review_proposal'/'exec'/'chat'
     description: str
     status: str = "pending"                   # pending / running / completed / failed / skipped / superseded
     result: str = ""

@@ -77,26 +77,22 @@
   - **prompt cache 命中率**：feedback 注入已稳态排序，但 system prompt 主体仍每次 from scratch；改用模板化稳定前缀
   - **空执流水线化**：同层 gather 已并发但层间严格串行
 
-## 2. 自进化（独立机制 + 三道闸）
+## 2. 自进化
 
-> 见 [evolution.md](evolution.md)。L1 已实装；L3 持久层就位、stage 与触发器待实装；L4 部分实装。
+> 见 [evolution.md](evolution.md)。
 
-- [x] **L3 · Skill 自进化提案 端到端**（用户触发 `/evolve` 已通；自动触发器待加）
-  - **已实装**：世界树 skill_proposals 域 + `/plugins` 面板 + 生执 propose_skill + 死执 review_proposal + 冰神 apply（safety 审 + atomic 写盘 + 注册）+ `/evolve` 命令
-  - **待加**：
-    1. 时执 archive 收尾 hook —— 浅池 LLM 看 task summary 判 should_propose（hermes 借鉴：max_iter + Nothing to save 短路）
-    2. 三月 cron 周期扫 —— 比如月度跑一次扫最近高活跃 task 找 skill 沉淀机会
-    3. 三月 cron 清 rejected 提案（避免表膨胀）—— 调 irminsul.skill_proposal_prune
-  - **不强制频率**：好则有、不好则无；死执严格把关；rejected 三月定期 prune
+- [ ] **Skill 自进化自动触发器**（用户已可主动 `/evolve`，自动触发缺失）
+  1. 时执 archive 收尾 hook —— 浅池 LLM 看 task summary 判 should_propose（借鉴 hermes：max_iter + Nothing to save 短路）
+  2. 三月 cron 周期扫 —— 月度跑一次扫最近高活跃 task 找 skill 沉淀机会
+  3. 三月 cron 清 rejected 提案（避免表膨胀）—— 调 irminsul.skill_proposal_prune
 
-- [ ] **L4 · 轨迹沉淀（导出 SFT/RL 数据）** —— 长期路线图
-  - 时执 archive + summary 已落档完整轨迹
+- [ ] **轨迹沉淀 → SFT/RL 数据导出** —— 长期路线图
   - 未做：导出 SFT 数据格式 / RL pipeline / reward signal
   - 不搭训练基础设施（当前 ROI 为负）
 
 - [ ] **Prompt 自动调优** —— 长期方向
   - 短期：直接编辑 `.claude/skills/X/SKILL.md` 或 `paimon/templates/paimon.t`
-  - 长期：从 feedback 记忆里聚合"高频纠正模式" → 用 L3 提案机制凑成 prompt 改进提案
+  - 长期：从 feedback 记忆里聚合"高频纠正模式" → 用自进化提案机制凑成 prompt 改进提案
 
 ## 3. 技术选型层面
 

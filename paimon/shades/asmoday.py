@@ -3,7 +3,7 @@
 管线第三步。按 DAG 拓扑分层 + stage 路由表把子任务派给对应影：
   - 层内节点并发（asyncio.gather）
   - 节点失败 → 重试 1 次 → 传递性标记下游 skipped
-  - stage 路由表（_STAGE_ROUTER）：v8 自进化定位
+  - stage 路由表（_STAGE_ROUTER）：
       propose_skill                  → 生执 propose_skill（凝练 skill 草案）
       review_proposal                → 死执 review_proposal（审提案）
       exec / chat                    → 生执 simple_run（兜底 LLM tool-loop）
@@ -30,7 +30,7 @@ from ._helpers.stages import ALL_STAGES, get_display_name
 from . import jonova, naberius
 
 
-# Stage → 影路由表（v8）
+# Stage → 影路由表
 # 生执管"生"（凝练提案 + 兜底）；死执管"审"（提案质量审）。
 _STAGE_ROUTER: dict = {
     # 生执

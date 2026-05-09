@@ -88,7 +88,7 @@ async def _maybe_write_task_summary(
         "",
     ]
 
-    # 自进化提案产物（v8）：proposal.md / review.json
+    # 自进化提案产物：proposal.md / review.json
     artifacts_added = False
     for name in ("proposal.md", "review.json"):
         p = workspace / name

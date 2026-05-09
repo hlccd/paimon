@@ -1,14 +1,11 @@
 """四影 stage 配置中心（公共，各影按需引用）。
 
-stage 池（v8 自进化定位）：
+stage 池：
 - 生执 produce：propose_skill（凝练 skill 草案落 skill_proposals 域）
                 + exec / chat（兜底 LLM tool-loop，无 skill）
 - 死执 review：review_proposal（审 skill 提案，写 verdict）
 
 asmoday 用 ALL_STAGES + 内部路由表派活给各影。
-
-历史：v7 之前还有 spec/design/code + review_spec/review_design/review_code + simple_code
-（写代码三段管线），v8 完全废弃，仅留 chat / exec 兜底。
 """
 from __future__ import annotations
 

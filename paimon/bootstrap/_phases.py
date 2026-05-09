@@ -117,7 +117,7 @@ async def _autoallow_loaded_skills_and_archons() -> None:
     """单用户自用：已加载的 builtin skill + 4 个四影 stage 默认 permanent_allow。
 
     subject_type="stage"：四影 asmoday 通过 _STAGE_ROUTER 派发到对应影的 stage 名
-    （v8 自进化定位：propose_skill / review_proposal / exec / chat）。
+    （propose_skill / review_proposal / exec / chat）。
 
     旧 9 stage（spec/design/code 等写代码）历史记录残留 authz 表无害——
     `_VALID_STAGES` 已收窄，LLM plan 不再输出旧 stage 名。

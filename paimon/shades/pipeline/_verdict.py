@@ -29,8 +29,8 @@ class _VerdictMixin:
     def _stage_status_line(self, plan: Plan, results: dict[str, str]) -> str:
         """评审节点的 verdict 浓缩成一行（给用户看）。无评审节点返回简短节点统计。
 
-        v8 自进化定位：只有 review_proposal 一个评审 stage，简化为列出每个 review_proposal
-        节点的 verdict（实际场景下一轮一般只有 1 个 review_proposal 节点）。
+        当前只有 review_proposal 一个评审 stage，简化为列出每个 review_proposal
+        节点的 verdict（实际场景一般每轮只有 1 个 review_proposal 节点）。
         """
         review_subs = [s for s in plan.subtasks if s.assignee in _REVIEW_STAGES]
         if not review_subs:

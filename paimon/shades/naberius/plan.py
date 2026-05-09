@@ -16,7 +16,7 @@ from ._parser import _extract_items_from_obj, _items_to_subtasks, _salvage_from_
 
 
 _STAGES_DESC = """\
-当前可用的执行者（四影 stage · v8 自进化定位）：
+当前可用的执行者（四影 stage）：
 - propose_skill (tools: file_ops): 凝练 skill 草案落世界树 skill_proposals 域
                                     （从 task / 历史归档抽出可复用的 skill）
 - review_proposal (tools: file_ops): 审 skill 提案（草案完整度 / 跟现有 skill 重叠 /
@@ -37,7 +37,7 @@ _INITIAL_PROMPT = f"""\
 5. 独立的子任务 deps 应为空，以便并发
 6. **propose_skill → review_proposal 强烈建议成对**：propose 完成后立即接 review_proposal 节点
    依赖该 propose（系统会自动把 prop_id 通过 prior_results 传给 review）
-7. **不要**自己重新发明"写代码 / 写文档"流程——本管线 v8 后**完全废弃写代码**，
+7. **不要**自己重新发明"写代码 / 写文档"流程——本管线**不做工程产物**；
    生成可执行代码 / 工程产物的请求请引导用户去 Claude Code 等专业 IDE
 8. 简单任务 1 个节点（chat）；自进化提案任务 2 个节点（propose_skill + review_proposal）
 9. 每个子任务可声明 sensitive_ops（数组，预计调用的敏感工具，如 ["exec"]），不确定时填 []
@@ -162,7 +162,7 @@ async def plan(
 async def _plan_initial(
     task: TaskEdict, model: Model, irminsul: Irminsul,
 ) -> list[Subtask]:
-    """v8 自进化定位：纯 LLM 编排 4 stage（写代码硬编码 DAG 已废弃）。"""
+    """纯 LLM 编排 4 stage 的初始 plan。"""
     messages = [
         {"role": "system", "content": _INITIAL_PROMPT},
         {"role": "user", "content": f"请分解以下任务:\n\n{task.title}\n{task.description}"},
@@ -243,7 +243,7 @@ async def _plan_revise(
             continue
         if s.status in ("failed", "skipped"):  # 失败/被跳过的节点要重做
             continue
-        # review stage 由新 plan 重出，不保留（v8 仅 review_proposal）
+        # review stage 由新 plan 重出，不保留
         if s.assignee == "review_proposal":
             continue
         preserved.append(s)

@@ -15,7 +15,7 @@ status=pending 的提案，审：
 - level=revise  → verdict='needs_revise'（用户面板 approve 按钮 disabled）
 - level=redo    → verdict='reject'（联动 status=rejected）
 
-stage 归属：review_proposal → 死执（v8 自进化）
+stage 归属：review_proposal → 死执
 """
 from __future__ import annotations
 

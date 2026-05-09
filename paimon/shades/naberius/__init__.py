@@ -6,7 +6,7 @@
    - plan() 入口在 plan.py
    - LLM 输出解析 helper 在 _parser.py
 
-2. **产出**（v8 自进化定位）：
+2. **产出**：
    - **propose_skill**：从 task / 历史归档凝练 skill 草案落 skill_proposals 域
    - **exec / chat**：兜底 LLM tool-loop（exec=shell+saga 补偿；chat=通用兜底）
 """

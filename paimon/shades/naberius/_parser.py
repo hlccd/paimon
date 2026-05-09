@@ -11,7 +11,7 @@ from paimon.foundation.irminsul.task import Subtask, TaskEdict
 
 
 # assignee 字段值 = stage 名，跟 paimon/shades/_helpers/stages.py:ALL_STAGES 对齐
-# v8 自进化定位：4 个 stage（写代码 stage 已废弃）
+# 自进化提案管线 4 个 stage
 _VALID_STAGES = {
     "propose_skill",     # 生执：凝练 skill 草案落 skill_proposals 域（批 2 实装）
     "review_proposal",   # 死执：审 skill 提案，写 verdict（批 2 实装）

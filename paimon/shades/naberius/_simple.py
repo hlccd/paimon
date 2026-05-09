@@ -6,7 +6,6 @@ stage = exec / chat：不调 skill，直接 LLM tool-loop。
 
 stage 归属：exec / chat → 生执 simple_run（统一入口）
 
-历史：v8 之前还有 simple_code（trivial 写代码任务），自进化定位后写代码完全废弃。
 """
 from __future__ import annotations
 
