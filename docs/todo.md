@@ -35,18 +35,14 @@
 
 - [ ] **测试基础设施** —— 仓库零测试：无 `tests/`、无 `conftest.py`、`pyproject.toml` 无 test 配置、全仓 zero import of pytest / unittest、无 CI workflow。需要设计静态契约测试 / 离线冒烟 / 真实 API 测试分层
 
-- [ ] **权限体系 v2 重新设计**
-  - **临时缓解已做**：启动时 builtin skill + 9 个 stage 自动 `permanent_allow`（`permanent_deny` 不覆盖；subject_type=stage）
+- [ ] **权限体系重新设计**
   - **根本设计待重做**：
     - 工具粒度细化：当前 skill 级；需 tool 级 + 参数模式（`Bash(rm:*)` / `Bash(curl http*download*)`）
     - 单用户场景分级：「自用模式」全自动放行 + 真破坏命令依赖 pre_filter ／「严格模式」按现状询问
   - 正式重构等需求更明确后再启动
 
 - [ ] **七神 B 类节点新职能（雷神 / 火神）**
-  - **现状**：raiden / mavuika 是 namespace 永久壳（按"七神保留"铁律）
-    - 原写代码 4 件套已转生执 produce_design / produce_code / simple_run（simple_code）
-    - 原 exec tool-loop 已转生执 simple_run("exec")
-  - **当前形态**：~30 行 namespace 壳（class + name + description + execute 兜底）
+  - **现状**：raiden / mavuika 是 namespace 永久壳（按"七神保留"铁律），~30 行 class + name + description + execute 兜底
   - **目标**：找新职能挂上去（不删，按七神铁律保留 7 个名字）
   - 文件：[`paimon/archons/{raiden,mavuika}.py`](../paimon/archons/)
 
@@ -70,9 +66,9 @@
   - `docs/getting-started.md`：用户视角的"30 分钟上手"
   - 隐式 skill 触发提示（intent 命中 skill 时 UI 显示）
 
-- [ ] **四影执行时长优化** —— 复杂任务（`/task`）当前从死执到时执串行 LLM 调用，单次跑分钟级；用户感知慢
+- [ ] **四影执行时长优化** —— `/task` 单次跑分钟级；用户感知慢
   - **管线阶段并发**：派蒙 task_review（仅看用户原文）+ 生执 plan（同样仅需原文）可并发
-  - **review-revise 回合压缩**：水神高置信通过早停规则
+  - **review-revise 回合压缩**：死执 review_proposal 高置信 pass 时早停规则
   - **轻量验证用浅层模型**：派蒙 task_review "明显安全"路径用 shallow LLM
   - **prompt cache 命中率**：feedback 注入已稳态排序，但 system prompt 主体仍每次 from scratch；改用模板化稳定前缀
   - **空执流水线化**：同层 gather 已并发但层间严格串行
@@ -107,45 +103,38 @@
 ### 1. 阶段门控缺失（asmoday 全 DAG 跑完才汇总）
 
 - 现状：`asmoday.dispatch` 按拓扑分层并发跑完整 DAG，**不区分 stage 是不是已挂**
-- 问题：`review_spec=revise` 时 design/code 仍基于旧 spec 跑完，浪费 LLM token + 产生迷惑性"review_design pass"
-- 改进：死执 review_X 出 revise/redo 后立即取消下游 dispatch（plan 内打 skipped），整轮 verdict 直接定 = 该 review_X 的 verdict
+- 问题：review_proposal=revise 时下游节点仍跑完，浪费 LLM token
+- 改进：死执 review_proposal 出 revise/redo 后立即取消下游 dispatch（plan 内打 skipped），整轮 verdict 直接定 = 该 review 的 verdict
 - 文件：`paimon/shades/pipeline/_verdict.py:_resolve_verdict`、`paimon/shades/asmoday.py:dispatch`
 
 ### 2. revise 不进 round 2，直接 round_cap_hit
 
 - 现状：日志「已达最大轮次」但只跑了 1 轮
 - 排查：`config.shades_max_rounds` 实际值（默认 3，可能被设成 1）
-- 改进：max_rounds 至少 2-3；review_spec revise 时确保 round 2 修订 spec
+- 改进：max_rounds 至少 2-3；review_proposal revise 时确保 round 2 修订
 - 文件：`paimon/shades/pipeline/_execute.py:execute`
 
-### 3. 轻量 review LLM 严格度 vs 业务可执行性
-
-- 现状：`_LIGHT_REVIEW_SYSTEM` prompt 让 LLM 把 P1 判 revise
-- 问题：LLM 倾向找细枝末节的 P1，导致 spec 反复 revise
-- 改进：P1 改 warn-only / 阈值「P1 ≥ 2 才 revise」/ 让 LLM 输出"是否阻塞下游"信号
-- 文件：`paimon/shades/jonova/review.py:_LIGHT_REVIEW_SYSTEM`
-
-### 4. /dividend rescore 等"立即返回"命令的 web 显示问题
+### 3. /dividend rescore 等"立即返回"命令的 web 显示问题
 
 - 现象：bg task 启动 + push_archive 写入完成，但 webui 前端没显示「已触发...」回复
 - 排查：前端 SSE handler 在 dedup 跳过持久化时的 race
 - 文件：`paimon/core/chat/_persist.py:_persist_turn`、`paimon/channels/webui/static_html/_chat_html_body_*.py`
 
-### 5. /stop 在 skill / /agents 跑期间无效
+### 4. /stop 在 skill / /agents 跑期间无效
 
 - 副作用：天使 skill 调用建独立 ephemeral session.id，但 `state.session_tasks` 按 session.id 索引、`/stop` 按当前 channel 主 session.id 反查 → skill 跑时 /stop 找不到 ephemeral 任务
 - /agents 同样：`run_council` 在 cmd_agents 里 await，没注册到 state.session_tasks
 - 修复路径：`/stop` 扩展为按 channel_key 反查所有活跃任务批量 cancel
 - 文件：`paimon/core/chat/session.py:stop_session_task`、`paimon/core/commands/_dispatch.py:_run_skill_isolated`、`paimon/core/commands/agents.py`
 
-### 6. xhs collector 补抓笔记摘要
+### 5. xhs collector 补抓笔记摘要
 
 - 现状：xhs 搜索列表 DOM 卡片只有 title/author/like，没有正文摘要 → topic skill 输出无 50 字摘要
 - 升级路径：search 阶段先拿 note_id list → 二次抓详情页 DOM 拿 body
 - 复杂度：每条多一次 chromium goto，N=15 多 30-60s
 - 文件：`skills/topic/scripts/lib/sources/xhs.py`
 
-### 7. 提高贴吧 collector 覆盖度
+### 6. 提高贴吧 collector 覆盖度
 
 - 现状：贴吧 web 搜索 SPA 每 topic 实际只渲染 3-5 个 .threadcardclass
 - 改进路径：百度通用搜索 + `site:tieba.baidu.com/p/` 拿更多链接
