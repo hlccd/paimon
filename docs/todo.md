@@ -77,11 +77,6 @@
 
 > 见 [evolution.md](evolution.md)。
 
-- [ ] **Skill 自进化自动触发器**（用户已可主动 `/evolve`，自动触发缺失）
-  1. 时执 archive 收尾 hook —— 浅池 LLM 看 task summary 判 should_propose（借鉴 hermes：max_iter + Nothing to save 短路）
-  2. 三月 cron 周期扫 —— 月度跑一次扫最近高活跃 task 找 skill 沉淀机会
-  3. 三月 cron 清 rejected 提案（避免表膨胀）—— 调 irminsul.skill_proposal_prune
-
 - [ ] **轨迹沉淀 → SFT/RL 数据导出** —— 长期路线图
   - 未做：导出 SFT 数据格式 / RL pipeline / reward signal
   - 不搭训练基础设施（当前 ROI 为负）

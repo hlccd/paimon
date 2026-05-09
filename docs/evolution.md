@@ -12,7 +12,7 @@
 | 层级 | 能力 | 当前状态 | 业务接口 / 归属 |
 |---|---|---|---|
 | L1 · 经验记忆 | 跨会话记忆积累与召回 | ✅ **已实装** | **草神**（memory 域唯一写入者 + 业务接口）；时执触发 extract / hygiene cron 周一整理 / 派蒙 prefetch / `/knowledge` 面板 |
-| L3 · Skill 自进化提案 | AI 凝练新 / 改进 skill → 待审 → 落盘 | ✅ **已实装** | 四影 propose_skill → 死执 review_proposal → `/plugins` 面板待审 → 冰神 apply 落 `<repo>/skills/`；触发器：`/evolve` 命令（archive hook / cron 待挂）|
+| L3 · Skill 自进化提案 | AI 凝练新 / 改进 skill → 待审 → 落盘 | ✅ **已实装** | 四影 propose_skill → 死执 review_proposal → `/plugins` 面板待审 → 冰神 apply 落 `<repo>/skills/`。触发器：`/evolve` 用户主动 + 时执 archive hook（浅池 LLM 判 should_propose 自动触发）+ 三月 cron 月度扫 + 周度 prune rejected |
 | L4 · 轨迹沉淀 | 为未来 SFT / RL 留原料 | 🟡 部分实装 | 时执 archive + summary 已落档；导出 SFT/RL pipeline 未做 |
 
 > L2 槽位空着——派蒙人设 / skill prompt 调优属于一次性维护工作，不需要独立机制（直接编辑 `.claude/skills/X/SKILL.md` 或 `paimon/templates/paimon.t`）。
@@ -120,7 +120,8 @@
 | 死执 review_proposal stage | ✅ 实装 | [`paimon/shades/jonova/review_proposal.py`](../paimon/shades/jonova/review_proposal.py) |
 | 冰神 apply（读 approved 写盘 + 注册 + safety 审）| ✅ 实装 | [`paimon/skill_loader/apply_proposal.py`](../paimon/skill_loader/apply_proposal.py) |
 | `/evolve` 命令（用户主动触发器）| ✅ 实装 | [`paimon/core/commands/evolve.py`](../paimon/core/commands/evolve.py) |
-| 自动触发器（archive hook / 三月 cron 周期扫）| ❌ 待加 | 见 todo.md |
+| 时执 archive 自动触发 hook（浅池判 should_propose）| ✅ 实装 | [`paimon/shades/istaroth/_propose_trigger.py`](../paimon/shades/istaroth/_propose_trigger.py) |
+| 三月 cron：月度扫 + 周度 prune rejected | ✅ 实装 | [`paimon/skill_loader/proposal_cron.py`](../paimon/skill_loader/proposal_cron.py) |
 
 ### 状态机
 
