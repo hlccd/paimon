@@ -29,44 +29,27 @@ LLM_SCRIPT_2 = """                // 未接入路由：selector 灰显 + ⚠ 标
             return !routes[purposeKey];
         }
 
-        // 渲染 shades 内嵌的七神子段（"组中组"）
-        function renderArchonsSubSection(archons, routes, hits, defaultId){
-            var componentNames = Object.keys(archons);
-            if(!componentNames.length) return '';
-            var totalPurposes = componentNames.reduce(function(s, c){
-                return s + archons[c].length;
-            }, 0);
-            var bodyHtml = componentNames.map(function(comp){
-                var purposes = archons[comp];
-                if(shouldUseCompactRow(comp, purposes, routes)){
-                    return renderCompactComponentRow(comp, purposes[0], routes, hits, defaultId);
-                }
-                return renderComponentSection(comp, purposes, routes, hits, defaultId);
-            }).join('');
-            return '<div class="archons-sub">'
-                + '<div class="archons-sub-header">🌟 七神 ·' + ' <span class="sub-stat">'+componentNames.length+' 神 · '+totalPurposes+' 项</span></div>'
-                + '<div class="archons-sub-body">'+bodyHtml+'</div>'
-                + '</div>';
-        }
-
-        // 天使段：列出 skill 清单（disabled，纯展示）
-        function renderAngelsSkillsSection(skills){
-            var displayName = CATEGORY_DESC.angels;
-            var note = '<div class="empty-placeholder" style="margin-bottom:8px">'+esc(ANGELS_NOTE)+'</div>';
+        // skills 段：每个 skill 名 = 一个 component，按 component 级路由可配
+        // （_handler.py:41-42 处 component=skill_name, purpose=skill_name；
+        //  细粒度路由 key = "{skill_name}:{skill_name}"，但 purpose 与 component 同名
+        //  所以走 component 级 compact 行即可，不展开 purpose 子行）
+        function renderSkillsSection(skills, routes, hits, defaultId){
+            var displayName = CATEGORY_DESC.skills;
+            var note = '<div class="empty-placeholder" style="margin-bottom:8px">'+esc(SKILLS_NOTE)+'</div>';
             var bodyHtml;
             if(!skills || !skills.length){
                 bodyHtml = note + '<div class="empty-placeholder">未发现 skill</div>';
             } else {
                 var rows = skills.map(function(s){
+                    var componentRouteId = routes[s.name] || '';
                     var label = '🧩 ' + s.name + (s.description ? ' · ' + s.description : '');
-                    return '<div class="compact-row disabled" title="'+esc(s.description || '')+'">'
-                        + '<span class="compact-name">'+esc(label)
-                        +     ' <span class="tag-disabled-inline">⚠ 不直调 LLM</span></span>'
-                        + '<select class="route-select" disabled>'
-                        +   '<option>(由触发它的 archon 决定路由)</option>'
+                    return '<div class="compact-row" title="'+esc(s.description || '')+'">'
+                        + '<span class="compact-name">'+esc(label)+'</span>'
+                        + '<select class="route-select" data-component="'+esc(s.name)+'" onchange="saveComponentRoute(this)">'
+                        +   profileOptionsHTML(componentRouteId, true, '(走全局默认)')
                         + '</select>'
-                        + '<span></span>'
-                        + '<span class="purpose-hit hit-disabled">见上方说明</span>'
+                        + '<span class="route-save-flash" data-flash-for="'+esc(s.name)+'">已保存 ✓</span>'
+                        + '<span class="purpose-hit">'+hitCellHTML(s.name, hits)+'</span>'
                         + '</div>';
                 }).join('');
                 bodyHtml = note + rows;
@@ -75,18 +58,17 @@ LLM_SCRIPT_2 = """                // 未接入路由：selector 灰显 + ⚠ 标
                 + '<div class="category-header" onclick="toggleCategory(this)">'
                 +   '<span class="category-arrow">▼</span>'
                 +   '<span class="category-name">'+esc(displayName)+'</span>'
-                +   '<span class="category-stat stat-warn">'+(skills ? skills.length : 0)+' skill · ⚠ 不可配</span>'
+                +   '<span class="category-stat">'+(skills ? skills.length : 0)+' skill</span>'
                 + '</div>'
                 + '<div class="category-body">'+bodyHtml+'</div>'
                 + '</div>';
         }
 
-        // cat="shades" 时 components 是 {direct: {...}, archons: {...}} 双层
-        // 其他 cat 是普通 {component: [purposes]} 单层
+        // 普通 category：components 形态为 {component: [purposes]}
         function renderCategorySection(cat, components, routes, hits, defaultId){
             var displayName = CATEGORY_DESC[cat] || cat;
 
-            // 空段（如 angels 占位主标题）
+            // 空段（占位）
             if(EMPTY_PLACEHOLDERS[cat] && (!components || !Object.keys(components).length)){
                 return '<div class="category-section collapsed">'
                     + '<div class="category-header" onclick="toggleCategory(this)">'
@@ -100,34 +82,6 @@ LLM_SCRIPT_2 = """                // 未接入路由：selector 灰显 + ⚠ 标
                     + '</div>';
             }
 
-            // shades 特殊：内含 direct + archons 两块
-            if(cat === 'shades' && components.direct){
-                var direct = components.direct || {};
-                var archons = components.archons || {};
-                var directNames = Object.keys(direct);
-                var archonNames = Object.keys(archons);
-                var totalPurposes =
-                      directNames.reduce(function(s, c){return s + direct[c].length;}, 0)
-                    + archonNames.reduce(function(s, c){return s + archons[c].length;}, 0);
-                var directHtml = directNames.map(function(comp){
-                    var purposes = direct[comp];
-                    if(shouldUseCompactRow(comp, purposes, routes)){
-                        return renderCompactComponentRow(comp, purposes[0], routes, hits, defaultId);
-                    }
-                    return renderComponentSection(comp, purposes, routes, hits, defaultId);
-                }).join('');
-                var archonsHtml = renderArchonsSubSection(archons, routes, hits, defaultId);
-                return '<div class="category-section collapsed">'
-                    + '<div class="category-header" onclick="toggleCategory(this)">'
-                    +   '<span class="category-arrow">▼</span>'
-                    +   '<span class="category-name">'+esc(displayName)+'</span>'
-                    +   '<span class="category-stat">'+(directNames.length + archonNames.length)+' 组件 · '+totalPurposes+' 项</span>'
-                    + '</div>'
-                    + '<div class="category-body">'+directHtml+archonsHtml+'</div>'
-                    + '</div>';
-            }
-
-            // 普通 category
             var componentNames = Object.keys(components);
             var totalPurposes = componentNames.reduce(function(s, c){
                 return s + components[c].length;
@@ -233,51 +187,28 @@ LLM_SCRIPT_2 = """                // 未接入路由：selector 灰显 + ⚠ 标
                     heroEl.style.display = 'block';
                 }
 
-                // 桶按 category，特殊：'shades:archons' 折进 shades 内部 archons 子段
+                // 桶按 category（七神 archons 现在独立顶层段，不再嵌四影下）
                 var byCategory = {};
                 callsites.forEach(function(c){
-                    var raw = COMPONENT_CATEGORY[c.component] || 'other';
-                    if(raw === 'shades:archons'){
-                        if(!byCategory.shades) byCategory.shades = {direct: {}, archons: {}};
-                        else if(!byCategory.shades.archons){
-                            // 已有 direct-only 形态，升级
-                            byCategory.shades = {direct: byCategory.shades, archons: {}};
-                        }
-                        if(!byCategory.shades.archons[c.component]) byCategory.shades.archons[c.component] = [];
-                        byCategory.shades.archons[c.component].push(c.purpose);
-                    } else if(raw === 'shades'){
-                        if(!byCategory.shades) byCategory.shades = {direct: {}, archons: {}};
-                        else if(!byCategory.shades.direct){
-                            byCategory.shades = {direct: {}, archons: byCategory.shades};
-                        }
-                        if(!byCategory.shades.direct[c.component]) byCategory.shades.direct[c.component] = [];
-                        byCategory.shades.direct[c.component].push(c.purpose);
-                    } else {
-                        if(!byCategory[raw]) byCategory[raw] = {};
-                        if(!byCategory[raw][c.component]) byCategory[raw][c.component] = [];
-                        byCategory[raw][c.component].push(c.purpose);
-                    }
+                    var cat = COMPONENT_CATEGORY[c.component] || 'other';
+                    if(!byCategory[cat]) byCategory[cat] = {};
+                    if(!byCategory[cat][c.component]) byCategory[cat][c.component] = [];
+                    byCategory[cat][c.component].push(c.purpose);
                 });
 
-                // 占位 category 即使无 component 也渲染（如 angels 走 skill 列表分支）
+                // 占位 category 即使无 component 也渲染
                 Object.keys(EMPTY_PLACEHOLDERS).forEach(function(cat){
                     if(!byCategory[cat]) byCategory[cat] = {};
                 });
 
                 var orderedHtml = CATEGORY_ORDER
                     .filter(function(cat){
-                        if(cat === 'angels') return true;  // 天使段总是渲染（skill 列表）
+                        if(cat === 'skills') return true;  // skills 段总是渲染（即便 skill 数为 0 也显示空态）
                         if(byCategory[cat] === undefined) return false;
-                        // shades 是双层 {direct, archons}，需检查内层
-                        if(cat === 'shades'){
-                            var d = byCategory.shades.direct || byCategory.shades;
-                            var a = byCategory.shades.archons || {};
-                            return Object.keys(d).length || Object.keys(a).length;
-                        }
                         return Object.keys(byCategory[cat]).length || EMPTY_PLACEHOLDERS[cat];
                     })
                     .map(function(cat){
-                        if(cat === 'angels') return renderAngelsSkillsSection(skills);
+                        if(cat === 'skills') return renderSkillsSection(skills, routes, hits, defaultId);
                         return renderCategorySection(cat, byCategory[cat], routes, hits, defaultId);
                     }).join('');
 

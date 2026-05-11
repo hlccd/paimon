@@ -309,53 +309,63 @@ LLM_SCRIPT_1 = """
         // ============ 路由配置 Tab ============
         // component → 中文显示名（KNOWN_CALLSITES 见 paimon/foundation/model_router.py）
         var COMPONENT_DESC = {
-            // 派蒙 · 主对话
-            'chat': '💬 chat · 日常对话',
+            // 派蒙 · 主对话入口 / 控制
+            'chat': '💬 chat · 闲聊',
             'paimon': '✨ paimon · 意图分类',
             'title': '🏷 title · 标题生成',
-            // 三月 · 定时调度
-            'march': '⏰ march · 定时任务调度',
-            '三月·自检': '🩺 三月·自检 · code-health',
-            // 世界树 · 记忆/知识库
+            '派蒙': '🎭 派蒙 · 上下文压缩',
+            '派蒙·响铃': '⏰ 派蒙·响铃 · 定时任务到点',
+            '派蒙·安全审': '🛡 派蒙·安全审 · 入口 / skill 审查',
+            // 世界树 · 记忆 / 知识
             'remember': '📝 remember · 记忆分类',
-            'reconcile': '🔄 reconcile · 记忆冲突检测/修复',
+            'reconcile': '🔄 reconcile · 记忆冲突检测 / JSON 修复',
             'hygiene': '🧹 hygiene · 记忆批量整理',
             'kb_remember': '📚 kb_remember · 知识分类',
             'kb_hygiene': '📚 kb_hygiene · 知识批量整理',
-            // 四影
-            '生执': '🎼 生执 · 任务编排',
-            '死执': '💀 死执 · 安全审查',
-            '时执': '⏳ 时执 · 自进化触发 / 热重载 / cron',
+            // 三月 · 自检
+            '三月·自检': '🩺 三月·自检 · code-health',
+            // 四影 · 自进化提案管线
+            '生执·propose_skill': '🎼 生执·propose · 凝练 skill 草案',
+            '生执·revise_proposal': '🎼 生执·revise · 重写 skill 草案',
+            '死执·review_proposal': '💀 死执·review · 审 skill 提案',
+            '自进化触发': '🌌 自进化触发 · 浅判 should_propose',
             '空执': '🌀 空执 · skill 落盘装载',
-            // 七神（嵌四影下）
-            '水神': '💧 水神 · 评审/审核',
-            '雷神': '⚡ 雷神 · 代码生成',
-            '草神': '🌿 草神 · 推理/写产品',
-            '风神': '🌬 风神 · 信息采集',
-            '冰神': '❄ 冰神 · namespace 壳',
-            '火神': '🔥 火神 · 执行部署',
-            '岩神': '⛰ 岩神 · 理财分析',
-            // 音视频处理（独立 tool）
+            // 七神（按七神保留铁律全列，未接入的 disabled）
+            '风神': '🌬 风神 · 订阅 / 事件聚合',
+            '草神': '🌿 草神 · L1 经验提取（智慧·文书）',
+            '岩神': '⛰ 岩神 · 契约·财富（红利股扫描）',
+            '水神': '💧 水神 · 米哈游游戏服务',
+            '火神': '🔥 火神 · 战争·冲锋',
+            '雷神': '⚡ 雷神 · 永恒·造物',
+            '冰神': '❄ 冰神 · 反抗·联合',
+            // 晨星·协同天使
+            'agents': '🌟 agents · 晨星 + 协同天使',
+            // 音视频（暂未接入 router）
             'video_process': '🎥 video_process · 视频分析',
             'audio_process': '🎙 audio_process · 音频分析',
         };
 
-        // 大类划分：派蒙 / 天使 / 四影(含七神嵌入子段) / 三月 / 世界树 / 音视频
-        // 七神标 'shades:archons' 表示是 shades 下的 archons 子段
+        // 大类划分（顶层渲染按 CATEGORY_ORDER）
         var COMPONENT_CATEGORY = {
             // 派蒙
             'chat': 'paimon', 'paimon': 'paimon', 'title': 'paimon',
+            '派蒙': 'paimon', '派蒙·响铃': 'paimon', '派蒙·安全审': 'paimon',
             // 世界树
             'remember': 'irminsul', 'reconcile': 'irminsul', 'hygiene': 'irminsul',
             'kb_remember': 'irminsul', 'kb_hygiene': 'irminsul',
             // 三月
-            'march': 'march', '三月·自检': 'march',
+            '三月·自检': 'march',
             // 四影
-            '生执': 'shades', '死执': 'shades', '时执': 'shades', '空执': 'shades',
-            // 七神（嵌四影下）
-            '水神': 'shades:archons', '雷神': 'shades:archons', '草神': 'shades:archons',
-            '风神': 'shades:archons', '冰神': 'shades:archons',
-            '火神': 'shades:archons', '岩神': 'shades:archons',
+            '生执·propose_skill': 'shades',
+            '生执·revise_proposal': 'shades',
+            '死执·review_proposal': 'shades',
+            '自进化触发': 'shades',
+            '空执': 'shades',
+            // 七神（草神归此，按职能定位是 archon 而非 irminsul）
+            '风神': 'archons', '草神': 'archons', '岩神': 'archons',
+            '水神': 'archons', '火神': 'archons', '雷神': 'archons', '冰神': 'archons',
+            // 晨星·协同天使
+            'agents': 'agents',
             // 音视频
             'video_process': 'audiovis', 'audio_process': 'audiovis',
         };
@@ -363,29 +373,39 @@ LLM_SCRIPT_1 = """
         // 当前未接入 ModelRouter 的 component（代码不读路由，配了也不生效）
         // 面板上 selector disabled + ⚠ 标记
         var DISABLED_COMPONENTS = {
-            '空执': '空执已合并到生执 / 死执 / 时执，不独立发 LLM',
-            'video_process': '当前直连 mimo_key，未接入 router',
-            'audio_process': '当前直连 mimo_key，未接入 router',
+            'video_process': '当前直连 mimo_key，未接入 router（后续支持）',
+            'audio_process': '当前直连 mimo_key，未接入 router（后续支持）',
+            '空执': 'skill 落盘装载，无独立 LLM 调用',
+            '岩神': 'dividend-tracker skill 走 I/O，archon 本体不调 LLM',
+            '水神': '米哈游游戏服务在 furina_game 子包，I/O 类不调 LLM',
+            '火神': 'namespace 永久壳（新职能待挂）',
+            '雷神': 'namespace 永久壳（新职能待挂）',
+            '冰神': 'namespace 永久壳（skill 域职能已交空执）',
         };
 
+        // 段名按 docs/aimon.md 的"派蒙 / 3 出口 / 七神 / 支撑层"分层对齐
         var CATEGORY_DESC = {
-            paimon:   '🎭 派蒙 · 统一入口',
-            angels:   '👼 天使 · Skill 体系',
-            shades:   '🌌 四影 · 流程编排',
-            march:    '⏰ 三月女神 · 定时调度',
-            irminsul: '🌳 世界树 · 记忆/知识域',
-            audiovis: '🎬 音视频处理',
+            paimon:   '🎭 派蒙 · 守门 / 路由 / 出口 / 全程安全闸',
+            skills:   '🧩 出口·skill · 单步任务直调（空执管理的被调用资源，非天使体系）',
+            agents:   '🌌 出口·/agents · 晨星 + 协同天使多视角讨论',
+            shades:   '🌑 出口·/evolve · 四影自进化提案管线',
+            archons:  '🌟 七神 · archon 业务接口（按七神保留铁律全列，未调 LLM 的不可配）',
+            march:    '⏰ 三月女神 · 调度 / 自检 / 响铃',
+            irminsul: '📝 草神·memory/知识库 LLM 调用域（写入分类 + cron 整理）',
+            audiovis: '🎬 音视频处理（独立 tool，未接入 router）',
             other:    '其他',
         };
-        // 顶层渲染顺序（七神不在此 - 它嵌在 shades 内部）
-        var CATEGORY_ORDER = ['paimon', 'angels', 'shades', 'march', 'irminsul', 'audiovis', 'other'];
+        // 顶层渲染顺序：派蒙 → 3 个出口 → 七神业务 → 支撑层
+        var CATEGORY_ORDER = [
+            'paimon', 'skills', 'agents', 'shades', 'archons',
+            'march', 'irminsul', 'audiovis', 'other',
+        ];
 
-        // angels 段当前不走 EMPTY_PLACEHOLDERS，由 renderAngelsSkillsSection 单独渲染
-        // skill 列表（保留以备无 skill 数据时占位）
+        // skills 段总是渲染（即便 skill 列表为空也显示空态）
         var EMPTY_PLACEHOLDERS = {};
 
-        // 天使段头部固定提示文案（appended 在 skill 列表上方）
-        var ANGELS_NOTE = '⚠ skill 当前不直接调用 LLM，路由由触发它的 archon 决定；此处仅展示 skill 清单';
+        // skills 段头部说明：明确 skill 是"被管理的被调用资源"，不是天使
+        var SKILLS_NOTE = 'ℹ skill 是被空执管理的可调用资源（不是天使多 agent 体系）；每个 skill 名 = 一个路由 component';
 
         function profileNameById(id){
             var p = currentProfiles.find(function(x){return x.id === id;});

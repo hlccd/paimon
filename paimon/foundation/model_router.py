@@ -23,16 +23,21 @@ if TYPE_CHECKING:
 
 # ==================== 静态调用点枚举 ====================
 # 面板 "路由配置" Tab 按此渲染行；代码里新增调用点时更新此常量。
-# 动态 purpose（skill_name / check·{stage} / 生执的 2 种）也需在此列齐。
+# 动态来源（不在此列）：
+#   - skills：天使技能由 irminsul.skill_list() 实时拉，每个 skill_name 是一个 component
+#     （详见 paimon/core/chat/_handler.py:41-42 — skill 路径下 component=skill_name）
+#   - 部分 archon 暂未发 LLM（雷神/水神/冰神/火神/岩神/venti.collect），
+#     接入路由后再补到此处
 KNOWN_CALLSITES: list[tuple[str, str]] = [
-    # 派蒙 · 主对话
+    # ── 派蒙 · 主对话入口 / 控制 ──
     ("chat", "闲聊"),
     ("paimon", "意图分类"),
     ("title", "标题生成"),
-    # 三月 · 定时调度 + 自检
-    ("march", "定时任务"),
-    ("三月·自检", "Deep·code-health"),
-    # 世界树 · 记忆 / 知识库（语义聚合到存储域）
+    ("派蒙", "上下文压缩"),
+    ("派蒙·响铃", "定时任务"),
+    ("派蒙·安全审", "入口审查"),
+    ("派蒙·安全审", "skill 声明审查"),
+    # ── 世界树 · 记忆 / 知识 ──
     ("remember", "记忆分类"),
     ("reconcile", "JSON 修复"),
     ("reconcile", "记忆冲突检测"),
@@ -40,29 +45,37 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("kb_remember", "知识分类"),
     ("kb_remember", "知识冲突检测"),
     ("kb_hygiene", "知识批量整理"),
-    # 四影 · 流程骨架
-    ("生执", "任务编排"),
-    ("生执", "任务修订编排"),
-    ("死执", "安全审查"),
-    ("死执", "skill 声明审查"),
-    ("派蒙", "上下文压缩"),
-    ("时执", "L1 记忆提取"),
-    ("空执", "skill 落盘装载"),  # 同步代码无独立 LLM 调用，保留路由占位
-    # 四影 · stage 子调用
+    # ── 三月 · 自检 ──
+    ("三月·自检", "Deep·code-health"),
+    # ── 四影 · 自进化提案管线 ──
     ("生执·propose_skill", "凝练 skill 草案"),
+    ("生执·revise_proposal", "重写 skill 草案"),
     ("死执·review_proposal", "审 skill 提案"),
-    ("生执·exec", "shell 执行"),
-    ("生执·chat", "通用推理"),
-    # 七神（业务接口；archon execute 已解耦）
-    ("风神", "信息采集"),
+    ("自进化触发", "should_propose_chat"),
+    ("空执", "namespace 壳"),  # 占位（skill 落盘装载，无独立 LLM）
+    # ── 七神 · archon 业务接口（按七神保留铁律全列，未调 LLM 的标 disabled）──
     ("风神", "订阅早报"),
     ("风神", "事件日报"),
     ("风神", "事件聚类"),
     ("风神", "事件分析"),
-    ("冰神", "namespace 壳"),  # archon 本体已无具体职能；skill 域职能移交空执
-    ("火神", "执行部署"),
-    ("岩神", "理财分析"),
-    # 音视频处理（独立 tool；当前用 mimo_key 直连不走 router，面板标 ⚠ 未接入）
+    ("草神", "L1 记忆提取"),
+    ("岩神", "业务接入·不调 LLM"),  # dividend-tracker skill 走 I/O
+    ("水神", "业务接入·不调 LLM"),  # 米哈游游戏在 furina_game 子包
+    ("火神", "namespace 壳"),       # 新职能待挂
+    ("雷神", "namespace 壳"),       # 新职能待挂
+    ("冰神", "namespace 壳"),       # skill 域职能已交空执
+    # ── 晨星 · 协同天使讨论（component=agents 默认）──
+    # 11 角色按 category 三档收口（roles.py 的 info / evaluative / adversarial），
+    # 详见 council.py 的 _ROLE_CAT_LABEL
+    ("agents", "晨星·拆议题"),
+    ("agents", "晨星·调研"),
+    ("agents", "晨星·召集"),
+    ("agents", "晨星·调度"),
+    ("agents", "晨星·综合"),
+    ("agents", "天使·信息加工"),
+    ("agents", "天使·决策视角"),
+    ("agents", "天使·推动讨论"),
+    # ── 音视频处理（独立 tool；mimo_key 直连未接 router，面板 disabled）──
     ("video_process", "音视频分析"),
     ("audio_process", "音视频分析"),
 ]

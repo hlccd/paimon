@@ -239,24 +239,7 @@ LLM_CSS = """
         color: var(--status-error); font-style: italic; opacity: .85;
     }
 
-    /* shades 内嵌「七神」子段 */
-    .archons-sub {
-        margin-top: 10px;
-        background: rgba(245,158,11,.05);
-        border: 1px dashed rgba(245,158,11,.35);
-        border-radius: 8px;
-        padding: 10px 12px;
-    }
-    .archons-sub-header {
-        font-size: 13px; font-weight: 600; color: var(--gold);
-        margin-bottom: 8px;
-    }
-    .archons-sub-header .sub-stat {
-        font-size: 11px; color: var(--text-muted); font-weight: 400; margin-left: 4px;
-    }
-    .archons-sub-body { display: flex; flex-direction: column; gap: 6px; }
-
-    /* 空段占位（如天使主标题，暂无 LLM 调用点） */
+    /* 空段占位 */
     .empty-placeholder {
         padding: 16px 12px; text-align: center;
         color: var(--text-muted); font-size: 13px; font-style: italic;

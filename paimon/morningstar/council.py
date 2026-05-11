@@ -23,6 +23,14 @@ MAX_LLM_CALLS = 30        # 总 LLM 调用数（assemble + dispatch + speak + sy
 MAX_TURNS = 12            # 发言轮次上限
 DEADLOCK_REPEAT_K = 3     # 连续 K 个发言来自同一角色 → 死锁
 
+# 路由 purpose 收口：11 个角色按 category 三档共享一条路由键，避免面板上 11 行散开
+# （roles.py 里 category 用英文 key，这里映成中文做 purpose 标签）
+_ROLE_CAT_LABEL = {
+    "info": "信息加工",
+    "evaluative": "决策视角",
+    "adversarial": "推动讨论",
+}
+
 
 @dataclass
 class CouncilResult:
@@ -157,8 +165,9 @@ async def run_council(
             history=history, instruction=instruction,
             background=background,
         )
+        cat_label = _ROLE_CAT_LABEL.get(role_meta.get("category", ""), "其他")
         utterance, _ = await model._stream_text(
-            msgs, component=component, purpose=f"天使·{role_meta['name']}",
+            msgs, component=component, purpose=f"天使·{cat_label}",
         )
         llm_calls += 1
         utterance = (utterance or "").strip()[:400]
