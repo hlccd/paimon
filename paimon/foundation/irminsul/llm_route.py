@@ -19,7 +19,7 @@ from loguru import logger
 
 @dataclass
 class LLMRoute:
-    route_key: str = ""      # "风神" 或 "风神:事件聚类"
+    route_key: str = ""      # "风神" 或 "风神:订阅早报"
     profile_id: str = ""
     updated_at: float = 0.0
 

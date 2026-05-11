@@ -50,7 +50,7 @@
   - **职能定位**：每位七神是对应业务域的**业务接口 + 唯一写入者**；不进 LLM 对话流，跟自进化主链路并行存在
   - 7 个 archon class 全部保留（铁律：七神不删）；按当前是否承接业务分两类
   - **A 类（4 个 · 业务接口 + cron + 面板）**：
-    - [风神·巴巴托斯](archons/venti.md)：信息采集业务接口（feed_items / feed_events 域）+ `/feed` `/sentiment` 面板 + `feed_collect` cron + 站点登录代理
+    - [风神·巴巴托斯](archons/venti.md)：topic UGC 调研业务接口（feed_topic_research 域）+ `/feed` 面板 + `feed_collect` cron + 站点登录代理
     - [岩神·摩拉克斯](archons/zhongli.md)：红利股业务接口（scoring / dividend 域）+ `/wealth` 面板 + `dividend_scan` `stock_watch` cron + scorer
     - [草神·纳西妲](archons/nahida.md)：知识 / 记忆 / 偏好业务接口（**memory 域唯一写入者**）+ `/knowledge` 面板 + `memory_hygiene` `kb_hygiene` cron + 跨会话记忆经验提取（由时执会话压缩触发，写入归草神）
     - [水神·芙宁娜](archons/furina.md)：游戏业务接口（mihoyo 域）+ `/game` 面板 + `mihoyo_collect` `mihoyo_game_collect` cron + `mihoyo_game` sub type
@@ -117,7 +117,7 @@ chat / skill:    LLM 输出 ───────────→ 派蒙 → chan
 
 **派蒙是用户对话的唯一出入口**——三月响铃 / 晨星 / 自进化提案等需要回话给用户时都经派蒙人格化送达；派蒙挂掉时三月只做拉起 + 暂存，绝不代发。
 
-> Web 面板交互（`/feed` / `/wealth` / `/game` / `/knowledge` / `/plugins` / `/sentiment` / `/tasks` 等）不走对话流，是独立的 webui API 直读 irminsul + 空执 SkillRegistry 路径，跟派蒙对话出入口并行存在。
+> Web 面板交互（`/feed` / `/wealth` / `/game` / `/knowledge` / `/plugins` / `/tasks` 等）不走对话流，是独立的 webui API 直读 irminsul + 空执 SkillRegistry 路径，跟派蒙对话出入口并行存在。
 
 ### 2.3 自进化提案流（/evolve / chat 累积 / 月度 cron）
 

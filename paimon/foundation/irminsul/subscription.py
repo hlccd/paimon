@@ -34,12 +34,12 @@ class Subscription:
     last_error: str = ""
     created_at: float = 0.0
     updated_at: float = 0.0
-    # 业务实体绑定（订阅生命周期改造）：
-    # - binding_kind='manual'：用户在 /feed 手填关键词订阅（默认值，旧数据迁移后归此）
+    # 业务实体绑定：
+    # - binding_kind='topic_research'：风神 /feed 用户手填关键词，跑 topic 调研
     # - binding_kind='mihoyo_game'：水神隐式订阅，binding_id='{game}:{uid}'
-    # - 后续可扩 'stock_watch' 等
+    # - binding_kind='stock_watch'：岩神隐式订阅，binding_id=stock_code
     # 命名区别于 ScheduledTask.source_entity_id（那个存 sub_id），避坑同名异义
-    binding_kind: str = "manual"
+    binding_kind: str = "topic_research"
     binding_id: str = ""
 
 
@@ -153,13 +153,16 @@ class SubscriptionRepo:
         return changed
 
     async def delete(self, sub_id: str, actor: str) -> bool:
-        # 先级联删 feed_items + feed_events（FK 开 ON，没声明 CASCADE，这里主动清）
-        # 漏删 feed_events 会触发 FOREIGN KEY constraint failed，整个 delete 失败
+        # 先级联删 feed_items + feed_events + feed_topic_research（FK 开 ON，
+        # 没声明 CASCADE，这里主动清；漏删任意一张都会触发 FK constraint failed）
         await self._db.execute(
             "DELETE FROM feed_items WHERE subscription_id = ?", (sub_id,),
         )
         await self._db.execute(
             "DELETE FROM feed_events WHERE subscription_id = ?", (sub_id,),
+        )
+        await self._db.execute(
+            "DELETE FROM feed_topic_research WHERE subscription_id = ?", (sub_id,),
         )
         async with self._db.execute(
             "DELETE FROM subscriptions WHERE id = ?", (sub_id,),
@@ -292,7 +295,7 @@ class SubscriptionRepo:
     ) -> list[dict]:
         """跟 insert_feed_items 等价，但返回 [{id, **orig_item}]。
 
-        用途：风神事件聚类需要 db id + 原始字段配套传给 EventClusterer。
+        用途：业务订阅 light 版（岩神 stock_watch 等）需要 db id 关联 push_archive。
         - 跳过空 url / 已存在 url（INSERT OR IGNORE）
         - 返回结构：list of dict，每个 dict 含 db `id` + 原始 title/url/description/engine
         - 顺序与传入 items 一致，被跳过的不会出现在返回里
@@ -334,35 +337,6 @@ class SubscriptionRepo:
             )
         return records
 
-    async def attach_event(
-        self, item_ids: list[int], event_id: str, *,
-        sentiment_score: float = 0.0,
-        sentiment_label: str = "",
-        actor: str,
-    ) -> int:
-        """把多条 feed_items 关联到一个 event_id + 写条目级情感快照。
-
-        - event_id 用于查询时按事件聚合 / 面板内 join
-        - sentiment_* 在条目层冗余存储（面板列表查询不必 join feed_events）
-        - 返回实际更新行数
-        """
-        if not item_ids:
-            return 0
-        placeholders = ",".join(["?"] * len(item_ids))
-        async with self._db.execute(
-            f"UPDATE feed_items SET "
-            f"event_id = ?, sentiment_score = ?, sentiment_label = ? "
-            f"WHERE id IN ({placeholders})",
-            (event_id, float(sentiment_score), sentiment_label, *item_ids),
-        ) as cur:
-            n = cur.rowcount
-        await self._db.commit()
-        if n:
-            logger.info(
-                "[世界树] {}·条目挂事件 {} 关联 {} 条 sentiment={}({:+.2f})",
-                actor, event_id, n, sentiment_label or "-", sentiment_score,
-            )
-        return n
 
     async def list_feed_items(
         self, *,
@@ -451,6 +425,40 @@ class SubscriptionRepo:
         ) as cur:
             row = await cur.fetchone()
         return int(row[0]) if row else 0
+
+    # ---------- topic_research 覆盖式存储（每订阅一条最新） ----------
+
+    async def topic_research_upsert(
+        self, sub_id: str, *, query: str, markdown: str, duration_s: int,
+    ) -> None:
+        await self._db.execute(
+            "INSERT INTO feed_topic_research "
+            "(subscription_id, query, markdown, duration_s, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(subscription_id) DO UPDATE SET "
+            "query=excluded.query, markdown=excluded.markdown, "
+            "duration_s=excluded.duration_s, updated_at=excluded.updated_at",
+            (sub_id, query, markdown, duration_s, int(time.time())),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树] 风神·topic 调研 upsert sub={} query={!r} len={} duration={}s",
+            sub_id, query, len(markdown), duration_s,
+        )
+
+    async def topic_research_get(self, sub_id: str) -> dict | None:
+        async with self._db.execute(
+            "SELECT subscription_id, query, markdown, duration_s, updated_at "
+            "FROM feed_topic_research WHERE subscription_id=?",
+            (sub_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "subscription_id": row[0], "query": row[1], "markdown": row[2],
+            "duration_s": row[3], "updated_at": row[4],
+        }
 
     # ---------- 行映射 ----------
 

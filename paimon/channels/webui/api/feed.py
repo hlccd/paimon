@@ -1,4 +1,4 @@
-"""风神信息流面板 API — 订阅 CRUD + 条目列表。"""
+"""风神订阅面板 API — 订阅 CRUD + topic 调研结果展示 + 站点登录。"""
 from __future__ import annotations
 
 import time
@@ -28,59 +28,28 @@ async def feed_page(channel, request: web.Request) -> web.Response:
     )
 
 
-async def feed_stats_api(channel, request: web.Request) -> web.Response:
-    if not channel._check_auth(request):
-        return web.json_response({"error": "Unauthorized"}, status=401)
-    irminsul = channel.state.irminsul
-    if not irminsul:
-        return web.json_response({"sub_count": 0, "items_today": 0, "items_week": 0})
-    now = time.time()
-    subs = await irminsul.subscription_list()
-    today = await irminsul.feed_items_count(since=now - 86400)
-    week = await irminsul.feed_items_count(since=now - 7 * 86400)
-    return web.json_response({
-        "sub_count": len(subs),
-        "items_today": today,
-        "items_week": week,
-    })
-
-
 async def feed_subs_list_api(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
     irminsul = channel.state.irminsul
     if not irminsul:
         return web.json_response({"subs": []})
-    # 风神面板只展示用户手填的 manual 订阅；
-    # 业务实体衍生订阅（mihoyo_game / 未来 stock_watch 等）由各自 archon 面板管理
-    subs = await irminsul.subscription_list_by_binding("manual")
+    # 风神面板只展示 topic_research 订阅（mihoyo_game / stock_watch 由各自 archon 面板管）
+    subs = await irminsul.subscription_list_by_binding("topic_research")
     venti = channel.state.venti
-    # PERF-002：N 个订阅并发拉 item_count + event_count，N=20 时旧版 40 次串行 await
-    # → 改 gather 后总耗时 ≈ 单次 query（<100ms 而非 4-8s）
-    import asyncio as _asyncio
-    counts = await _asyncio.gather(
-        *[irminsul.feed_items_count(sub_id=s.id) for s in subs],
-        *[irminsul.feed_event_count(sub_id=s.id) for s in subs],
-    )
-    n = len(subs)
-    item_counts = counts[:n]
-    event_counts = counts[n:]
     out = []
-    for i, s in enumerate(subs):
+    for s in subs:
         out.append({
             "id": s.id,
             "query": s.query,
             "channel_name": s.channel_name,
             "chat_id": s.chat_id,
             "schedule_cron": s.schedule_cron,
-            "engine": s.engine,
             "enabled": s.enabled,
-            "max_items": s.max_items,
             "last_run_at": s.last_run_at,
             "last_error": s.last_error,
             "created_at": s.created_at,
-            "item_count": item_counts[i],
-            "event_count": event_counts[i],
+            "binding_kind": s.binding_kind,
             "running": bool(venti and venti.is_running(s.id)),
         })
     return web.json_response({"subs": out})
@@ -94,7 +63,6 @@ async def feed_subs_create_api(channel, request: web.Request) -> web.Response:
         data = await request.json()
         query = (data.get("query") or "").strip()
         cron = (data.get("cron") or "").strip()
-        engine = (data.get("engine") or "").strip()
     except Exception:
         return web.json_response({"ok": False, "error": "请求体 JSON 无效"}, status=400)
 
@@ -102,10 +70,11 @@ async def feed_subs_create_api(channel, request: web.Request) -> web.Response:
 
     try:
         ok, message = await create_subscription(
-            query=query, cron=cron, engine=engine,
+            query=query, cron=cron,
             channel_name=channel.name,
             chat_id=PUSH_CHAT_ID,
             supports_push=getattr(channel, "supports_push", True),
+            binding_kind="topic_research",
         )
     except Exception as e:
         logger.error("[派蒙·WebUI·订阅] 创建异常: {}", e)
@@ -187,41 +156,16 @@ async def feed_subs_run_api(channel, request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
-async def feed_items_api(channel, request: web.Request) -> web.Response:
+async def feed_topic_research_api(channel, request: web.Request) -> web.Response:
+    """读 topic_research 订阅最新一条覆盖式快照（每订阅一条；不返历史）。"""
     if not channel._check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
+    sub_id = request.match_info["sub_id"]
     irminsul = channel.state.irminsul
     if not irminsul:
-        return web.json_response({"items": []})
-
-    sub_id = request.query.get("sub_id", "").strip() or None
-    since_sec = 0
-    try:
-        since_sec = int(request.query.get("since", "0"))
-    except (TypeError, ValueError):
-        since_sec = 0
-    since_ts = time.time() - since_sec if since_sec > 0 else None
-
-    limit = min(int(request.query.get("limit", "200")), 500)
-    items = await irminsul.feed_items_list(
-        sub_id=sub_id, since=since_ts, limit=limit,
-    )
-    return web.json_response({
-        "items": [
-            {
-                "id": it.id,
-                "subscription_id": it.subscription_id,
-                "url": it.url,
-                "title": it.title,
-                "description": it.description,
-                "engine": it.engine,
-                "captured_at": it.captured_at,
-                "pushed_at": it.pushed_at,
-                "digest_id": it.digest_id,
-            }
-            for it in items
-        ]
-    })
+        return web.json_response({"research": None})
+    rec = await irminsul.feed_topic_research_get(sub_id)
+    return web.json_response({"research": rec})
 
 
 # ─────────────────────────────────────────────────────────────
@@ -320,13 +264,12 @@ async def login_submit_sms_api(channel, request: web.Request) -> web.Response:
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     """注册 feed 面板的路由（订阅 + 站点登录）。"""
     app.router.add_get("/feed", lambda r, ch=channel: feed_page(ch, r))
-    app.router.add_get("/api/feed/stats", lambda r, ch=channel: feed_stats_api(ch, r))
     app.router.add_get("/api/feed/subs", lambda r, ch=channel: feed_subs_list_api(ch, r))
     app.router.add_post("/api/feed/subs", lambda r, ch=channel: feed_subs_create_api(ch, r))
     app.router.add_patch("/api/feed/subs/{sub_id}", lambda r, ch=channel: feed_subs_patch_api(ch, r))
     app.router.add_delete("/api/feed/subs/{sub_id}", lambda r, ch=channel: feed_subs_delete_api(ch, r))
     app.router.add_post("/api/feed/subs/{sub_id}/run", lambda r, ch=channel: feed_subs_run_api(ch, r))
-    app.router.add_get("/api/feed/items", lambda r, ch=channel: feed_items_api(ch, r))
+    app.router.add_get("/api/feed/topic_research/{sub_id}", lambda r, ch=channel: feed_topic_research_api(ch, r))
     # 站点登录扫码
     app.router.add_get("/api/feed/login/overview", lambda r, ch=channel: login_overview_api(ch, r))
     app.router.add_post("/api/feed/login/start", lambda r, ch=channel: login_start_api(ch, r))

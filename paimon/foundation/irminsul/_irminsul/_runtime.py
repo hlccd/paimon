@@ -14,7 +14,6 @@ from ..mihoyo import (
 from ..memory import Memory, MemoryMeta
 from ..session import SessionMeta, SessionRecord
 from ..skills import SkillDecl
-from ..feed_event import FeedEvent
 from ..llm_profile import LLMProfile
 from ..llm_route import LLMRoute
 from ..push_archive import PushArchiveRecord
@@ -175,101 +174,19 @@ class _RuntimeMixin:
     async def feed_items_insert_with_records(
         self, sub_id: str, items: list[dict], *, actor: str,
     ) -> list[dict]:
-        """带 records 的入库（含 db id + 原字段），供风神事件聚类用。"""
+        """带 records 的入库（含 db id + 原字段），给业务订阅 light 版用。"""
         return await self._subscription.insert_feed_items_with_records(
             sub_id, items, actor=actor,
         )
 
-    async def feed_items_attach_event(
-        self, item_ids: list[int], event_id: str, *,
-        sentiment_score: float = 0.0,
-        sentiment_label: str = "",
-        actor: str,
-    ) -> int:
-        """把一组 feed_items 关联到 event_id + 写入条目级情感（覆盖）。"""
-        return await self._subscription.attach_event(
-            item_ids, event_id,
-            sentiment_score=sentiment_score,
-            sentiment_label=sentiment_label,
-            actor=actor,
+    async def feed_topic_research_upsert(
+        self, sub_id: str, *, query: str, markdown: str, duration_s: int,
+    ) -> None:
+        """覆盖式落 feed_topic_research（每订阅一条最新；不累加历史）。"""
+        await self._subscription.topic_research_upsert(
+            sub_id, query=query, markdown=markdown, duration_s=duration_s,
         )
 
-    # ============ 域 11.5: 事件聚类（风神 L1 舆情）============
-    async def feed_event_create(self, event: FeedEvent, *, actor: str) -> str:
-        return await self._feed_event.create(event, actor=actor)
+    async def feed_topic_research_get(self, sub_id: str) -> dict | None:
+        return await self._subscription.topic_research_get(sub_id)
 
-    async def feed_event_get(self, event_id: str) -> FeedEvent | None:
-        return await self._feed_event.get(event_id)
-
-    async def feed_event_update(
-        self, event_id: str, *, actor: str,
-        item_count_inc: int = 0,
-        pushed_count_inc: int = 0,
-        **fields,
-    ) -> bool:
-        return await self._feed_event.update(
-            event_id, actor=actor,
-            item_count_inc=item_count_inc,
-            pushed_count_inc=pushed_count_inc,
-            **fields,
-        )
-
-    async def feed_event_list(
-        self, *,
-        sub_id: str | None = None,
-        since: float | None = None,
-        severity: str | None = None,
-        limit: int = 100,
-    ) -> list[FeedEvent]:
-        return await self._feed_event.list(
-            sub_id=sub_id, since=since, severity=severity, limit=limit,
-        )
-
-    async def feed_event_count(
-        self, *,
-        sub_id: str | None = None,
-        since: float | None = None,
-        severity: str | None = None,
-    ) -> int:
-        return await self._feed_event.count(
-            sub_id=sub_id, since=since, severity=severity,
-        )
-
-    async def feed_event_count_by_severity(
-        self, *,
-        since: float | None = None,
-        sub_id: str | None = None,
-    ) -> dict[str, int]:
-        return await self._feed_event.count_by_severity(
-            since=since, sub_id=sub_id,
-        )
-
-    async def feed_event_avg_sentiment(
-        self, *,
-        since: float | None = None,
-        sub_id: str | None = None,
-    ) -> float:
-        return await self._feed_event.avg_sentiment(since=since, sub_id=sub_id)
-
-    async def feed_event_timeline(
-        self, *, days: int, sub_id: str | None = None,
-    ) -> list[dict]:
-        return await self._feed_event.timeline(days=days, sub_id=sub_id)
-
-    async def feed_event_sources_top(
-        self, *, days: int, limit: int = 10,
-        sub_id: str | None = None,
-    ) -> list[dict]:
-        return await self._feed_event.sources_top(
-            days=days, limit=limit, sub_id=sub_id,
-        )
-
-    async def feed_event_delete(self, event_id: str, *, actor: str) -> bool:
-        return await self._feed_event.delete(event_id, actor=actor)
-
-    async def feed_event_sweep_old(
-        self, *, retention_seconds: float, actor: str,
-    ) -> int:
-        return await self._feed_event.sweep_old(
-            retention_seconds=retention_seconds, actor=actor,
-        )

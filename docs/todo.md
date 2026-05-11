@@ -19,6 +19,11 @@
 
 ## 1. 职能层面
 
+- [ ] **风神 · 每日热点资讯 / 新闻获取** —— 每天定时跑一次综合热点（不需用户手填 query），输出当天最热、最值得关注的 N 条新闻 / 资讯
+  - 区别于现有 `topic_research`（按 query 跑）：这是**全局热点扫描**，由风神主动发起
+  - 候选实现：聚合多源（topic 用 5 源 UGC + 新闻 SERP + 36kr / 虎嗅 / 少数派 / hacker-news）→ LLM 综合排序 → 落库 `daily_hotspot` 表（覆盖式按天）
+  - 接入点：放 `/feed` 顶部独立"今日热点"区，或单建 `feed_collect` 域内的 `daily_hotspot` 子任务
+
 - [ ] **推送策略深化**
   - **已做**：`march.ring_event` 60s/10 次滑窗限流 + `dedup_per_day=True` 日级 upsert + `push_archive` 持久化 + 审计 + leyline `push.archived` publish + PushHub 进程内 SSE 扇出
   - **未做**：
@@ -85,10 +90,6 @@
 ## 3. 技术选型层面
 
 - [ ] **异常日志落盘方案** —— 当前 [`log.py`](../paimon/log.py) 全文 25 行，全 level 混合、无独立 error-only handler / 无结构化异常归档。待定：加 error 专属 file handler 或接 Sentry
-
-- [ ] **通用日报合成器**（[`paimon/foundation/digest/`](../paimon/foundation/digest/)）—— 只 prompt 层抽好，实装条件**尚未**达成
-  - 真正"起抽 `DigestPipeline` 条件"：≥2 个 LLM 驱动日报实现。届时再读两个找共同抽象
-  - 当前动作：保持 prompt 层现状
 
 ## 4. 已知 bug
 

@@ -344,6 +344,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE INDEX IF NOT EXISTS idx_sub_enabled ON subscriptions(enabled);
 CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
 
+-- feed_items：业务订阅 light 版的"已见 url"去重表（岩神 stock_watch 在用）
+-- event_id / sentiment_* 列保留兼容老库（SQLite 不易 DROP COLUMN），新代码不再写入
 CREATE TABLE IF NOT EXISTS feed_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     subscription_id TEXT NOT NULL,
@@ -354,9 +356,9 @@ CREATE TABLE IF NOT EXISTS feed_items (
     captured_at     REAL NOT NULL,
     pushed_at       REAL,
     digest_id       TEXT NOT NULL DEFAULT '',
-    event_id        TEXT NOT NULL DEFAULT '',
-    sentiment_score REAL NOT NULL DEFAULT 0.0,
-    sentiment_label TEXT NOT NULL DEFAULT '',
+    event_id        TEXT NOT NULL DEFAULT '',        -- deprecated：旧聚类残留列，不再写
+    sentiment_score REAL NOT NULL DEFAULT 0.0,       -- deprecated：同上
+    sentiment_label TEXT NOT NULL DEFAULT '',        -- deprecated：同上
     UNIQUE(subscription_id, url),
     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
 );
@@ -364,33 +366,17 @@ CREATE INDEX IF NOT EXISTS idx_feed_sub ON feed_items(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_feed_captured ON feed_items(captured_at);
 CREATE INDEX IF NOT EXISTS idx_feed_pushed ON feed_items(pushed_at);
 
--- ============ 域 11.5: 事件聚类（风神 L1 舆情）============
--- 跨批次事件聚类：feed_events 为事件主体，feed_items.event_id 关联
--- docs/archons/venti.md §L1 事件级舆情监测
-CREATE TABLE IF NOT EXISTS feed_events (
-    id              TEXT PRIMARY KEY,                -- 12 位 hex
-    subscription_id TEXT NOT NULL,                   -- 同订阅下聚类
-    title           TEXT NOT NULL DEFAULT '',        -- LLM 给的事件标题（≤80 字）
-    summary         TEXT NOT NULL DEFAULT '',        -- 一句话摘要（≤200 字）
-    entities_json   TEXT NOT NULL DEFAULT '[]',      -- ["人物", "公司", ...]
-    timeline_json   TEXT NOT NULL DEFAULT '[]',      -- [{ts, point}, ...]
-    severity        TEXT NOT NULL DEFAULT 'p3',      -- 'p0'|'p1'|'p2'|'p3'
-    sentiment_score REAL NOT NULL DEFAULT 0.0,       -- [-1.0, 1.0]
-    sentiment_label TEXT NOT NULL DEFAULT 'neutral', -- positive/neutral/negative/mixed
-    item_count      INTEGER NOT NULL DEFAULT 0,      -- 关联 feed_items 数
-    first_seen_at   REAL NOT NULL,                   -- 首次聚出时间
-    last_seen_at    REAL NOT NULL,                   -- 最近一次更新时间
-    last_pushed_at  REAL,                            -- 上次推送时间（限流用）
-    last_severity   TEXT NOT NULL DEFAULT '',        -- 上次推送时的 severity（升级判定）
-    pushed_count    INTEGER NOT NULL DEFAULT 0,
-    sources_json    TEXT NOT NULL DEFAULT '[]',      -- ["xxx.com", ...]
-    created_at      REAL NOT NULL,
-    updated_at      REAL NOT NULL,
+-- ============ 域 11.6: 风神 · topic 调研订阅（覆盖式，每订阅一条最新）============
+-- binding_kind='topic_research' 的订阅 collector 走 topic.research.py，结果落到这里。
+-- 不累加历史 / 不走 push_archive；前端进面板时直接拉这张表展示 markdown。
+CREATE TABLE IF NOT EXISTS feed_topic_research (
+    subscription_id TEXT PRIMARY KEY,
+    query           TEXT NOT NULL DEFAULT '',
+    markdown        TEXT NOT NULL DEFAULT '',
+    duration_s      INTEGER NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
 );
-CREATE INDEX IF NOT EXISTS idx_feed_events_sub ON feed_events(subscription_id);
-CREATE INDEX IF NOT EXISTS idx_feed_events_last_seen ON feed_events(last_seen_at DESC);
-CREATE INDEX IF NOT EXISTS idx_feed_events_severity ON feed_events(severity);
 
 -- ============ 域 9: 聊天会话 ============
 CREATE TABLE IF NOT EXISTS session_records (

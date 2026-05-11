@@ -54,13 +54,11 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("自进化触发", "should_propose_chat"),
     ("空执", "namespace 壳"),  # 占位（skill 落盘装载，无独立 LLM）
     # ── 七神 · archon 业务接口（按七神保留铁律全列，未调 LLM 的标 disabled）──
-    ("风神", "订阅早报"),
-    ("风神", "事件日报"),
-    ("风神", "事件聚类"),
-    ("风神", "事件分析"),
+    # 风神 topic_research 订阅走 topic skill LLM 综合（component='topic'，skills 段动态枚举），
+    # archon 自身不再聚合，故 KNOWN_CALLSITES 无风神条目
     ("草神", "L1 记忆提取"),
-    ("岩神", "业务接入·不调 LLM"),  # dividend-tracker skill 走 I/O
-    ("水神", "业务接入·不调 LLM"),  # 米哈游游戏在 furina_game 子包
+    ("岩神", "关注股日报"),         # stock_watch 订阅走 run_web_search_collect → _compose_digest
+    ("水神", "业务接入·不调 LLM"),  # 米哈游游戏 + topic_research 都不打"水神"标签
     ("火神", "namespace 壳"),       # 新职能待挂
     ("雷神", "namespace 壳"),       # 新职能待挂
     ("冰神", "namespace 壳"),       # skill 域职能已交空执

@@ -18,7 +18,6 @@ from ..audit import AuditRepo
 from ..authz import AuthzRepo
 from ..dividend import DividendRepo
 from ..dividend_event import DividendEventRepo
-from ..feed_event import FeedEventRepo
 from ..knowledge import KnowledgeRepo
 from ..llm_profile import LLMProfileRepo
 from ..llm_route import LLMRouteRepo
@@ -71,7 +70,6 @@ class Irminsul(
         self._session: SessionRepo | None = None
         self._schedule: ScheduleRepo | None = None
         self._subscription: SubscriptionRepo | None = None
-        self._feed_event: FeedEventRepo | None = None
         self._push_archive: PushArchiveRepo | None = None
         self._selfcheck: SelfcheckRepo | None = None
         self._llm_profile: LLMProfileRepo | None = None
@@ -101,7 +99,6 @@ class Irminsul(
         self._session = SessionRepo(self._db)
         self._schedule = ScheduleRepo(self._db)
         self._subscription = SubscriptionRepo(self._db)
-        self._feed_event = FeedEventRepo(self._db)
         self._push_archive = PushArchiveRepo(self._db)
         self._selfcheck = SelfcheckRepo(self._db, self._selfcheck_root)
         self._llm_profile = LLMProfileRepo(self._db)

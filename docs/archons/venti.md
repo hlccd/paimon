@@ -4,97 +4,43 @@
 
 - **主题**：自由·歌咏
 - **核心职能**：
-  - **时事新闻采集**：按关键词/领域抓取新闻源，整理摘要
-  - **新闻推送整理**：定时或事件触发，整理好内容交给三月响铃
-  - **舆情分析与追踪**（✅ L1 已实装）：
-    - 对指定话题/品牌/关键词进行持续舆情监控
-    - 情感分析：正面/中性/负面倾向判定
-    - 趋势追踪：话题热度变化、关键事件时间线
-    - 异常预警：舆情突变时通过三月事件响铃推送
-  - **数据收集者角色**：向三月请求响铃或被三月按定时器唤起
-- **Web 面板**：✅ 信息流面板（`/feed` 条目级）+ ✅ 舆情看板（`/sentiment` 事件级聚合）
+  - **topic 调研订阅**：用户在 `/feed` 面板手填关键词，每天 cron 跑 `topic.research.py` 拉 5 源 UGC（B 站 / 小红书 / 知乎 / 贴吧 / 微博）30 天调研，覆盖式落 `feed_topic_research` 表
+  - **站点登录代理**：webui `/feed` 站点登录 tab，扫码取 cookies 给 topic / 其他登录态 collector 用
+- **Web 面板**：`/feed`（订阅管理 + 站点登录两个 tab）
 
 ## 当前实装清单
 
-- `feed_collect` cron（订阅采集 + LLM digest）
-- `/feed` 面板 + `/sentiment` 舆情看板
-- LLM digest（订阅型 + 事件型）
-- 事件聚类（`venti_event/` 子包）
-- `_LoginMixin`（站点扫码 cookies 登录管理）
-- `is_running()` 状态查询（前端"采集中"角标 + 防并发重入）
-- 4 个 mixin：`_CollectMixin` / `_DigestMixin` / `_AlertMixin` / `_LoginMixin`
+- `feed_collect` cron（订阅采集）
+- `/feed` 面板（订阅管理 + 站点登录）
+- 3 个 mixin：`_CollectMixin` / `_DigestMixin` / `_LoginMixin`
+- 订阅类型 `topic_research`（默认）+ 提供 `run_web_search_collect` 给岩神 stock_watch 复用
 
 archon 本体 `execute()` 不参与执行，业务接口完全通过 mixin + cron + webui 面板体现。
 
----
-
-## L1 事件级舆情监测
-
-> 实装日期：2026-04-25
-
-### 数据流（在原订阅链路里插入步骤 4.5）
+## 数据流（topic_research 订阅）
 
 ```
-三月 cron / 手动 run → collect_subscription
-  Step 1-4  原有：搜索 → 去重 → feed_items 落库（含 records 含 db id）
-  Step 4.5  EventClusterer.process(sub, records)
-     ├ 聚类 LLM（浅池 mimo-v2-omni） → 决策 new / merge
-     ├ 事件分析 LLM（浅池） → 标题/摘要/实体/timeline/severity/情感
-     ├ feed_event_create 或 feed_event_update（item_count_inc + sources merge）
-     └ feed_items_attach_event 反向挂回 event_id + sentiment 冗余字段
-  Step 5    p0 紧急推（含 p1/p2/p3 升级到 p0）
-     ├ 升级冷却：30 min 内同事件不重推（config.sentiment_p0_cooldown_minutes）
-     └ ring_event(source="风神·舆情预警")
-  Step 5.5  事件型 LLM 日报（C 阶段）
-     ├ processed_events 非空走 _compose_event_digest
-     └ 否则降级旧 _compose_digest
-  Step 6    日报推送 ring_event(source="风神")
+三月 cron / 手动 run → collect_subscription(sub_id)
+  └ dispatcher 按 sub.binding_kind 路由 → run_topic_research_collect(sub, state)
+     ├ invoke_skill_workflow(skill_name="topic", component="topic", purpose="topic")
+     │    ├ topic skill 跑 exec → research.py 拉 5 源 UGC 30 天
+     │    └ LLM 综合 brief stdout → 输出三段 markdown
+     │       (情绪分析 → 各源讨论重点 → 综合 Top {N})
+     └ feed_topic_research_upsert（每订阅一条最新；不累加，不推送）
+  前端 /feed 进面板时拉 GET /api/feed/topic_research/{sub_id} 渲染 markdown
 ```
 
-### 数据模型
+每次跑约 1-2 分钟（topic 子进程 30-60s + LLM 综合 20-40s）；不走 `march.ring_event` / `push_archive`（无推送语义）。
 
-- 世界树域 11.5 [feed_events 表](../../paimon/foundation/irminsul/_db/)：事件主体；FK→subscriptions(id)，删订阅时级联清
-- feed_items 加列：event_id / sentiment_score / sentiment_label
+## 数据模型
 
-### 浅池 LLM 调用 3 处
+- 世界树域 11：subscriptions 表（共用，binding_kind='topic_research' 标识）
+- 世界树域 11.6：[feed_topic_research 表](../../paimon/foundation/irminsul/_db/_schema.sql)（PK=subscription_id，覆盖式存最新一份；FK→subscriptions(id)，由 SubscriptionRepo.delete 级联清）
 
-| purpose 名 | 触发 | 输出 |
-|---|---|---|
-| `事件聚类` | force_new=False 且有近 7 天候选事件时 | JSON `{decisions: [{item_idx, decision, event_id}]}` |
-| `事件分析` | 每个事件分组 | JSON `{title, summary, entities, timeline, severity, sentiment_*}` |
-| `事件日报` | 阶段 C 综合日报合成 | markdown（重要区/常规区/整体情感） |
+## 关键文件
 
-`config.sentiment_llm_calls_per_run_max` 限制单批最多 LLM 调用次数；超过的事件走 `_fallback_analysis` 模板。
-
-### 严重度推送策略（plan §6 / docs/foundation/march.md）
-
-- **p0** 立即推 `ring_event(source="风神·舆情预警")`，30 min 冷却
-- **p1** 升级到 p1 在 digest 顶部高亮（C 阶段实装）；4 h 冷却
-- **p2/p3** 仅进 digest 常规位
-
-### 舆情看板（D 阶段）
-
-WebUI `/sentiment` —— 4 张统计卡 + 事件时间线（左主列） + 情感折线（Chart.js）+ 严重度矩阵 + 信源 Top + 事件详情 Modal。
-
-依赖 6 个 API（[paimon/channels/webui/channel.py](../../paimon/channels/webui/channel.py)）：
-```
-GET  /api/sentiment/overview            概览（events_7d / p0_p1_count / avg_sentiment / sub_count）
-GET  /api/sentiment/events?days=&severity=&sub_id=  事件列表（按 last_seen_at 倒序）
-GET  /api/sentiment/events/{event_id}   事件详情 + 关联 feed_items
-GET  /api/sentiment/timeline?days=&sub_id=   按天聚合（events / avg_sentiment / p0-p3）
-GET  /api/sentiment/sources?days=       信源 Top
-GET  /sentiment                         面板 HTML
-```
-
-### 关键文件
-
-- [paimon/archons/venti_event/](../../paimon/archons/venti_event/) `EventClusterer`
-- [paimon/archons/venti/](../../paimon/archons/venti/) `_dispatch_p0_alerts` / `_compose_event_digest`
-- [paimon/foundation/irminsul/feed_event.py](../../paimon/foundation/irminsul/feed_event.py) `FeedEventRepo`
-- [paimon/channels/webui/sentiment_html/](../../paimon/channels/webui/sentiment_html/) 看板
-
-### 关键 config
-
-`config.sentiment_*`（共 9 项）：enabled / event_lookback_days / cluster_max_candidates / max_items_per_event / p0_cooldown_minutes / p1_cooldown_hours / event_retention_days / llm_calls_per_run_max / fallback_on_llm_fail。
-
-`sentiment_enabled=False` 完全退化到 L0（不写 feed_events，仍走旧 _DIGEST_PROMPT），用于故障排查。
+- [paimon/archons/venti/topic_collect.py](../../paimon/archons/venti/topic_collect.py) `run_topic_research_collect`
+- [paimon/archons/venti/_register.py](../../paimon/archons/venti/_register.py) 注册 binding_kind=topic_research + 给岩神留 `run_web_search_collect`
+- [paimon/archons/venti/_collect.py](../../paimon/archons/venti/_collect.py) `collect_subscription` dispatcher
+- [paimon/channels/webui/api/feed.py](../../paimon/channels/webui/api/feed.py) WebUI 接口
+- [paimon/channels/webui/feed_html.py](../../paimon/channels/webui/feed_html.py) 面板

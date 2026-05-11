@@ -14,38 +14,32 @@ from ._dispatch import CommandContext, command
 
 _DEFAULT_SUBSCRIBE_CRON = "0 7 * * *"   # 每天 7 点（按服务器本地时间；中国大陆即北京时间）
 _MAX_SUBSCRIBE_QUERY_LEN = 200
-_VALID_ENGINES = {"", "baidu", "bing"}
 
 
-def _parse_subscribe_args(args: str) -> tuple[str, str, str] | str:
-    """解析 /subscribe 参数。返回 (query, cron, engine) 或错误字符串。
+def _parse_subscribe_args(args: str) -> tuple[str, str] | str:
+    """解析 /subscribe 参数。返回 (query, cron) 或错误字符串。
 
     支持格式：
-      "<query>"                         → cron=默认, engine=默认
-      "<query> | <cron>"                → engine=默认
-      "<query> | <cron> | <engine>"     → 全指定
+      "<query>"                         → cron=默认
+      "<query> | <cron>"                → 全指定
     """
     if not args or not args.strip():
-        # 无参 = 订阅 / 记忆领域聚合 help（不只是 /subscribe 自己用法）
         return (
-            "- `/subscribe <关键词> [| <cron>] [| <engine>]` 创建订阅 ← **带参数才创建**\n"
+            "- `/subscribe <关键词> [| <cron>]` 创建订阅 ← **带参数才创建**\n"
             "- `/subs` 订阅管理（list/rm/on/off/run）\n"
             "- `/remember <内容>` 跨会话记忆\n"
             "\n"
-            f"默认 cron: `{_DEFAULT_SUBSCRIBE_CRON}` (每日 7 点)　|　engine: `baidu` / `bing` / 留空=双引擎"
+            f"默认 cron: `{_DEFAULT_SUBSCRIBE_CRON}` (每日 7 点) · 数据源：topic UGC（5 源）"
         )
 
     parts = [p.strip() for p in args.split("|")]
     query = parts[0].strip()
     cron = parts[1].strip() if len(parts) > 1 and parts[1].strip() else _DEFAULT_SUBSCRIBE_CRON
-    engine = parts[2].strip().lower() if len(parts) > 2 else ""
 
     if not query:
         return "关键词不能为空"
     if len(query) > _MAX_SUBSCRIBE_QUERY_LEN:
         return f"关键词过长（{len(query)} 字），上限 {_MAX_SUBSCRIBE_QUERY_LEN}"
-    if engine not in _VALID_ENGINES:
-        return f"engine 必须是 baidu / bing / 留空，收到: {engine}"
 
     try:
         from croniter import croniter
@@ -53,15 +47,20 @@ def _parse_subscribe_args(args: str) -> tuple[str, str, str] | str:
     except Exception as e:
         return f"cron 表达式无效 '{cron}': {e}"
 
-    return query, cron, engine
+    return query, cron
 
 
 async def create_subscription(
-    *, query: str, cron: str, engine: str,
+    *, query: str, cron: str,
     channel_name: str, chat_id: str,
     supports_push: bool = True,
+    binding_kind: str = "topic_research",
 ) -> tuple[bool, str]:
     """订阅创建的核心逻辑（命令 / WebUI 共用）。返回 (ok, message)。
+
+    `binding_kind`：
+    - 'topic_research'（默认）：风神 topic UGC 调研，覆盖式落 feed_topic_research，**不推送**
+    - 其他业务衍生订阅由各 archon 自己 ensure_for（mihoyo_game / stock_watch）
 
     成功时 message 是"订阅已创建 #xxx ..."的用户回显文本；失败时是错误描述。
     """
@@ -70,25 +69,19 @@ async def create_subscription(
 
     query = (query or "").strip()
     cron = (cron or "").strip() or _DEFAULT_SUBSCRIBE_CRON
-    engine = (engine or "").strip().lower()
+    binding_kind = (binding_kind or "topic_research").strip()
 
     if not query:
         return False, "关键词不能为空"
     if len(query) > _MAX_SUBSCRIBE_QUERY_LEN:
         return False, f"关键词过长（{len(query)} 字），上限 {_MAX_SUBSCRIBE_QUERY_LEN}"
-    if engine not in _VALID_ENGINES:
-        return False, f"engine 必须是 baidu / bing / 留空，收到: {engine}"
+    if binding_kind != "topic_research":
+        return False, f"binding_kind 必须是 topic_research（其他类型由各 archon ensure_for 自管），收到: {binding_kind}"
     try:
         from croniter import croniter
         croniter(cron)
     except Exception as e:
         return False, f"cron 表达式无效 '{cron}': {e}"
-
-    if not supports_push:
-        return False, (
-            f"当前频道 {channel_name} 不支持主动推送，无法订阅。\n"
-            "订阅推送依赖推送能力，可改用 WebUI 或 Telegram 频道订阅。"
-        )
 
     from paimon.foundation.irminsul.subscription import Subscription
 
@@ -97,9 +90,8 @@ async def create_subscription(
         channel_name=channel_name,
         chat_id=chat_id,
         schedule_cron=cron,
-        engine=engine,
-        # /subscribe 命令永远建 manual 订阅；业务衍生订阅走 archon ensure_for
-        binding_kind="manual",
+        engine="",
+        binding_kind=binding_kind,
         binding_id="",
     )
     sub_id = await state.irminsul.subscription_create(sub, actor="派蒙")
@@ -139,12 +131,11 @@ async def create_subscription(
         _time.strftime("%Y-%m-%d %H:%M", _time.localtime(task.next_run_at))
         if task and task.next_run_at > 0 else "-"
     )
-    engine_label = engine or "双引擎"
     message = (
         f"订阅已创建 #{sub_id[:8]}（已启动首次采集）\n"
         f"  关键词: {query}\n"
         f"  周期: {cron}\n"
-        f"  引擎: {engine_label}\n"
+        f"  数据源: topic UGC（B 站+小红书+知乎+贴吧+微博，覆盖式不推送）\n"
         f"  下次运行: {next_str}\n"
         f"可用 /subs list 查看全部，/subs rm {sub_id[:8]} 删除"
     )
@@ -155,18 +146,18 @@ async def create_subscription(
 async def cmd_subscribe(ctx: CommandContext) -> str:
     """创建话题订阅。
 
-    /subscribe <关键词> [| <cron>] [| <engine>]
+    /subscribe <关键词> [| <cron>]
 
-    风神会按 cron 定时调 web-search 采集，过滤已见 URL 后交 LLM 写日报，
-    推送给当前频道。
+    风神会按 cron 跑 topic UGC 调研（B 站+小红书+知乎+贴吧+微博 5 源，30 天），
+    覆盖式落 feed_topic_research 表，前端 /feed 面板渲染最新一份。
     """
     parsed = _parse_subscribe_args(ctx.args)
     if isinstance(parsed, str):
         return parsed
-    query, cron, engine = parsed
+    query, cron = parsed
 
     ok, msg = await create_subscription(
-        query=query, cron=cron, engine=engine,
+        query=query, cron=cron,
         channel_name=ctx.msg.channel_name,
         chat_id=ctx.msg.chat_id,
         supports_push=getattr(ctx.channel, "supports_push", True),

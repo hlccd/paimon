@@ -15,7 +15,6 @@ from ..memory import Memory, MemoryMeta
 from ..session import SessionMeta, SessionRecord
 from ..skill_proposals import SkillProposal
 from ..skills import SkillDecl
-from ..feed_event import FeedEvent
 from ..llm_profile import LLMProfile
 from ..llm_route import LLMRoute
 from ..push_archive import PushArchiveRecord

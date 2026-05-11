@@ -17,14 +17,13 @@ from paimon.tools.base import BaseTool, ToolContext
 class SubscribeTool(BaseTool):
     name = "subscribe"
     description = (
-        "管理**话题订阅**（风神定时采集 web-search 结果 → LLM 写日报 → 归档到面板）。\n"
+        "管理**话题订阅**（风神每天定时跑 topic UGC 调研 → 覆盖式落表 → /feed 面板渲染）。\n"
         "action ∈ create / list / delete / run / pause / resume / latest_digest。\n"
-        "**何时用**：用户说「订阅 / 每 N 分钟给我推送某主题的最新消息 / 关注某话题」"
-        "或者**问「今天的舆情怎么样 / 最近的新闻 / 风神最新一篇日报」**（用 latest_digest）。\n"
+        "**何时用**：用户说「订阅某话题 / 关注某话题 / 每天给我跑一份某话题的资讯」"
+        "或者**问「最近某话题怎么样 / 最近的新闻」**（用 latest_digest 拉最新调研结果）。\n"
         "**不要用** schedule 工具做这个——schedule 只是到点发 prompt 给 LLM 跑一次，"
-        "本工具会落库 + 去重 + 日报化归档。\n"
-        "**注意**：日报不再主动推送到聊天，只归档到 /sentiment 面板和推送抽屉；"
-        "用户问起时务必用 latest_digest 把内容拉出来复述。"
+        "本工具会落库 + 持久订阅 + 每天定时刷新 markdown。\n"
+        "topic 调研走 5 源 UGC（B 站/小红书/知乎/贴吧/微博）30 天窗口，覆盖式存最新一份，不主动推送到聊天。"
     )
     parameters = {
         "type": "object",
@@ -36,20 +35,14 @@ class SubscribeTool(BaseTool):
             },
             "query": {
                 "type": "string",
-                "description": "搜索关键词（create 时必填），例: '小米 SU7'",
+                "description": "调研关键词（create 时必填），例: '小米 SU7'",
             },
             "cron": {
                 "type": "string",
                 "description": (
-                    "5 字段 cron 表达式（create 可选，默认 '0 10 * * *' 每日 10 点）"
-                    "。例: '*/30 * * * *' 每 30 分钟；'0 9 * * 1-5' 工作日 9 点。"
-                    "注意三月轮询粒度是分钟，小于 1 分钟无意义。"
+                    "5 字段 cron 表达式（create 可选，默认 '0 7 * * *' 每日 7 点）。"
+                    "例: '0 9 * * 1-5' 工作日 9 点。三月轮询粒度是分钟。"
                 ),
-            },
-            "engine": {
-                "type": "string",
-                "enum": ["", "bing", "baidu"],
-                "description": "搜索引擎（create 可选）：空=双引擎并发 / bing / baidu",
             },
             "sub_id": {
                 "type": "string",
@@ -58,10 +51,6 @@ class SubscribeTool(BaseTool):
                     "支持：完整 id / id 前缀（8 字即可）/ query 关键词模糊匹配。"
                     "例如用户说「删掉小米订阅」可直接传 '小米'。"
                 ),
-            },
-            "limit": {
-                "type": "integer",
-                "description": "latest_digest 时拉取最近 N 篇（默认 1，上限 5）",
             },
         },
         "required": ["action"],
@@ -85,77 +74,61 @@ class SubscribeTool(BaseTool):
         return f"未知 action: {action}"
 
     async def _latest_digest(self, kwargs: dict) -> str:
-        """从推送归档里拉风神最近的 N 篇 digest（用户问「今天舆情怎样」时调）。"""
+        """拉指定订阅最近一份 topic 调研结果（覆盖式 markdown）。"""
         from paimon.state import state
 
-        try:
-            limit = int(kwargs.get("limit", 1) or 1)
-        except (TypeError, ValueError):
-            limit = 1
-        limit = max(1, min(limit, 5))
-
         sub_id_arg = (kwargs.get("sub_id") or "").strip()
-        target_query = ""
-        if sub_id_arg:
-            # 模糊解析订阅，缩窄到指定订阅的 digest
-            sub = await state.irminsul.subscription_get(sub_id_arg)
-            if not sub:
-                all_subs = await state.irminsul.subscription_list()
-                arg_lower = sub_id_arg.lower()
-                matches = (
-                    [s for s in all_subs if s.id.startswith(sub_id_arg)]
-                    or [s for s in all_subs if arg_lower in s.query.lower()]
-                )
-                if matches:
-                    sub = matches[0]
-            if sub:
-                target_query = sub.query
+        if not sub_id_arg:
+            # 没指定 sub_id 时列出所有 topic 订阅最新结果摘要
+            subs = await state.irminsul.subscription_list_by_binding("topic_research")
+            if not subs:
+                return "暂无 topic 订阅。可用 create 创建。"
+            lines = []
+            for s in subs:
+                rec = await state.irminsul.feed_topic_research_get(s.id)
+                if not rec or not rec.get("markdown"):
+                    lines.append(f"## #{s.id[:8]} {s.query}\n（暂无内容，cron 还没跑过）")
+                else:
+                    lines.append(f"## #{s.id[:8]} {s.query}\n\n{rec['markdown']}")
+            return "\n\n---\n\n".join(lines)
 
-        # 拉风神 actor 的归档（按 created_at 降序）
-        records = await state.irminsul.push_archive_list(
-            actor="风神", limit=20,
-        )
-        if target_query:
-            # 二次过滤：日报 message_md 通常含订阅 query，做包含匹配
-            records = [
-                r for r in records
-                if target_query in r.message_md or target_query in r.source
-            ]
+        # 模糊解析订阅
+        sub = await state.irminsul.subscription_get(sub_id_arg)
+        if not sub:
+            all_subs = await state.irminsul.subscription_list_by_binding("topic_research")
+            arg_lower = sub_id_arg.lower()
+            matches = (
+                [s for s in all_subs if s.id.startswith(sub_id_arg)]
+                or [s for s in all_subs if arg_lower in s.query.lower()]
+            )
+            sub = matches[0] if matches else None
+        if not sub:
+            return f"未找到订阅: {sub_id_arg}"
 
-        records = records[:limit]
-        if not records:
-            hint = f"（订阅: {target_query}）" if target_query else ""
-            return f"暂无风神日报归档{hint}。可能尚未触发采集，或订阅不存在。"
-
-        out = []
-        for r in records:
-            ts = time.strftime("%m-%d %H:%M", time.localtime(r.created_at))
-            unread = " [未读]" if r.read_at is None else ""
-            out.append(f"## 【{r.source}】{ts}{unread}\n\n{r.message_md}")
-        return "\n\n---\n\n".join(out)
+        rec = await state.irminsul.feed_topic_research_get(sub.id)
+        if not rec or not rec.get("markdown"):
+            return f"订阅「{sub.query}」暂无调研结果（cron 还没跑过 / 首次创建可触发 run）。"
+        return f"## #{sub.id[:8]} {sub.query}\n\n{rec['markdown']}"
 
     async def _create(self, ctx: ToolContext, kwargs: dict) -> str:
         from paimon.core.commands import create_subscription
 
-        # 当前频道名，避免硬编码（与 schedule tool 同样处理）
         channel_name = ctx.channel.name if ctx.channel else "webui"
         supports_push = getattr(ctx.channel, "supports_push", True) if ctx.channel else True
 
         ok, msg = await create_subscription(
             query=kwargs.get("query", ""),
             cron=kwargs.get("cron", ""),
-            engine=kwargs.get("engine", ""),
             channel_name=channel_name,
             chat_id=ctx.chat_id,
             supports_push=supports_push,
         )
-        # 明确标记成败，防 LLM 误读错误消息为成功
         return msg if ok else f"❌ 订阅创建失败: {msg}"
 
     async def _list(self) -> str:
         from paimon.state import state
 
-        subs = await state.irminsul.subscription_list()
+        subs = await state.irminsul.subscription_list_by_binding("topic_research")
         if not subs:
             return "暂无订阅"
         lines = ["订阅列表:"]
@@ -165,11 +138,10 @@ class SubscribeTool(BaseTool):
                 time.strftime("%m-%d %H:%M", time.localtime(s.last_run_at))
                 if s.last_run_at > 0 else "-"
             )
-            count = await state.irminsul.feed_items_count(sub_id=s.id)
             err = f" [错: {s.last_error[:40]}]" if s.last_error else ""
             lines.append(
                 f"  #{s.id[:8]} | {status} | {s.query[:30]} | "
-                f"{s.schedule_cron} | 累计 {count} 条 | 上次 {last_run}{err}"
+                f"{s.schedule_cron} | 上次 {last_run}{err}"
             )
         return "\n".join(lines)
 

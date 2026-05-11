@@ -80,7 +80,7 @@ GLOBAL_PUSH_BELL_HTML = """
 # 全局只剩两个职责：
 # 1. 30s 轮询 /api/push_archive/unread_count 刷新红点徽章
 # 2. 点击红点 → 按未读最多的 actor 跳到对应面板的 digest 区
-#    （/sentiment#digest 或 /wealth#digest；hash 由各面板的 JS 自动滚动 + 高亮）
+#    （/feed#sub-<id> 或 /wealth#digest；hash 由各面板的 JS 自动滚动 + 高亮）
 GLOBAL_PUSH_BELL_SCRIPT = r"""
 <script>
 (function(){
@@ -137,11 +137,11 @@ GLOBAL_PUSH_BELL_SCRIPT = r"""
 
     // 点击红点 → 按未读最多的 actor 跳转对应面板（沉淀到业务页面，而非全局抽屉）
     window.gotoLatestDigests = function(){
+        // 风神 topic 调研在 /feed 展示；岩神股票公告在 /wealth
         var venti = Number(_grouped['风神']||0);
         var zhongli = Number(_grouped['岩神']||0);
-        var target = '/sentiment';   // 默认风神
+        var target = '/feed';
         if(venti===0 && zhongli>0) target = '/wealth';
-        // hash 让目标面板的 JS 自动滚动 + 展开未读
         location.href = target + '#digest';
     };
 
@@ -165,7 +165,6 @@ def navigation_html(active: str = "chat") -> str:
         ("dashboard", "/dashboard", "📊 用量"),
         ("tasks", "/tasks", "📋 任务"),
         ("feed", "/feed", "🔔 订阅"),
-        ("sentiment", "/sentiment", "🌪️ 舆情"),
         ("wealth", "/wealth", "💰 理财"),
         ("game", "/game", "🎮 游戏"),
         ("knowledge", "/knowledge", "📚 世界树"),

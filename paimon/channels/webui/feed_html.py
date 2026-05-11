@@ -22,14 +22,6 @@ FEED_CSS = """
     }
     .refresh-btn:hover { border-color: var(--gold-dark); color: var(--gold); }
 
-    .stats-row { display: flex; gap: 16px; margin-bottom: 24px; }
-    .stat-card {
-        flex: 1; background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 10px; padding: 20px; text-align: center;
-    }
-    .stat-num { font-size: 28px; font-weight: 700; color: var(--gold); }
-    .stat-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
-
     .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--paimon-border); }
     .tab-btn {
         padding: 10px 20px; background: transparent; border: none; color: var(--text-muted);
@@ -46,7 +38,7 @@ FEED_CSS = """
         border-radius: 10px; padding: 20px; margin-bottom: 24px;
     }
     .sub-form h3 { font-size: 16px; color: var(--text-primary); margin-bottom: 12px; }
-    .form-row { display: grid; grid-template-columns: 2fr 1fr 120px auto; gap: 12px; align-items: end; }
+    .form-row { display: grid; grid-template-columns: 2.5fr 1fr 130px auto; gap: 12px; align-items: end; }
     .form-field label { display: block; color: var(--text-muted); font-size: 12px; margin-bottom: 4px; }
     .form-field input, .form-field select {
         width: 100%; padding: 8px 12px; background: var(--paimon-bg);
@@ -64,10 +56,10 @@ FEED_CSS = """
     .sub-list { display: flex; flex-direction: column; gap: 12px; }
     .sub-card {
         background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 10px; padding: 16px 20px;
-        display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center;
+        border-radius: 10px; padding: 14px 18px;
+        display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start;
     }
-    .sub-card.disabled { opacity: .5; }
+    .sub-card.disabled { opacity: .55; }
     /* 方案 D：从 /tasks 面板跳来时高亮对应订阅卡 2 秒 */
     .sub-card.highlight-flash {
         animation: sub-flash 2s ease-out;
@@ -82,6 +74,30 @@ FEED_CSS = """
     .sub-info .sub-meta span { margin-right: 12px; }
     .sub-info .sub-err { color: var(--status-error); font-size: 12px; margin-top: 4px; }
 
+    /* topic_research 订阅卡的 markdown 内容区 */
+    .topic-research-md {
+        margin-top: 10px; padding: 10px 14px;
+        background: var(--paimon-bg-deep); border: 1px solid var(--paimon-border);
+        border-radius: 6px; max-height: 40vh; overflow-y: auto;
+        transition: max-height .2s ease, padding .2s ease;
+    }
+    .topic-research-md.folded {
+        max-height: 0; padding: 0 14px; overflow: hidden; border: none; margin-top: 0;
+    }
+    .topic-md-body { font-size: 13px; line-height: 1.6; color: var(--text-primary); }
+    .topic-md-body h1 { font-size: 15px; color: var(--gold); margin: 8px 0 4px; }
+    .topic-md-body h2 { font-size: 14px; color: var(--gold); margin: 10px 0 4px; }
+    .topic-md-body p { margin: 4px 0; }
+    .topic-md-body ol, .topic-md-body ul { margin: 4px 0; padding-left: 22px; }
+    .topic-md-body li { margin: 2px 0; }
+    .topic-md-body a { color: var(--gold-light); text-decoration: underline; }
+    .topic-md-body a:hover { color: var(--gold); }
+    .topic-md-body blockquote {
+        border-left: 3px solid var(--gold-dark); padding: 2px 10px;
+        margin: 6px 0; color: var(--text-muted);
+    }
+    .topic-md-body strong { color: var(--text-primary); font-weight: 600; }
+
     .sub-actions { display: flex; gap: 8px; }
     .btn-action {
         padding: 6px 12px; background: var(--paimon-panel-light); color: var(--text-secondary);
@@ -90,40 +106,11 @@ FEED_CSS = """
     .btn-action:hover { color: var(--gold); border-color: var(--gold-dark); }
     .btn-action.danger:hover { color: var(--status-error); border-color: var(--status-error); }
 
-    /* 信息流 tab */
-    .filter-bar {
-        display: flex; gap: 12px; align-items: center; margin-bottom: 16px;
-        padding: 12px 16px; background: var(--paimon-panel); border-radius: 8px;
-    }
-    .filter-bar label { color: var(--text-muted); font-size: 13px; }
-    .filter-bar select {
-        padding: 6px 12px; background: var(--paimon-bg);
-        border: 1px solid var(--paimon-border); border-radius: 4px;
-        color: var(--text-primary); font-size: 13px;
-    }
-
-    .feed-list { display: flex; flex-direction: column; gap: 10px; }
-    .feed-item {
-        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 8px; padding: 14px 18px;
-        transition: border-color .15s;
-    }
-    .feed-item:hover { border-color: var(--gold-dark); }
-    .feed-item .feed-title { font-size: 15px; margin-bottom: 4px; }
-    .feed-item .feed-title a { color: var(--star-light); text-decoration: none; }
-    .feed-item .feed-title a:hover { color: var(--gold); text-decoration: underline; }
-    .feed-item .feed-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 6px 0; }
-    .feed-item .feed-meta { font-size: 12px; color: var(--text-muted); }
-    .feed-item .feed-meta span { margin-right: 12px; }
-
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 14px; }
     .badge {
         display: inline-block; padding: 2px 8px; border-radius: 4px;
         font-size: 11px; font-weight: 500;
     }
-    .badge-engine-bing { background: rgba(110,198,255,.12); color: var(--star); }
-    .badge-engine-baidu { background: rgba(245,158,11,.15); color: var(--status-warning); }
-    .badge-engine-other { background: var(--paimon-panel-light); color: var(--text-secondary); }
     .badge-enabled { background: rgba(16,185,129,.15); color: var(--status-success); }
     .badge-disabled { background: rgba(239,68,68,.15); color: var(--status-error); }
     .badge-running {
@@ -168,20 +155,13 @@ FEED_BODY = """
         <div class="page-header">
             <div>
                 <h1>🔔 订阅</h1>
-                <div class="sub">话题订阅 + 定时采集 + 自动推送 · 想看事件聚合？<a href="/sentiment" style="color:var(--gold)">舆情看板 →</a></div>
+                <div class="sub">每天定时跑 topic UGC 调研（B 站 + 小红书 + 知乎 + 贴吧 + 微博）· 覆盖式快照</div>
             </div>
             <button class="refresh-btn" onclick="refreshAll()">刷新</button>
         </div>
 
-        <div class="stats-row" id="statsRow">
-            <div class="stat-card"><div class="stat-num" id="statSubs">-</div><div class="stat-label">订阅数</div></div>
-            <div class="stat-card"><div class="stat-num" id="statToday">-</div><div class="stat-label">今日新增</div></div>
-            <div class="stat-card"><div class="stat-num" id="statWeek">-</div><div class="stat-label">近 7 天</div></div>
-        </div>
-
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('subs',this)">订阅管理</button>
-            <button class="tab-btn" onclick="switchTab('feed',this)">信息流</button>
             <button class="tab-btn" onclick="switchTab('login',this)">站点登录</button>
         </div>
 
@@ -189,7 +169,7 @@ FEED_BODY = """
             <div class="sub-form">
                 <h3>新增订阅</h3>
                 <div class="form-row">
-                    <div class="form-field">
+                    <div class="form-field" style="flex:2">
                         <label>关键词</label>
                         <input id="formQuery" placeholder="例: Claude 4.7 新特性" />
                     </div>
@@ -198,57 +178,27 @@ FEED_BODY = """
                         <select id="formCronMode" onchange="onCronModeChange()">
                             <option value="daily" selected>每天</option>
                             <option value="weekday">工作日</option>
-                            <option value="hourly">每隔 N 小时</option>
                             <option value="custom">自定义 cron</option>
                         </select>
                     </div>
                     <div class="form-field" id="formCronTimeWrap">
-                        <label>具体时间</label>
+                        <label>时间</label>
                         <input id="formCronTime" type="time" value="07:00" step="60" />
                     </div>
-                    <div class="form-field" id="formCronHourlyWrap" style="display:none">
-                        <label>间隔（小时）</label>
-                        <input id="formCronHourly" type="number" min="1" max="24" value="6" />
-                    </div>
                     <div class="form-field" id="formCronCustomWrap" style="display:none">
-                        <label>cron 表达式</label>
+                        <label>cron</label>
                         <input id="formCron" placeholder="0 7 * * *" />
-                    </div>
-                    <div class="form-field">
-                        <label>引擎</label>
-                        <select id="formEngine">
-                            <option value="">双引擎</option>
-                            <option value="bing">Bing</option>
-                            <option value="baidu">Baidu</option>
-                        </select>
                     </div>
                     <button class="btn-primary" onclick="createSub()">创建订阅</button>
                 </div>
-                <div class="form-hint">默认每天上午 7:00 触发；推送会落到本面板和舆情看板的「日报公告」区</div>
+                <div class="form-hint">默认每天 7:00 跑一次（5 源 UGC 30 天调研，覆盖式刷新最新一份）</div>
             </div>
             <div id="subListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
         </div>
 
-        <div id="feed" class="tab-panel">
-            <div class="filter-bar">
-                <label>订阅：</label>
-                <select id="filterSub" onchange="loadFeed()">
-                    <option value="">全部</option>
-                </select>
-                <label style="margin-left:16px">时间：</label>
-                <select id="filterSince" onchange="loadFeed()">
-                    <option value="0">全部</option>
-                    <option value="86400">24 小时内</option>
-                    <option value="604800">7 天内</option>
-                    <option value="2592000">30 天内</option>
-                </select>
-            </div>
-            <div id="feedListEl" class="feed-list"><div class="empty-state">加载中...</div></div>
-        </div>
-
         <div id="login" class="tab-panel">
             <div class="form-hint" style="margin-bottom:12px">
-                各登录态爬虫（topic 知乎/微博/贴吧/虎扑/TapTap/小红书 等）需要的 cookies 在这里扫码取得。
+                topic 调研需要的各站 cookies 在这里扫码取得（B 站免登录，知乎 / 小红书 / 微博 / 贴吧 / 虎扑 / TapTap 需要登录态）。
                 cookies 落到 <code>~/.paimon/cookies/&lt;site&gt;.json</code>，3-12 个月失效后回这里重扫。
             </div>
             <div id="loginListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
@@ -284,75 +234,102 @@ FEED_SCRIPT = """
             var hh=('0'+d.getHours()).slice(-2), mm=('0'+d.getMinutes()).slice(-2);
             return y+'-'+mo+'-'+da+' '+hh+':'+mm;
         }
-        function engineBadge(e){
-            if(e==='bing')return '<span class="badge badge-engine-bing">Bing</span>';
-            if(e==='baidu')return '<span class="badge badge-engine-baidu">百度</span>';
-            return '<span class="badge badge-engine-other">'+esc(e||'?')+'</span>';
-        }
-
-        var currentSubs = [];
-
         window.switchTab=function(key,btn){
             document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
             document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
             document.getElementById(key).classList.add('active');
             btn.classList.add('active');
-            if(key==='feed')loadFeed();
             if(key==='login')loadLoginOverview();
         };
 
-        window.refreshAll=function(){ loadSubs(); loadStats(); if(document.getElementById('feed').classList.contains('active')) loadFeed(); };
+        window.refreshAll=function(){ loadSubs(); };
 
-        async function loadStats(){
-            try{
-                var r=await fetch('/api/feed/stats'); var d=await r.json();
-                document.getElementById('statSubs').textContent=d.sub_count||0;
-                document.getElementById('statToday').textContent=d.items_today||0;
-                document.getElementById('statWeek').textContent=d.items_week||0;
-            }catch(e){}
-        }
+        // markdown 缓存：sub_id → {at: last_run_at, html: rendered}
+        // loadSubs 重建 DOM 时同步注入缓存的 HTML，避免「加载中 → 有内容」闪烁；
+        // 仅当 last_run_at 变了才重新 fetch 拉新内容
+        var _mdCache = {};
 
         async function loadSubs(){
             var el=document.getElementById('subListEl');
+            // 保存滚动位置：轮询期间整段 innerHTML 重写会让浏览器把滚动位置重置回顶
+            var prevScrollY = window.scrollY;
+            // 同时记下每张卡 markdown 区内部的 scrollTop（DOM 重建后 .topic-research-md 是新元素，scrollTop 默认 0）
+            var prevMdScrolls = {};
+            document.querySelectorAll('.topic-research-md').forEach(function(node){
+                var sid = node.id.replace('topic-md-', '');
+                if(sid && node.scrollTop > 0) prevMdScrolls[sid] = node.scrollTop;
+            });
             try{
                 var r=await fetch('/api/feed/subs'); var d=await r.json();
-                var subs=d.subs||[]; currentSubs=subs;
-                // 同步过滤下拉
-                var sel=document.getElementById('filterSub');
-                sel.innerHTML='<option value="">全部</option>'+subs.map(function(s){return '<option value="'+esc(s.id)+'">'+esc(s.query)+'</option>';}).join('');
-                if(!subs.length){ el.innerHTML='<div class="empty-state">暂无订阅。在上方新增，或用 /subscribe 指令创建</div>'; return; }
+                var subs=d.subs||[];
+                if(!subs.length){
+                    el.innerHTML='<div class="empty-state">暂无订阅。在上方新增一条吧。</div>';
+                    _mdCache = {};
+                    return;
+                }
                 el.innerHTML=subs.map(function(s){
+                    // 同步注入：cache hit 就直接渲染缓存的 markdown HTML；否则放占位
+                    var cached = _mdCache[s.id];
+                    var mdInner = (cached && cached.at === s.last_run_at && cached.html)
+                        ? cached.html
+                        : '<div class="empty-state" style="padding:18px;font-size:12px">加载中...</div>';
                     var cls='sub-card'+(s.enabled?'':' disabled');
                     var badge=s.enabled?'<span class="badge badge-enabled">启用</span>':'<span class="badge badge-disabled">停用</span>';
                     var runBadge=s.running?'<span class="badge badge-running">采集中</span>':'';
-                    var err=s.last_error?'<div class="sub-err">错: '+esc(s.last_error.substring(0,120))+'</div>':'';
-                    var engine=s.engine||'双引擎';
+                    var err=s.last_error?'<div class="sub-err">⚠ '+esc(s.last_error.substring(0,160))+'</div>':'';
                     var runBtn=s.running
                         ? '<button class="btn-action" disabled>采集中…</button>'
-                        : '<button class="btn-action" onclick="runSub(\\''+s.id+'\\')">运行</button>';
+                        : '<button class="btn-action" onclick="runSub(\\''+s.id+'\\')">▶ 运行</button>';
+                    var actions = '<div class="sub-actions">'
+                        + runBtn
+                        + (s.enabled
+                              ? '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',false)">⏸ 停用</button>'
+                              : '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',true)">▶ 启用</button>')
+                        + '<button class="btn-action danger" onclick="delSub(\\''+s.id+'\\')">✕ 删除</button>'
+                        + '<button class="btn-action" onclick="toggleMdFold(\\''+s.id+'\\',this)" title="折叠/展开内容">▼</button>'
+                        + '</div>';
                     return '<div class="'+cls+'" id="sub-'+esc(s.id)+'" data-sub-id="'+esc(s.id)+'">'
                         + '<div class="sub-info">'
                         +   '<div class="sub-query">'+esc(s.query)+' '+badge+' '+runBadge+'</div>'
                         +   '<div class="sub-meta">'
-                        +     '<span>ID: '+esc(s.id.substring(0,8))+'</span>'
                         +     '<span>cron: '+esc(s.schedule_cron)+'</span>'
-                        +     '<span>引擎: '+esc(engine)+'</span>'
-                        +     '<span title="每次最多抓取条数">每次抓 '+(s.max_items||10)+' 条</span>'
-                        +     '<span title="累计原始新闻 / 聚类后事件">累计 '+s.item_count+' 条 / '+(s.event_count||0)+' 个事件</span>'
                         +     '<span>上次: '+fmtTime(s.last_run_at)+'</span>'
                         +   '</div>'
                         +   err
+                        +   '<div class="topic-research-md" id="topic-md-'+esc(s.id)+'">'
+                        +     mdInner
+                        +   '</div>'
                         + '</div>'
-                        + '<div class="sub-actions">'
-                        +   runBtn
-                        +   (s.enabled
-                              ? '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',false)">停用</button>'
-                              : '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',true)">启用</button>')
-                        +   '<button class="btn-action danger" onclick="delSub(\\''+s.id+'\\')">删除</button>'
-                        + '</div>'
+                        + actions
                         + '</div>';
                 }).join('');
-                // 有采集中的订阅 → 2s 后自动再刷一次，直到全部完成
+                // 恢复外部页面滚动位置（用 instant 避免动画干扰）
+                window.scrollTo({top: prevScrollY, behavior: 'instant'});
+                // 恢复每张卡 markdown 区内部 scrollTop（cache HTML 已同步注入，scrollTop 数值有效）
+                Object.keys(prevMdScrolls).forEach(function(sid){
+                    var node = document.getElementById('topic-md-' + sid);
+                    if(node) node.scrollTop = prevMdScrolls[sid];
+                });
+                // 异步拉每张卡 markdown：仅当 last_run_at 变了或没拉过才拉
+                subs.forEach(function(s){
+                    var cached = _mdCache[s.id];
+                    if(!cached || cached.at !== s.last_run_at){
+                        loadTopicResearchMd(s.id, s.last_run_at);
+                    }
+                    // 给链接外部跳转处理（缓存渲染过的也要重做，因为 DOM 是新建的）
+                    if(cached && cached.html){
+                        var slot = document.getElementById('topic-md-'+s.id);
+                        if(slot) slot.querySelectorAll('a[href^="http"]').forEach(function(a){
+                            a.setAttribute('target','_blank');
+                            a.setAttribute('rel','noopener noreferrer');
+                        });
+                    }
+                });
+                // 清掉已不存在订阅的缓存项
+                Object.keys(_mdCache).forEach(function(id){
+                    if(!subs.some(function(s){return s.id===id;})) delete _mdCache[id];
+                });
+                // 有采集中 → 2s 自动再刷
                 if(subs.some(function(s){return s.running;})){
                     if(_subsPollTimer) clearTimeout(_subsPollTimer);
                     _subsPollTimer=setTimeout(loadSubs, 2000);
@@ -361,11 +338,54 @@ FEED_SCRIPT = """
         }
         var _subsPollTimer=null;
 
+        // 折叠/展开订阅卡的 markdown 内容
+        window.toggleMdFold=function(subId, btn){
+            var slot=document.getElementById('topic-md-'+subId);
+            if(!slot) return;
+            var folded=slot.classList.toggle('folded');
+            btn.textContent = folded ? '▶' : '▼';
+        };
+
+        // 拉 GET /api/feed/topic_research/{sub_id} 渲染 markdown，结果写进 _mdCache
+        async function loadTopicResearchMd(subId, lastRunAt){
+            var slot=document.getElementById('topic-md-'+subId);
+            if(!slot) return;
+            try{
+                var r=await fetch('/api/feed/topic_research/'+encodeURIComponent(subId));
+                var d=await r.json();
+                var rec=d.research;
+                if(!rec || !rec.markdown){
+                    var emptyHtml='<div class="empty-state" style="padding:14px;font-size:12px">'
+                        + '暂无内容（cron 还没跑过 / 首次创建可点 ▶ 运行）</div>';
+                    slot.innerHTML=emptyHtml;
+                    _mdCache[subId]={at: lastRunAt, html: emptyHtml};
+                    return;
+                }
+                var html='';
+                if(typeof marked!=='undefined' && marked.parse){
+                    try { html=marked.parse(rec.markdown); }
+                    catch(e){ html='<pre>'+esc(rec.markdown)+'</pre>'; }
+                } else {
+                    html='<pre>'+esc(rec.markdown)+'</pre>';
+                }
+                var bodyHtml='<div class="topic-md-body markdown-body">'+html+'</div>';
+                slot.innerHTML=bodyHtml;
+                _mdCache[subId]={at: lastRunAt, html: bodyHtml};
+                // 外部链接新窗口打开
+                slot.querySelectorAll('a[href^="http"]').forEach(function(a){
+                    a.setAttribute('target','_blank');
+                    a.setAttribute('rel','noopener noreferrer');
+                });
+            }catch(e){
+                slot.innerHTML='<div class="sub-err">加载失败: '+esc(String(e))+'</div>';
+                // 失败不写 cache，下次会重试
+            }
+        }
+
         // 触发频率模式切换 → 显示对应输入控件
         window.onCronModeChange=function(){
             var mode=document.getElementById('formCronMode').value;
             document.getElementById('formCronTimeWrap').style.display = (mode==='daily'||mode==='weekday') ? '' : 'none';
-            document.getElementById('formCronHourlyWrap').style.display = mode==='hourly' ? '' : 'none';
             document.getElementById('formCronCustomWrap').style.display = mode==='custom' ? '' : 'none';
         };
 
@@ -373,11 +393,6 @@ FEED_SCRIPT = """
         function buildCronExpr(){
             var mode=document.getElementById('formCronMode').value;
             if(mode==='custom') return document.getElementById('formCron').value.trim();
-            if(mode==='hourly'){
-                var n=parseInt(document.getElementById('formCronHourly').value || '6', 10);
-                if(isNaN(n)||n<1||n>24) n=6;
-                return '0 */'+n+' * * *';
-            }
             var t=document.getElementById('formCronTime').value || '07:00';
             var parts=t.split(':');
             var hh=parseInt(parts[0]||'7', 10);
@@ -391,17 +406,15 @@ FEED_SCRIPT = """
         window.createSub=async function(){
             var q=document.getElementById('formQuery').value.trim();
             var c=buildCronExpr();
-            var eng=document.getElementById('formEngine').value;
             if(!q){alert('请填关键词');return;}
             try{
                 var r=await fetch('/api/feed/subs',{
                     method:'POST',headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({query:q, cron:c, engine:eng})
+                    body:JSON.stringify({query:q, cron:c})
                 });
                 var d=await r.json();
                 if(d.ok){
                     document.getElementById('formQuery').value='';
-                    // 自定义 cron 框清空，模式 + time 保留默认
                     var customEl=document.getElementById('formCron');
                     if(customEl) customEl.value='';
                     refreshAll();
@@ -422,7 +435,7 @@ FEED_SCRIPT = """
         };
 
         window.delSub=async function(id){
-            if(!confirm('确认删除订阅？累计的信息流条目会一起清除。'))return;
+            if(!confirm('确认删除订阅？最近一份调研结果也会一起清掉。'))return;
             try{
                 await fetch('/api/feed/subs/'+encodeURIComponent(id),{method:'DELETE'});
                 refreshAll();
@@ -441,37 +454,6 @@ FEED_SCRIPT = """
             }catch(e){alert('失败: '+e);}
         };
 
-        window.loadFeed=async function(){
-            var el=document.getElementById('feedListEl');
-            var subId=document.getElementById('filterSub').value;
-            var since=parseInt(document.getElementById('filterSince').value)||0;
-            var qs=[]; if(subId)qs.push('sub_id='+encodeURIComponent(subId));
-            if(since>0)qs.push('since='+since);
-            try{
-                var r=await fetch('/api/feed/items'+(qs.length?'?'+qs.join('&'):''));
-                var d=await r.json();
-                var items=d.items||[];
-                if(!items.length){ el.innerHTML='<div class="empty-state">暂无条目</div>'; return; }
-                var subMap={};currentSubs.forEach(function(s){subMap[s.id]=s.query;});
-                el.innerHTML=items.map(function(it){
-                    var title=it.title||'(无标题)';
-                    var url=it.url||'';
-                    var desc=it.description||'';
-                    var subQuery=subMap[it.subscription_id]||'-';
-                    var pushed=it.pushed_at?('已推 '+fmtTime(it.pushed_at)):'未推送';
-                    return '<div class="feed-item">'
-                        + '<div class="feed-title"><a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(title)+'</a></div>'
-                        + (desc?'<div class="feed-desc">'+esc(desc.substring(0,300))+'</div>':'')
-                        + '<div class="feed-meta">'
-                        +   engineBadge(it.engine)
-                        +   '<span>订阅: '+esc(subQuery)+'</span>'
-                        +   '<span>采集: '+fmtTime(it.captured_at)+'</span>'
-                        +   '<span>'+pushed+'</span>'
-                        + '</div>'
-                        + '</div>';
-                }).join('');
-            }catch(e){ el.innerHTML='<div class="empty-state">加载失败: '+esc(String(e))+'</div>'; }
-        };
 
         // 方案 D：从 /tasks 点内部任务跳过来时 URL 带 #sub-<id>，定位到对应订阅卡
         function _scrollToSubFromHash(){
@@ -492,7 +474,6 @@ FEED_SCRIPT = """
             tryScroll(8);  // 最多等 2s
         }
         window.onload=function(){
-            loadStats();
             loadSubs();
             _scrollToSubFromHash();
         };
@@ -703,6 +684,8 @@ def build_feed_html() -> str:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Paimon - 信息流</title>
+    <!-- topic_research 订阅卡 markdown 渲染（同 game / chat 面板） -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>"""
         + THEME_COLORS
         + BASE_CSS

@@ -26,7 +26,6 @@ from paimon.llm.model import Model
 from paimon.session import Session
 
 if TYPE_CHECKING:
-    from paimon.foundation.irminsul.feed_event import FeedEvent
     from paimon.foundation.march import MarchService
 
 # web-search skill 脚本路径（文件存在则订阅能力可用；不存在仅告警不阻塞启动）
@@ -79,13 +78,6 @@ _DIGEST_PROMPT = """\
 """
 
 
-# 阶段 C · 事件型日报（按事件而非条目组织）
-# 风神日报 system prompt 由通用 composer 渲染（保留 {query}/{n} 占位待调用方 .format）
-from paimon.archons.venti_event import VENTI_DIGEST_SPEC
-from paimon.foundation.digest import render_digest_prompt
-_EVENT_DIGEST_PROMPT = render_digest_prompt(VENTI_DIGEST_SPEC)
-
-
 def _build_fallback_digest(query: str, items: list[dict]) -> str:
     """LLM 失败时的降级模板：直接列条目。"""
     lines = [f"【订阅·{query}】刚刚采集到 {len(items)} 条新内容："]
@@ -99,49 +91,3 @@ def _build_fallback_digest(query: str, items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_event_fallback_digest(query: str, processed_events: list) -> str:
-    """事件型日报 LLM 重试用尽后的精简降级模板：仅展示 P0 / P1。
-
-    设计取舍：P2/P3 多是日常资讯噪音，LLM 挂了的时候硬塞进公告反而难读；
-    省略后让用户聚焦真正紧急的内容。当天没有 P0/P1 时只发简短提示。
-    """
-    if not processed_events:
-        return f"**风神·订阅日报【{query}】** 本次无新事件。"
-
-    critical = [e for e in processed_events if e.severity in ("p0", "p1")]
-    skipped = len(processed_events) - len(critical)
-
-    if not critical:
-        return (
-            f"**风神·订阅日报【{query}】**\n"
-            f"（LLM 合成失败 / 重试用尽 · 当日无 P0/P1 事件，"
-            f"P2 及以下 {skipped} 个事件已省略）"
-        )
-
-    rank = {"p0": 0, "p1": 1}
-    sorted_events = sorted(critical, key=lambda e: rank.get(e.severity, 4))
-
-    skipped_tag = f"，P2 及以下 {skipped} 个已省略" if skipped else ""
-    lines = [
-        f"**风神·订阅日报【{query}】**",
-        f"（LLM 合成失败 · 仅展示 P0+P1 共 {len(critical)} 个{skipped_tag}）",
-        "",
-    ]
-    for ev in sorted_events:
-        title = (ev.title or "(无标题)").strip()
-        sev_icon = {"p0": "🔴", "p1": "🟠"}.get(ev.severity, "⚠")
-        link = f"[{title}]({ev.first_url})" if ev.first_url else title
-        upgrade = (
-            "·升级" if (not ev.is_new and ev.severity_changed) else ""
-        )
-        sentiment_tag = (
-            f"·{ev.sentiment_label}"
-            if ev.sentiment_label and ev.sentiment_label != "neutral"
-            else ""
-        )
-        lines.append(
-            f"- {sev_icon} **[{ev.severity.upper()}{upgrade}{sentiment_tag}]** {link}"
-        )
-        if ev.summary:
-            lines.append(f"  {ev.summary[:120]}")
-    return "\n".join(lines)

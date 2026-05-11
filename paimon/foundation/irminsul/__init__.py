@@ -10,7 +10,6 @@ from .audit import AuditEntry
 from .authz import Authz
 from .dividend import ChangeEvent, ScoreSnapshot, WatchlistEntry
 from .dividend_event import DividendEvent
-from .feed_event import FeedEvent, is_severity_upgrade
 from .irminsul import Irminsul
 from .push_archive import PushArchiveRecord
 from .memory import Memory, MemoryMeta
@@ -43,7 +42,6 @@ __all__ = [
     "SessionRecord", "SessionMeta",
     "ScheduledTask",
     "SelfcheckRun",
-    "FeedEvent", "is_severity_upgrade",
     "PushArchiveRecord",
     "UserWatchEntry", "UserWatchPrice",
     "MihoyoAccount", "MihoyoNote", "MihoyoAbyss", "MihoyoGacha", "MihoyoCharacter",

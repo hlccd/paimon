@@ -124,7 +124,6 @@ irminsul/
 | `primogem/` | 原石：token 统计 + 花费聚合（费率表 + 缓存折扣） |
 | `selfcheck/_probes.py` | Quick 自检：9 组件秒级探针 |
 | `selfcheck/_deep.py` | Deep 自检：调 check skill（默认 selfcheck_deep_hidden=True 隐藏入口；保留代码） |
-| `digest/composer.py + prompts.py` | 通用摘要 prompt 工厂（venti/zhongli 都用） |
 | `model_router.py` | LLM profile 路由（按 component+purpose 选 profile） |
 
 ---
@@ -137,8 +136,7 @@ irminsul/
 
 | 子包/文件 | 神 | 业务 |
 |---|---|---|
-| `venti/` | 风神 | 订阅采集 cron + LLM digest（订阅型 + 事件型）+ `/feed` 面板 + 站点登录代理（_LoginMixin）；execute 内部已删 |
-| `venti_event/` | 风神 | L1 事件级舆情聚类（_LLM/_Process Mixin → EventClusterer） |
+| `venti/` | 风神 | topic_research 订阅采集 cron + `/feed` 面板 + 站点登录代理（_LoginMixin） |
 | `zhongli/` | 岩神 | 红利股扫描 + scorer + `/wealth` cron + watchlist + dividend cron；execute 内部已删 |
 | `furina/` | 水神 | namespace 壳（archon 本体 review 段已删）；FurinaGameService 在 `furina_game/` |
 | `furina_game/` | 水神 | 米哈游游戏（账号/签到/便笺/抽卡 + 6 mixin）；保留 |

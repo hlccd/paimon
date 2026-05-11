@@ -64,54 +64,38 @@ def register_task_types() -> None:
 
 
 def register_subscription_types() -> None:
-    """注册风神名下的订阅类型（订阅生命周期改造）。
+    """注册风神名下的订阅类型。
 
-    `manual`：用户手填关键词订阅（venti 特化版，含事件聚类 + p0 预警），
-    走原 _collect_subscription_impl 链路，行为完全不变。
+    `topic_research`：用户手填关键词订阅，跑 topic.research.py 拉 UGC 30 天调研，
+    覆盖式落 feed_topic_research 表，不累加 / 不聚类 / 不推送（与水神资讯同构）。
 
-    其他 archon 各自注册自己的 binding_kind（如水神 mihoyo_game）。
+    其他 archon 各自注册自己的 binding_kind（如水神 mihoyo_game / 岩神 stock_watch）。
     """
     from paimon.foundation import subscription_types
+    from paimon.archons.venti.topic_collect import run_topic_research_collect
 
-    async def _manual_collector(sub, state) -> None:
-        if not state.venti:
-            logger.error("[风神·订阅] archon 未就绪 sub={}", sub.id)
-            return
-        # 复用风神原版完整逻辑（含事件聚类 + p0 预警）
-        await state.venti._collect_subscription_impl(
-            sub.id,
-            irminsul=state.irminsul,
-            model=state.model,
-            march=state.march,
-        )
-
-    async def _desc_sub(sub, irminsul) -> str:
+    async def _desc_topic(sub, irminsul) -> str:
         return f"风神订阅：{sub.query or '未命名'}"
 
     subscription_types.register(subscription_types.SubscriptionTypeMeta(
-        binding_kind="manual",
+        binding_kind="topic_research",
         display_label="风神订阅",
         archon="venti",
         manager_panel="/feed",
-        collector=_manual_collector,
-        description_builder=_desc_sub,
+        collector=run_topic_research_collect,
+        description_builder=_desc_topic,
     ))
 
 
 async def run_web_search_collect(sub, state) -> None:
-    """通用 web-search collector（light 版，无事件聚类 / 无 p0 预警）。
+    """通用 web-search collector（light 版，给"业务实体衍生订阅"复用）。
 
-    水神 mihoyo_game / 未来岩神 stock_watch 等"业务实体衍生订阅"用此 collector：
+    岩神 stock_watch 用此 collector：
     搜 → 去重 → 落 feed_items → LLM digest（基于今日累计）→ ring_event 推送 →
     mark_pushed + 更新 last_run_at。
 
-    跟风神 _collect_subscription_impl 区别：
-    - 不做 venti_event 事件聚类（聚类是新闻舆情特性，业务订阅不需要）
-    - 不做 p0 预警分发
-    - source_label 用 sub.binding_kind + sub.binding_id 区分（不挤占风神命名空间）
-
-    需要 venti archon 实例提供 _run_web_search / _compose_digest 等私有 helper。
-    复用，不重复实现。
+    source_label 用 sub.binding_kind + sub.binding_id 区分（不挤占风神命名空间）。
+    依赖 venti archon 实例提供 _run_web_search / _compose_digest 等私有 helper。
     """
     if not state.venti or not state.irminsul or not state.march:
         logger.error("[订阅·light] state 未就绪 sub={}", sub.id)
@@ -174,7 +158,7 @@ async def run_web_search_collect(sub, state) -> None:
             len(new_items), len(results), sub.id,
         )
 
-    # Step 3: LLM digest（基于今日累计 feed_items，不走事件聚类路径）
+    # Step 3: LLM digest（基于今日累计 feed_items 综合）
     day_start, _ = today_local_bounds()
     today_items = await irminsul.feed_items_list(
         sub_id=sub.id, since=day_start, limit=500,
@@ -196,7 +180,11 @@ async def run_web_search_collect(sub, state) -> None:
         }
         for it in today_items
     ]
-    digest = await archon._compose_digest(sub.query, today_payload, model)
+    # LLM 标签按真实业务方打：actor 已在前面按 binding_kind 解析（如 stock_watch → '岩神'）
+    digest = await archon._compose_digest(
+        sub.query, today_payload, model,
+        component=actor, purpose="关注股日报",
+    )
 
     # Step 4: ring_event 推送（dedup_per_day=True 同 venti 原版）
     digest_id = uuid4().hex[:12]
