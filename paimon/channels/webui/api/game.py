@@ -391,6 +391,106 @@ async def game_subscriptions_run_api(channel, request: web.Request,
     return web.json_response({"ok": True, "message": "已触发，稍候刷新"})
 
 
+# ─── 水神·游戏资讯 + 角色搜索 ─────────────────────────────────
+
+# 走 character skill 跑 LLM 综合，30~60s 慢路径；前端 loading state 即可
+_CHAR_RESEARCH_TIMEOUT_S = 180
+
+# game 代号 → 中文名（搜索时拼前缀）
+_GAME_DISPLAY = {"gs": "原神", "sr": "崩坏:星穹铁道", "zzz": "绝区零"}
+
+
+async def game_news_latest_api(channel, request: web.Request) -> web.Response:
+    """拉指定 game 的最新一条资讯（覆盖式 mihoyo_game_news 表，每 game 一条）。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    game = (request.query.get("game") or "").strip()
+    if not game:
+        return web.json_response({"error": "missing game"}, status=400)
+    if not channel.state.irminsul:
+        return web.json_response({"news": None})
+    rec = await channel.state.irminsul.mihoyo_game_news_get(game)
+    return web.json_response({"news": rec})
+
+
+async def game_character_research_api(channel, request: web.Request) -> web.Response:
+    """跑 character skill 综合返 markdown。
+
+    body: {"game": "gs", "query": "尼可"}  →  后端拼成 "原神 尼可" 再调 character。
+    同步等待 LLM 跑完（30~60s + 主进程 LLM 综合，一般 60~120s 内）。
+    """
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    if not channel.state.model:
+        return web.json_response({"error": "model 未就绪"}, status=503)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid JSON"}, status=400)
+    game = (data.get("game") or "").strip()
+    raw_query = (data.get("query") or "").strip()[:50]
+    if not raw_query:
+        return web.json_response({"error": "query 必填"}, status=400)
+
+    # 后端自动拼游戏前缀（输入框里用户只输角色名）
+    game_name = _GAME_DISPLAY.get(game, "")
+    full_query = f"{game_name} {raw_query}".strip() if game_name else raw_query
+
+    logger.info(
+        "[水神·角色调研] 开始 game={} raw_query={!r} full_query={!r}",
+        game, raw_query, full_query,
+    )
+    import time as _time
+    t0 = _time.time()
+    try:
+        from paimon.shades._helpers.runner_helpers import invoke_skill_workflow
+        markdown = await invoke_skill_workflow(
+            skill_name="character",
+            user_message=full_query,
+            model=channel.state.model,
+            session_name=f"game-research-{int(t0)}",
+            component="character",
+            purpose="character",
+            allowed_tools={"exec"},
+        )
+    except Exception as e:
+        logger.error("[水神·角色调研] 调用失败 game={} query={!r} err={}", game, full_query, e)
+        return web.json_response({"error": str(e)[:300]}, status=500)
+    duration_s = int(_time.time() - t0)
+    logger.info(
+        "[水神·角色调研] 完成 game={} query={!r} duration={}s len={}",
+        game, full_query, duration_s, len(markdown or ""),
+    )
+    # 覆盖式落库（每 game 一条最新），刷新页面后还能看
+    # query 存 raw（不含游戏前缀），方便回填到输入框
+    if channel.state.irminsul and game and (markdown or "").strip():
+        try:
+            await channel.state.irminsul.mihoyo_character_research_upsert(
+                game, query=raw_query, markdown=markdown or "", duration_s=duration_s,
+            )
+        except Exception as e:
+            logger.warning("[水神·角色调研] 落库失败 game={} err={}", game, e)
+    # 返给前端的 query 用 raw（与缓存读回路径一致；前端只展示用户输入的角色名）
+    return web.json_response({
+        "markdown": markdown or "",
+        "query": raw_query,
+        "duration_s": duration_s,
+    })
+
+
+async def game_character_research_latest_api(channel, request: web.Request) -> web.Response:
+    """读取最近一次缓存（每 game 一条）。前端进 tab 时拉一次。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    game = (request.query.get("game") or "").strip()
+    if not game:
+        return web.json_response({"error": "game 必填"}, status=400)
+    if not channel.state.irminsul:
+        return web.json_response({"research": None})
+    rec = await channel.state.irminsul.mihoyo_character_research_get(game)
+    return web.json_response({"research": rec})
+
+
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     """注册 game 面板的 19 个路由。"""
     app.router.add_get("/game", lambda r, ch=channel: game_page(ch, r))
@@ -412,3 +512,6 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_get("/api/game/subscriptions", lambda r, ch=channel: game_subscriptions_list_api(ch, r))
     app.router.add_post("/api/game/subscriptions/{sub_id}/toggle", lambda r, ch=channel: game_subscriptions_toggle_api(ch, r))
     app.router.add_post("/api/game/subscriptions/{sub_id}/run", lambda r, ch=channel: game_subscriptions_run_api(ch, r))
+    app.router.add_get("/api/game/news/latest", lambda r, ch=channel: game_news_latest_api(ch, r))
+    app.router.add_post("/api/game/character_research", lambda r, ch=channel: game_character_research_api(ch, r))
+    app.router.add_get("/api/game/character_research/latest", lambda r, ch=channel: game_character_research_latest_api(ch, r))

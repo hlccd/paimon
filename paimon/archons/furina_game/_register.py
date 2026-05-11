@@ -104,10 +104,11 @@ def register_subscription_types() -> None:
     """注册水神·游戏名下的订阅类型。bootstrap 启动时调一次。
 
     `mihoyo_game`：绑定米哈游账号时由 ensure_mihoyo_subscriptions 自动建；
-    解绑时由 clear_mihoyo_subscriptions 清。collector 复用 venti.run_web_search_collect
-    （light 版，无事件聚类）。
+    解绑时由 clear_mihoyo_subscriptions 清。collector 走水神自家
+    `run_furina_news_collect`（topic 30 天 UGC + 覆盖式落 mihoyo_game_news 表，
+    不再走 venti SERP / 不再 push_archive 累加）。
     """
-    from paimon.archons.venti import run_web_search_collect
+    from paimon.archons.furina.news import run_furina_news_collect
     from paimon.foundation import subscription_types
 
     async def _desc(sub, irminsul) -> str:
@@ -118,7 +119,7 @@ def register_subscription_types() -> None:
         display_label="水神·游戏资讯",
         archon="furina",
         manager_panel="/game",
-        collector=run_web_search_collect,
+        collector=run_furina_news_collect,
         description_builder=_desc,
     ))
 

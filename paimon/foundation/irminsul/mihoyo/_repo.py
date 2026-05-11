@@ -379,6 +379,71 @@ class MihoyoRepo:
             for r in rows
         ]
 
+    # ─── 水神·游戏资讯（覆盖式，每 game 一条最新）────────────────
+    async def game_news_upsert(
+        self, game: str, *, markdown: str, sources: str, duration_s: int,
+    ) -> None:
+        """覆盖式写入：同 game 已有则替换。"""
+        await self._db.execute(
+            "INSERT INTO mihoyo_game_news (game, markdown, sources, duration_s, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(game) DO UPDATE SET "
+            "markdown=excluded.markdown, sources=excluded.sources, "
+            "duration_s=excluded.duration_s, updated_at=excluded.updated_at",
+            (game, markdown, sources, duration_s, int(time.time())),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树] 水神·游戏资讯 upsert game={} len={} duration={}s",
+            game, len(markdown), duration_s,
+        )
+
+    async def game_news_get(self, game: str) -> dict[str, Any] | None:
+        async with self._db.execute(
+            "SELECT game, markdown, sources, duration_s, updated_at "
+            "FROM mihoyo_game_news WHERE game=?",
+            (game,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "game": row[0], "markdown": row[1], "sources": row[2],
+            "duration_s": row[3], "updated_at": row[4],
+        }
+
+    # ─── 水神·角色搜索缓存（覆盖式，每 game 一条最新）────────────────
+    async def character_research_upsert(
+        self, game: str, *, query: str, markdown: str, duration_s: int,
+    ) -> None:
+        await self._db.execute(
+            "INSERT INTO mihoyo_character_research (game, query, markdown, duration_s, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(game) DO UPDATE SET "
+            "query=excluded.query, markdown=excluded.markdown, "
+            "duration_s=excluded.duration_s, updated_at=excluded.updated_at",
+            (game, query, markdown, duration_s, int(time.time())),
+        )
+        await self._db.commit()
+        logger.info(
+            "[世界树] 水神·角色搜索 upsert game={} query={} len={} duration={}s",
+            game, query, len(markdown), duration_s,
+        )
+
+    async def character_research_get(self, game: str) -> dict[str, Any] | None:
+        async with self._db.execute(
+            "SELECT game, query, markdown, duration_s, updated_at "
+            "FROM mihoyo_character_research WHERE game=?",
+            (game,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "game": row[0], "query": row[1], "markdown": row[2],
+            "duration_s": row[3], "updated_at": row[4],
+        }
+
     async def gacha_stats(self, game: str, uid: str, gacha_type: str) -> dict[str, Any]:
         """抽卡统计：总数、最高级数、保底计数、次级数、历次最高级（含每发抽数 + 歪/UP 标记）。
 

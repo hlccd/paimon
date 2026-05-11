@@ -283,6 +283,24 @@ CREATE TABLE IF NOT EXISTS mihoyo_gacha (
 CREATE INDEX IF NOT EXISTS idx_gacha_uid_type ON mihoyo_gacha(game, uid, gacha_type, time_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_gacha_rank ON mihoyo_gacha(game, uid, gacha_type, rank_type, time_ts DESC);
 
+-- 水神·游戏资讯（覆盖式，每 game 一条最新；走 topic 调研，不再 push_archive 按天累加）
+CREATE TABLE IF NOT EXISTS mihoyo_game_news (
+    game         TEXT PRIMARY KEY,        -- gs/sr/zzz
+    markdown     TEXT NOT NULL DEFAULT '', -- topic md 原文（前端直接渲染）
+    sources      TEXT NOT NULL DEFAULT '', -- 'bili,xhs'
+    duration_s   INTEGER NOT NULL DEFAULT 0,
+    updated_at   INTEGER NOT NULL DEFAULT 0
+);
+
+-- 水神·角色搜索缓存（覆盖式，每 game 一条最新；用户主动搜才更新）
+CREATE TABLE IF NOT EXISTS mihoyo_character_research (
+    game         TEXT PRIMARY KEY,        -- gs/sr/zzz
+    query        TEXT NOT NULL DEFAULT '', -- 用户输入的角色名
+    markdown     TEXT NOT NULL DEFAULT '', -- character skill md 原文
+    duration_s   INTEGER NOT NULL DEFAULT 0,
+    updated_at   INTEGER NOT NULL DEFAULT 0
+);
+
 -- ============ 域 10: 定时任务（三月）============
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id TEXT PRIMARY KEY,

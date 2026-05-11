@@ -32,7 +32,7 @@ class _CollectMixin:
         """订阅采集 dispatcher：按 sub.binding_kind 路由到对应 collector。
 
         - 'manual'（默认）→ 风神特化版（含事件聚类 + p0 预警，_collect_subscription_impl）
-        - 'mihoyo_game' → 水神 light 版（run_web_search_collect，无聚类）
+        - 'mihoyo_game' → 水神（run_furina_news_collect，topic 30 天 UGC + 覆盖式落表）
         - 其他 archon 注册的 binding_kind → 各自 collector
 
         旧链路（feed_collect ScheduledTask）由 bootstrap._on_march_ring 触发，

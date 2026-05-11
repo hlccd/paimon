@@ -248,3 +248,23 @@ class _FinanceMixin:
 
     async def mihoyo_character_list(self, game: str, uid: str) -> list[MihoyoCharacter]:
         return await self._mihoyo.character_list(game, uid)
+
+    async def mihoyo_game_news_upsert(
+        self, game: str, *, markdown: str, sources: str, duration_s: int,
+    ) -> None:
+        await self._mihoyo.game_news_upsert(
+            game, markdown=markdown, sources=sources, duration_s=duration_s,
+        )
+
+    async def mihoyo_game_news_get(self, game: str) -> dict | None:
+        return await self._mihoyo.game_news_get(game)
+
+    async def mihoyo_character_research_upsert(
+        self, game: str, *, query: str, markdown: str, duration_s: int,
+    ) -> None:
+        await self._mihoyo.character_research_upsert(
+            game, query=query, markdown=markdown, duration_s=duration_s,
+        )
+
+    async def mihoyo_character_research_get(self, game: str) -> dict | None:
+        return await self._mihoyo.character_research_get(game)

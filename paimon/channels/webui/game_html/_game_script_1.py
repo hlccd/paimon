@@ -152,8 +152,6 @@ GAME_SCRIPT_1 = """
             var pane = document.getElementById('tab-'+key);
             if(pane){ pane.classList.add('active'); }
             _fillTab(key);
-            // 切 tab 时同步订阅按钮状态（新渲染的卡可能 hydrate 还没跑过）
-            if(typeof _hydrateSubsBtns === 'function') _hydrateSubsBtns();
         };
 
         function _fillTab(key){
@@ -171,12 +169,16 @@ GAME_SCRIPT_1 = """
                         +'<br><br><button class="btn primary" onclick="openQrModal()">+ 扫码绑定</button></div>';
                     return;
                 }
-                pane.innerHTML = accs.map(_renderFullCard).join('');
+                // pane 顶部：水神资讯 + 角色搜索（替代原账号卡内的资讯订阅栏）
+                var furinaHtml = (typeof renderFurinaTabSection === 'function')
+                    ? renderFurinaTabSection(key) : '';
+                pane.innerHTML = furinaHtml + accs.map(_renderFullCard).join('');
+                // 异步拉该 game 最新资讯 + 角色搜索历史缓存
+                if(typeof loadFurinaNews === 'function') loadFurinaNews(key);
+                if(typeof loadFurinaCharacterLatest === 'function') loadFurinaCharacterLatest(key);
                 // 异步填每个账号的战报/抽卡（模拟展开效果）
                 accs.forEach(function(a){ _fillAccountDetail(a); });
             }
-            // 订阅按钮 hydrate（loadGameSubs 拉完后会 hydrate 占位的 ac-subs-btn）
-            if(typeof _hydrateSubsBtns === 'function') _hydrateSubsBtns();
         }
 
         function _renderStatusSub(){
@@ -213,17 +215,9 @@ GAME_SCRIPT_1 = """
                 + '    <button class="ac-toggle" onclick="switchGameTab(\\''+esc(a.game)+'\\')">看详细 →</button>'
                 + '  </div>'
                 + '</div>'
-                + '<div class="ac-news-line" data-news-line-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'">'
-                +   '<span class="news-toggle"><span class="dot"></span>加载中</span>'
-                +   '<span class="news-icon">📰</span>'
-                +   '<span class="news-text"><span class="meta">资讯订阅</span></span>'
-                +   '<button class="news-run" disabled>采集</button>'
-                + '</div>'
-                + '<div class="ac-news-pushes" data-pushes-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'"></div>'
                 + '</div>';
         }
 
-        // 总览只读汇总（_renderSummaryCard 用），游戏 tab 可展开（_renderFullCard 用，data-detailed="1"）
         function _renderFullCard(a){
             // 游戏 tab 用：顶部账号摘要 + 展开的详情区（便笺派遣 / 战报 / 抽卡 / 角色占位）
             var k = keyOf(a);
@@ -246,13 +240,6 @@ GAME_SCRIPT_1 = """
                 + '    <button class="btn tiny primary" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" onclick="gameSignOne(this)">签到</button>'
                 + '  </div>'
                 + '</div>'
-                + '<div class="ac-news-line" data-news-line-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'">'
-                +   '<span class="news-toggle"><span class="dot"></span>加载中</span>'
-                +   '<span class="news-icon">📰</span>'
-                +   '<span class="news-text"><span class="meta">资讯订阅</span></span>'
-                +   '<button class="news-run" disabled>采集</button>'
-                + '</div>'
-                + '<div class="ac-news-pushes" data-pushes-for="'+esc(k)+'" data-game="'+esc(a.game)+'" data-uid="'+esc(a.uid)+'" data-detailed="1"></div>'
                 + '<div class="ac-detail open" id="detail-'+esc(k)+'">加载中...</div>'
                 + '</div>';
         }
@@ -412,7 +399,7 @@ GAME_SCRIPT_1 = """
                 + '满级 <span class="num">'+maxLv+'</span>'
                 + '</div>';
 
-            // 单列 list：每行 icon + 名字+lv + 命+精 + 武器名
+            // 单列 list：每行 icon + 名字+lv + 命+精 + 武器名 + hover 角色调研按钮
             var rowsHtml = '<div class="char-list">' + visible.map(function(c){
                 var iconStyle = c.icon_url ? 'background-image:url('+esc(c.icon_url)+')' : '';
                 var ca = (c.constellation||0) + '+' + (c.weapon && c.weapon.rarity>=5 ? (c.weapon.affix||0) : 0);
@@ -428,6 +415,8 @@ GAME_SCRIPT_1 = """
                     +   '<span class="char-ca">'+ca+'</span></div>'
                     +   '<div class="char-line2 '+wpCls+'">'+(wpName?esc(wpName)+esc(wpLv):'<span class="muted">无武器</span>')+'</div>'
                     + '</div>'
+                    + '<button class="char-research-btn" title="查 '+esc(c.name)+' 的攻略 / 配队" '
+                    +     'onclick="furinaSearchFromChar(\\''+esc(a.game)+'\\',\\''+esc(c.name)+'\\')">🔍</button>'
                     + '</div>';
             }).join('') + '</div>';
 

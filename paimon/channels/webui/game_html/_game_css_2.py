@@ -59,7 +59,7 @@ GAME_CSS_2 = """        text-align: center; padding: 40px 20px; color: var(--tex
     /* 单列角色 list（每行一个，含武器名） */
     .char-list { display: flex; flex-direction: column; gap: 4px; }
     .char-row {
-        display: grid; grid-template-columns: 36px 1fr; gap: 8px; padding: 6px 8px;
+        display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; padding: 6px 8px;
         align-items: center; border-radius: 6px;
         background: rgba(0,0,0,.15); border-left: 2px solid var(--paimon-border);
     }
@@ -90,194 +90,118 @@ GAME_CSS_2 = """        text-align: center; padding: 40px 20px; color: var(--tex
     }
     .coming-soon .cs-title { color: var(--gold); font-size: 13px; margin-bottom: 6px; }
 
-    /* ========= 📰 游戏资讯订阅（总览卡资讯行 + 详情区完整控件）========= */
-    /* 总览卡资讯行：紧贴账号卡内部，单行显示状态+预览+立即采集 */
-    .ac-news-line {
-        display: grid;
-        grid-template-columns: auto auto 1fr auto;
-        gap: 10px; align-items: center;
-        margin: 0 18px 12px;
-        padding: 6px 10px;
-        background: var(--paimon-bg);
-        border-radius: 6px;
-        border-left: 2px solid var(--paimon-border);
-        font-size: 12px; color: var(--text-secondary);
-        transition: border-color .15s, background .15s;
-    }
-    .ac-news-line.on { border-left-color: var(--status-success); }
-    .ac-news-line.err { border-left-color: var(--status-error); background: rgba(239,68,68,.04); }
-    .ac-news-line.busy {
-        border-left-color: var(--gold);
-        background: rgba(245,158,11,.06);
-    }
-    .ac-news-line.busy .news-toggle {
-        color: var(--gold);
-    }
-    .ac-news-line.busy .news-toggle .dot {
-        background: var(--gold);
-        animation: news-pulse 1.2s ease-in-out infinite;
-    }
-    @keyframes news-pulse {
-        0%, 100% { opacity: 0.4; }
-        50% { opacity: 1; }
-    }
-    .ac-news-line .news-toggle {
-        display: inline-flex; align-items: center; gap: 5px;
-        cursor: pointer; user-select: none;
-        color: var(--text-muted); font-size: 11px;
-    }
-    .ac-news-line .news-toggle .dot {
-        width: 7px; height: 7px; border-radius: 50%;
-        background: var(--text-muted); transition: background .15s;
-    }
-    .ac-news-line.on .news-toggle { color: var(--status-success); }
-    .ac-news-line.on .news-toggle .dot { background: var(--status-success); }
-    .ac-news-line .news-icon { color: var(--gold); font-size: 12px; }
-    .ac-news-line .news-text {
-        color: var(--text-secondary);
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        min-width: 0;
-    }
-    .ac-news-line .news-text .meta { color: var(--text-muted); margin-right: 6px; }
-    .ac-news-line .news-text .title { color: var(--text-primary); }
-    .ac-news-line .news-text .err-msg { color: var(--status-error); }
-    .ac-news-line .news-run {
-        padding: 3px 10px; font-size: 11px;
-        background: transparent; color: var(--text-muted);
-        border: 1px solid var(--paimon-border); border-radius: 4px;
-        cursor: pointer; transition: border-color .15s, color .15s;
-    }
-    .ac-news-line .news-run:hover {
-        border-color: var(--gold-dark); color: var(--gold);
-    }
-    .ac-news-line .news-run:disabled { opacity: .5; cursor: progress; }
-
-    /* 详情卡专属：推送列表面板（仅游戏 tab 完整卡有，紧贴 ac-news-line 下方）*/
-    .ac-news-pushes:empty { display: none; }
-    .ac-news-pushes {
-        margin: 0 18px 14px;
-        padding: 10px 14px;
-        background: var(--paimon-bg);
-        border: 1px solid var(--paimon-border);
-        border-radius: 8px;
-    }
-    .news-pushes-head {
-        font-size: 12px; color: var(--text-secondary); font-weight: 600;
-        margin-bottom: 8px;
-    }
-    .news-pushes-list {
-        list-style: none; padding: 0; margin: 0;
-        display: flex; flex-direction: column; gap: 6px;
-    }
-    .news-push-item {
-        padding: 7px 10px;
-        background: var(--paimon-panel);
-        border-left: 2px solid var(--gold-dark);
-        border-radius: 0 4px 4px 0;
-    }
-    .news-push-head {
-        display: flex; align-items: baseline; gap: 8px;
-        margin-bottom: 3px;
-        overflow: hidden;
-    }
-    .news-push-time {
-        font-size: 11px; color: var(--text-muted);
-        font-family: 'SF Mono', Consolas, monospace; flex-shrink: 0;
-    }
-    .news-push-title {
-        font-size: 13px; color: var(--text-primary); font-weight: 500;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        flex: 1; min-width: 0;
-    }
-    /* 折叠交互（div + class.open，不用 native details 避免 md 内容污染） */
-    .news-pushes-hint {
-        font-size: 10px; color: var(--text-muted); font-weight: 400;
-        margin-left: 6px;
-    }
-    .news-push-item .news-push-body { display: none; }
-    .news-push-item.open .news-push-body { display: block; }
-    .news-push-item.open .news-push-head {
-        border-bottom: 1px solid var(--paimon-border);
-        padding-bottom: 6px; margin-bottom: 8px;
-    }
-    .news-push-head {
-        cursor: pointer; user-select: none;
-        display: flex; align-items: baseline; gap: 8px;
-    }
-    .news-push-arrow {
-        color: var(--gold); font-size: 10px;
-        transition: transform .15s;
-        flex-shrink: 0;
-    }
-    .news-push-item.open .news-push-arrow { transform: rotate(90deg); }
-
-    /* 总览汇总形态：极简列表 + 跳详情链接 */
-    .news-pushes-list-summary {
-        list-style: none; padding: 0; margin: 0;
-    }
-    .news-summary-row {
-        display: flex; gap: 10px; align-items: baseline;
-        padding: 4px 0;
-        font-size: 12px;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .news-summary-row .news-push-time {
-        color: var(--text-muted); flex-shrink: 0;
-        font-family: 'SF Mono', Consolas, monospace;
-    }
-    .news-summary-row .news-push-title {
-        color: var(--text-primary);
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        flex: 1; min-width: 0;
-    }
-    .news-more {
-        margin-top: 6px; padding-top: 6px;
-        border-top: 1px dashed var(--paimon-border);
-        text-align: right;
-    }
-    .news-more-link {
-        font-size: 11px; color: var(--gold); cursor: pointer;
-        user-select: none;
-    }
-    .news-more-link:hover { color: var(--gold-light); text-decoration: underline; }
-
-    /* markdown body 样式（同主聊天面板渲染风格）*/
-    .news-push-body.markdown-body {
+    /* markdown body 样式（通用 — 水神资讯 / 角色搜索 共用）*/
+    .markdown-body {
         font-size: 13px; color: var(--text-primary); line-height: 1.6;
         padding: 6px 4px;
     }
-    .news-push-body h1, .news-push-body h2, .news-push-body h3,
-    .news-push-body h4, .news-push-body h5, .news-push-body h6 {
+    .markdown-body h1, .markdown-body h2, .markdown-body h3,
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 {
         color: var(--gold); font-weight: 600;
         margin: 12px 0 6px; line-height: 1.3;
     }
-    .news-push-body h1 { font-size: 16px; }
-    .news-push-body h2 { font-size: 15px; }
-    .news-push-body h3 { font-size: 14px; }
-    .news-push-body h4, .news-push-body h5, .news-push-body h6 { font-size: 13px; }
-    .news-push-body p { margin: 6px 0; }
-    .news-push-body ul, .news-push-body ol { margin: 6px 0; padding-left: 22px; }
-    .news-push-body li { margin: 2px 0; }
-    .news-push-body a { color: var(--gold-light); text-decoration: underline; }
-    .news-push-body a:hover { color: var(--gold); }
-    .news-push-body code {
+    .markdown-body h1 { font-size: 16px; }
+    .markdown-body h2 { font-size: 15px; }
+    .markdown-body h3 { font-size: 14px; }
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-size: 13px; }
+    .markdown-body p { margin: 6px 0; }
+    .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 22px; }
+    .markdown-body li { margin: 2px 0; }
+    .markdown-body a { color: var(--gold-light); text-decoration: underline; }
+    .markdown-body a:hover { color: var(--gold); }
+    .markdown-body code {
         background: var(--paimon-bg); padding: 1px 5px; border-radius: 3px;
         font-family: 'SF Mono', Consolas, monospace; font-size: 12px;
         color: var(--gold-light);
     }
-    .news-push-body pre {
+    .markdown-body pre {
         background: var(--paimon-bg); padding: 8px 10px; border-radius: 5px;
         overflow-x: auto; margin: 6px 0;
     }
-    .news-push-body pre code {
+    .markdown-body pre code {
         background: transparent; padding: 0; color: var(--text-primary);
     }
-    .news-push-body blockquote {
+    .markdown-body blockquote {
         border-left: 3px solid var(--gold-dark);
         padding: 2px 10px; margin: 6px 0;
         color: var(--text-muted);
     }
-    .news-push-body strong { color: var(--text-primary); font-weight: 600; }
-    .news-push-body hr { border: none; border-top: 1px dashed var(--paimon-border); margin: 10px 0; }
+    .markdown-body strong { color: var(--text-primary); font-weight: 600; }
+    .markdown-body hr { border: none; border-top: 1px dashed var(--paimon-border); margin: 10px 0; }
+
+    /* ========= 水神·游戏资讯 + 角色搜索（嵌入各 game tab 顶部）========= */
+    .fr-section {
+        margin: 0 0 12px;
+        background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border);
+        border-radius: 8px;
+        padding: 8px 12px;
+    }
+    .fr-body { display: flex; gap: 0; min-height: 140px; }
+    .fr-col { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 10px; }
+    .fr-col-news { padding-left: 0; }
+    .fr-col-search {
+        padding-right: 0;
+        border-left: 1px dashed var(--paimon-border);
+    }
+    .fr-col-title {
+        font-size: 12px; font-weight: 600; color: var(--text-primary);
+        margin-bottom: 4px; padding-bottom: 3px;
+        border-bottom: 1px dashed var(--paimon-border);
+        display: flex; align-items: baseline;
+    }
+    .fr-col-hint {
+        font-weight: 400; color: var(--text-muted); margin-left: auto; font-size: 10px;
+    }
+    .fr-col-scroll {
+        flex: 1; overflow-y: auto; max-height: 28vh;
+        padding: 2px 4px 2px 0;
+        font-size: 12px; line-height: 1.5; color: var(--text-secondary);
+    }
+    .fr-col-scroll.markdown-body { padding: 2px 4px 2px 0; }
+    .fr-col-scroll .markdown-body { padding: 0; }
+    .fr-empty {
+        padding: 14px 10px; text-align: center;
+        color: var(--text-muted); font-style: italic;
+        line-height: 1.55; font-size: 12px;
+    }
+    .fr-empty-icon {
+        display: block; font-size: 20px; opacity: .55;
+        margin-bottom: 4px; font-style: normal;
+    }
+    .fr-search-bar { display: flex; gap: 6px; margin-bottom: 6px; }
+    .fr-search-input {
+        flex: 1; min-width: 0; padding: 5px 9px;
+        background: var(--paimon-bg-deep); color: var(--text-primary);
+        border: 1px solid var(--paimon-border); border-radius: 5px;
+        font-size: 12px;
+    }
+    .fr-search-input:focus { outline: none; border-color: var(--gold-dark); }
+    .fr-search-input::placeholder { color: var(--text-muted); }
+    .fr-result-meta {
+        font-size: 10px; color: var(--text-muted); font-style: italic;
+        margin-bottom: 6px; padding-bottom: 4px;
+        border-bottom: 1px dashed var(--paimon-border);
+    }
+
+    /* char-row 永久显示的 🔍 按钮（grid 第三列 auto） */
+    .char-research-btn {
+        background: transparent;
+        border: 1px solid var(--paimon-border);
+        border-radius: 4px;
+        width: 26px; height: 26px;
+        font-size: 13px; line-height: 1;
+        cursor: pointer;
+        color: var(--text-muted);
+        transition: all .15s;
+    }
+    .char-research-btn:hover {
+        background: var(--gold-dark); color: var(--paimon-bg);
+        border-color: var(--gold);
+    }
+    .char-row:hover .char-research-btn {
+        color: var(--gold);
+        border-color: var(--gold-dark);
+    }
 
 """
