@@ -105,10 +105,14 @@ async def run_furina_news_collect(sub, state) -> None:
         return
 
     duration_s = int(time.time() - t0)
+    # topic brief 设计是"给 LLM 当原料用"：Top N 段 + 各源采集情况段，标题
+    # 大量重叠。水神资讯无 LLM 综合步骤，截掉各源采集段，避免前端展示双标题。
+    idx = markdown.find("## 各源采集情况")
+    display_md = markdown[:idx].rstrip() + "\n" if idx >= 0 else markdown
 
     try:
         await irminsul.mihoyo_game_news_upsert(
-            game=game, markdown=markdown, sources="bili,xhs", duration_s=duration_s,
+            game=game, markdown=display_md, sources="bili,xhs", duration_s=duration_s,
         )
     except Exception as e:
         logger.error("[水神·资讯] 落库失败 game={} err={}", game, e)
