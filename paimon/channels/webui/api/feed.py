@@ -20,9 +20,15 @@ async def feed_page(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.Response(text=channel._get_login_html(), content_type="text/html")
 
-    from paimon.channels.webui.feed_html import build_feed_html
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=build_feed_html(),
+        text=render_warm_page(
+            title="订阅",
+            content_template="feed",
+            active="feed",
+            extra_css='<link rel="stylesheet" href="/static/css/feed.css">',
+            extra_js='<script src="/static/js/feed.js"></script>',
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )

@@ -1,290 +1,6 @@
-"""风神 · 信息流面板
+/* feed 页脚本 — 风神订阅 + 今日热点 + 近期回顾 + 订阅管理 + 站点登录 */
 
-两个 tab:
-- 订阅管理：订阅列表 + 新增表单 + 启停/删/手动运行
-- 信息流：feed_items 时间倒序，可按订阅过滤
-"""
-
-from paimon.channels.webui.theme import (
-    THEME_COLORS, BASE_CSS, NAVIGATION_CSS, NAV_LINKS_CSS, navigation_html,
-)
-
-
-FEED_CSS = """
-    body { min-height: 100vh; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-    .page-header h1 { font-size: 24px; color: var(--text-primary); font-weight: 600; }
-    .page-header .sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
-    .refresh-btn {
-        padding: 8px 16px; background: var(--paimon-panel-light); color: var(--text-secondary);
-        border: 1px solid var(--paimon-border); border-radius: 6px; cursor: pointer; font-size: 13px;
-    }
-    .refresh-btn:hover { border-color: var(--gold-dark); color: var(--gold); }
-
-    .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--paimon-border); }
-    .tab-btn {
-        padding: 10px 20px; background: transparent; border: none; color: var(--text-muted);
-        cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent;
-    }
-    .tab-btn:hover { color: var(--text-primary); }
-    .tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-
-    /* 订阅管理 tab */
-    .sub-form {
-        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 10px; padding: 20px; margin-bottom: 24px;
-    }
-    .sub-form h3 { font-size: 16px; color: var(--text-primary); margin-bottom: 12px; }
-    .form-row { display: grid; grid-template-columns: 2.5fr 1fr 130px auto; gap: 12px; align-items: end; }
-    .form-field label { display: block; color: var(--text-muted); font-size: 12px; margin-bottom: 4px; }
-    .form-field input, .form-field select {
-        width: 100%; padding: 8px 12px; background: var(--paimon-bg);
-        border: 1px solid var(--paimon-border); border-radius: 6px;
-        color: var(--text-primary); font-size: 14px;
-    }
-    .form-field input:focus, .form-field select:focus { outline: none; border-color: var(--gold); }
-    .btn-primary {
-        padding: 9px 20px; background: linear-gradient(135deg, var(--gold), var(--gold-light));
-        color: #000; border: none; border-radius: 6px; cursor: pointer;
-        font-size: 14px; font-weight: 600;
-    }
-    .form-hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
-
-    .sub-list { display: flex; flex-direction: column; gap: 12px; }
-    .sub-card {
-        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 10px; padding: 14px 18px;
-        display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start;
-    }
-    .sub-card.disabled { opacity: .55; }
-    /* 方案 D：从 /tasks 面板跳来时高亮对应订阅卡 2 秒 */
-    .sub-card.highlight-flash {
-        animation: sub-flash 2s ease-out;
-        border-color: var(--gold);
-    }
-    @keyframes sub-flash {
-        0%   { background: rgba(245,158,11,.18); box-shadow: 0 0 0 3px rgba(245,158,11,.35); }
-        100% { background: var(--paimon-panel); box-shadow: none; }
-    }
-    .sub-info .sub-query { font-size: 16px; color: var(--text-primary); font-weight: 500; margin-bottom: 4px; }
-    .sub-info .sub-meta { font-size: 12px; color: var(--text-muted); }
-    .sub-info .sub-meta span { margin-right: 12px; }
-    .sub-info .sub-err { color: var(--status-error); font-size: 12px; margin-top: 4px; }
-
-    /* 今日热点 / 近期回顾 区（4 tab 各一个独立 section）*/
-    .hotspot-section {
-        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
-        border-radius: 10px; padding: 14px 18px;
-    }
-    .hotspot-head {
-        display: flex; align-items: center; gap: 10px;
-        margin-bottom: 10px; padding-bottom: 10px;
-        border-bottom: 1px dashed var(--paimon-border);
-    }
-    .hotspot-meta {
-        flex: 1; font-size: 13px; color: var(--text-primary); font-weight: 500;
-    }
-    .hotspot-section select {
-        padding: 4px 10px; background: var(--paimon-bg);
-        border: 1px solid var(--paimon-border); border-radius: 4px;
-        color: var(--text-primary); font-size: 12px;
-    }
-    .hotspot-body {
-        padding: 4px 0;
-    }
-
-    /* topic_research 订阅卡的 markdown 内容区 */
-    .topic-research-md {
-        margin-top: 10px; padding: 10px 14px;
-        background: var(--paimon-bg-deep); border: 1px solid var(--paimon-border);
-        border-radius: 6px; max-height: 40vh; overflow-y: auto;
-        transition: max-height .2s ease, padding .2s ease;
-    }
-    .topic-research-md.folded {
-        max-height: 0; padding: 0 14px; overflow: hidden; border: none; margin-top: 0;
-    }
-    .topic-md-body { font-size: 13px; line-height: 1.6; color: var(--text-primary); }
-    .topic-md-body h1 { font-size: 15px; color: var(--gold); margin: 8px 0 4px; }
-    .topic-md-body h2 { font-size: 14px; color: var(--gold); margin: 10px 0 4px; }
-    .topic-md-body p { margin: 4px 0; }
-    .topic-md-body ol, .topic-md-body ul { margin: 4px 0; padding-left: 22px; }
-    .topic-md-body li { margin: 2px 0; }
-    .topic-md-body a { color: var(--gold-light); text-decoration: underline; }
-    .topic-md-body a:hover { color: var(--gold); }
-    .topic-md-body blockquote {
-        border-left: 3px solid var(--gold-dark); padding: 2px 10px;
-        margin: 6px 0; color: var(--text-muted);
-    }
-    .topic-md-body strong { color: var(--text-primary); font-weight: 600; }
-
-    .sub-actions { display: flex; gap: 8px; }
-    .btn-action {
-        padding: 6px 12px; background: var(--paimon-panel-light); color: var(--text-secondary);
-        border: 1px solid var(--paimon-border); border-radius: 4px; cursor: pointer; font-size: 12px;
-    }
-    .btn-action:hover { color: var(--gold); border-color: var(--gold-dark); }
-    .btn-action.danger:hover { color: var(--status-error); border-color: var(--status-error); }
-
-    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 14px; }
-    .badge {
-        display: inline-block; padding: 2px 8px; border-radius: 4px;
-        font-size: 11px; font-weight: 500;
-    }
-    .badge-enabled { background: rgba(16,185,129,.15); color: var(--status-success); }
-    .badge-disabled { background: rgba(239,68,68,.15); color: var(--status-error); }
-    .badge-running {
-        background: rgba(255,180,80,.12); color: var(--gold);
-        border: 1px solid rgba(255,180,80,.35);
-        display: inline-flex; align-items: center; gap: 5px;
-    }
-    .badge-running::before {
-        content: ''; width: 7px; height: 7px; border-radius: 50%;
-        background: var(--gold);
-        animation: paimon-pulse 1.1s ease-in-out infinite;
-    }
-    @keyframes paimon-pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: .35; transform: scale(.65); }
-    }
-    .btn-action:disabled { opacity: .6; cursor: wait; }
-
-    /* 站点登录区 */
-    .site-row { display:flex; align-items:center; padding:12px 16px; border-radius:10px; background:var(--paimon-panel); margin-bottom:8px; border:1px solid var(--paimon-border); }
-    .site-row .site-name { flex: 0 0 120px; font-weight:600; color:var(--text-primary); }
-    .site-row .site-status { flex:1; color:var(--text-secondary); font-size:13px; }
-    .site-row .site-status.ok { color:var(--status-success); }
-    .site-row .site-status.warn { color:var(--status-warning); }
-    .site-row .site-action button { padding:6px 14px; border-radius:6px; cursor:pointer; border:1px solid var(--paimon-border); background:transparent; color:var(--gold); font-size:13px; }
-    .site-row .site-action button:hover { background:var(--gold); color:var(--paimon-bg); }
-
-    /* 登录扫码 modal */
-    .qr-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; z-index:9999; }
-    .qr-modal-box { background:var(--paimon-panel); border:1px solid var(--paimon-border); border-radius:12px; min-width:340px; max-width:520px; padding:0; box-shadow:0 8px 32px rgba(0,0,0,.5); }
-    .qr-modal-header { padding:14px 18px; border-bottom:1px solid var(--paimon-border); display:flex; justify-content:space-between; align-items:center; font-weight:600; color:var(--text-primary); }
-    .qr-modal-close { background:none; border:0; font-size:22px; line-height:1; color:var(--text-secondary); cursor:pointer; }
-    .qr-modal-close:hover { color:var(--text-primary); }
-    .qr-modal-body { padding:18px; min-height:280px; display:flex; align-items:center; justify-content:center; color:var(--text-secondary); background:#fff; }
-    .qr-modal-body img { max-width:100%; max-height:480px; border-radius:6px; image-rendering: crisp-edges; }
-    .qr-modal-footer { padding:10px 18px; border-top:1px solid var(--paimon-border); font-size:13px; color:var(--text-muted); text-align:center; }
-"""
-
-
-FEED_BODY = """
-    <div class="container">
-        <div class="page-header">
-            <div>
-                <h1>🔔 订阅</h1>
-                <div class="sub">每天定时跑 topic UGC 调研（B 站 + 小红书 + 知乎 + 贴吧 + 微博）· 覆盖式快照</div>
-            </div>
-            <button class="refresh-btn" onclick="refreshAll()">刷新</button>
-        </div>
-
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('hotspot',this)">📰 今日热点</button>
-            <button class="tab-btn" onclick="switchTab('weekly',this)">📅 近期回顾</button>
-            <button class="tab-btn" onclick="switchTab('subs',this)">🔔 订阅管理</button>
-            <button class="tab-btn" onclick="switchTab('login',this)">🔑 站点登录</button>
-        </div>
-
-        <!-- Tab 1: 今日热点 -->
-        <div id="hotspot" class="tab-panel active">
-            <div class="hotspot-section">
-                <div class="hotspot-head">
-                    <span class="hotspot-meta" id="hotspotMeta">加载中...</span>
-                    <select id="hotspotPicker" onchange="onHotspotPick()" style="display:none"></select>
-                    <button class="btn-action" id="hotspotRunBtn" onclick="runHotspot()">▶ 立即跑</button>
-                </div>
-                <div class="hotspot-body" id="hotspotBody">
-                    <div class="empty-state" style="padding:20px;font-size:13px">加载中...</div>
-                </div>
-            </div>
-            <div class="form-hint" style="margin-top:8px">
-                cron 每天 11:00 / 17:00 自动跑两次（6 源 UGC：B 站+小红书+知乎+贴吧+微博+HackerNews · LLM 综合排序）
-            </div>
-        </div>
-
-        <!-- Tab 2: 近期回顾 -->
-        <div id="weekly" class="tab-panel">
-            <div class="hotspot-section" id="weeklySection">
-                <div class="hotspot-head">
-                    <span class="hotspot-meta" id="weeklyMeta">加载中...</span>
-                    <button class="btn-action" id="weeklyRunBtn" onclick="runWeekly()">▶ 立即跑</button>
-                </div>
-                <div class="hotspot-body" id="weeklyBody">
-                    <div class="empty-state" style="padding:20px;font-size:13px">加载中...</div>
-                </div>
-            </div>
-            <div class="form-hint" style="margin-top:8px">
-                cron 每周六 10:00 跑一次（汇总采集日往前 7 天的 daily 热点，跨日合并 + LLM 综合）
-            </div>
-        </div>
-
-        <!-- Tab 3: 订阅管理 -->
-        <div id="subs" class="tab-panel">
-            <div class="sub-form">
-                <h3>新增订阅</h3>
-                <div class="form-row">
-                    <div class="form-field" style="flex:2">
-                        <label>关键词</label>
-                        <input id="formQuery" placeholder="例: Claude 4.7 新特性" />
-                    </div>
-                    <div class="form-field">
-                        <label>触发频率</label>
-                        <select id="formCronMode" onchange="onCronModeChange()">
-                            <option value="daily" selected>每天</option>
-                            <option value="weekday">工作日</option>
-                            <option value="custom">自定义 cron</option>
-                        </select>
-                    </div>
-                    <div class="form-field" id="formCronTimeWrap">
-                        <label>时间</label>
-                        <input id="formCronTime" type="time" value="07:00" step="60" />
-                    </div>
-                    <div class="form-field" id="formCronCustomWrap" style="display:none">
-                        <label>cron</label>
-                        <input id="formCron" placeholder="0 7 * * *" />
-                    </div>
-                    <button class="btn-primary" onclick="createSub()">创建订阅</button>
-                </div>
-                <div class="form-hint">默认每天 7:00 跑一次（5 源 UGC 30 天调研，覆盖式刷新最新一份）</div>
-            </div>
-            <div id="subListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
-        </div>
-
-        <!-- Tab 4: 站点登录 -->
-        <div id="login" class="tab-panel">
-            <div class="form-hint" style="margin-bottom:12px">
-                topic 调研需要的各站 cookies 在这里扫码取得（B 站免登录，知乎 / 小红书 / 微博 / 贴吧 / 虎扑 / TapTap 需要登录态）。
-                cookies 落到 <code>~/.paimon/cookies/&lt;site&gt;.json</code>，3-12 个月失效后回这里重扫。
-            </div>
-            <div id="loginListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
-        </div>
-    </div>
-
-    <!-- 扫码登录 modal -->
-    <div id="qrModal" class="qr-modal-backdrop" style="display:none" onclick="if(event.target.id==='qrModal')closeQrModal()">
-        <div class="qr-modal-box">
-            <div class="qr-modal-header">
-                <span id="qrModalTitle">扫码登录</span>
-                <button class="qr-modal-close" onclick="closeQrModal()">×</button>
-            </div>
-            <div class="qr-modal-body" id="qrModalBody">
-                <div class="empty-state">启动浏览器中...</div>
-            </div>
-            <div class="qr-modal-footer" id="qrModalFooter">
-                <span id="qrModalStatus">pending</span>
-            </div>
-        </div>
-    </div>
-"""
-
-
-FEED_SCRIPT = """
-    <script>
-    (function(){
+(function(){
         function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):'';}
         function fmtTime(ts){
             if(!ts||ts<=0)return'-';
@@ -388,7 +104,7 @@ FEED_SCRIPT = """
             var sourcesFail = _hotspotCurrent.sources_fail
                 ? ' · 失败: '+_hotspotCurrent.sources_fail : '';
             meta.innerHTML = esc(_hotspotCurrent.capture_date)
-                + '<span style="margin-left:8px;color:var(--text-muted);font-size:11px">'
+                + '<span style="margin-left:8px;color:var(--pm-text-muted);font-size:11px">'
                 + esc('上次更新 '+ts+' · 源: '+sourcesOk+sourcesFail) + '</span>';
 
             var md = _hotspotCurrent.markdown || '';
@@ -470,14 +186,14 @@ FEED_SCRIPT = """
                     var err=s.last_error?'<div class="sub-err">⚠ '+esc(s.last_error.substring(0,160))+'</div>':'';
                     var runBtn=s.running
                         ? '<button class="btn-action" disabled>采集中…</button>'
-                        : '<button class="btn-action" onclick="runSub(\\''+s.id+'\\')">▶ 运行</button>';
+                        : '<button class="btn-action" onclick="runSub(\''+s.id+'\')">▶ 运行</button>';
                     var actions = '<div class="sub-actions">'
                         + runBtn
                         + (s.enabled
-                              ? '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',false)">⏸ 停用</button>'
-                              : '<button class="btn-action" onclick="toggleSub(\\''+s.id+'\\',true)">▶ 启用</button>')
-                        + '<button class="btn-action danger" onclick="delSub(\\''+s.id+'\\')">✕ 删除</button>'
-                        + '<button class="btn-action" onclick="toggleMdFold(\\''+s.id+'\\',this)" title="折叠/展开内容">▼</button>'
+                              ? '<button class="btn-action" onclick="toggleSub(\''+s.id+'\',false)">⏸ 停用</button>'
+                              : '<button class="btn-action" onclick="toggleSub(\''+s.id+'\',true)">▶ 启用</button>')
+                        + '<button class="btn-action danger" onclick="delSub(\''+s.id+'\')">✕ 删除</button>'
+                        + '<button class="btn-action" onclick="toggleMdFold(\''+s.id+'\',this)" title="折叠/展开内容">▼</button>'
                         + '</div>';
                     return '<div class="'+cls+'" id="sub-'+esc(s.id)+'" data-sub-id="'+esc(s.id)+'">'
                         + '<div class="sub-info">'
@@ -731,7 +447,7 @@ FEED_SCRIPT = """
             var re = _weeklyCurrent.range_end || _defaultRange().end;
             var dailyN = _weeklyCurrent.daily_count || 0;
             meta.innerHTML = esc('近期回顾 · '+rs+' ~ '+re)
-                + '<span style="margin-left:8px;color:var(--text-muted);font-size:11px">'
+                + '<span style="margin-left:8px;color:var(--pm-text-muted);font-size:11px">'
                 + esc('已合 '+dailyN+'/14 次 daily · '+fmtTime(_weeklyCurrent.updated_at))
                 + '</span>';
 
@@ -786,14 +502,14 @@ FEED_SCRIPT = """
                     if(s.requires_login === false){
                         // 免登录站点（B 站走官方 search API 不需要 cookies）
                         statusHtml = '<span class="site-status ok">🌐 无需 cookies（公开 API）</span>';
-                        actionHtml = '<span style="color:var(--text-muted);font-size:12px">已支持</span>';
+                        actionHtml = '<span style="color:var(--pm-text-muted);font-size:12px">已支持</span>';
                     } else if(s.configured){
                         var age = s.age_days != null ? s.age_days : '?';
                         statusHtml = '<span class="site-status ok">✅ 已配置　<small>' + age + ' 天前</small></span>';
-                        actionHtml = '<button onclick="startSiteLogin(\\'' + s.site + '\\',\\'' + esc(s.display_name) + '\\')">续期</button>';
+                        actionHtml = '<button onclick="startSiteLogin(\'' + s.site + '\',\'' + esc(s.display_name) + '\')">续期</button>';
                     } else {
                         statusHtml = '<span class="site-status warn">⚪ 未配置</span>';
-                        actionHtml = '<button onclick="startSiteLogin(\\'' + s.site + '\\',\\'' + esc(s.display_name) + '\\')">扫码登录</button>';
+                        actionHtml = '<button onclick="startSiteLogin(\'' + s.site + '\',\'' + esc(s.display_name) + '\')">扫码登录</button>';
                     }
                     return '<div class="site-row">' +
                         '<div class="site-name">' + esc(s.display_name) + '</div>' +
@@ -859,7 +575,7 @@ FEED_SCRIPT = """
                         '<input id="smsCodeInput" type="text" inputmode="numeric" maxlength="8" placeholder="短信验证码" ' +
                             'style="padding:8px 10px;border:1px solid #bbb;border-radius:6px;font-size:15px" />' +
                         '<button id="smsSubmitBtn" onclick="submitSms()" ' +
-                            'style="padding:8px 12px;border:0;border-radius:6px;background:var(--gold);color:#000;cursor:pointer;font-weight:600">' +
+                            'style="padding:8px 12px;border:0;border-radius:6px;background:var(--pm-primary);color:#000;cursor:pointer;font-weight:600">' +
                             '提交验证码</button>' +
                     '</div>';
                 setTimeout(function(){
@@ -961,32 +677,3 @@ FEED_SCRIPT = """
 
         window.loadLoginOverview = loadLoginOverview;
     })();
-    </script>
-"""
-
-
-def build_feed_html() -> str:
-    return (
-        """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paimon - 信息流</title>
-    <!-- topic_research 订阅卡 markdown 渲染（同 game / chat 面板） -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>"""
-        + THEME_COLORS
-        + BASE_CSS
-        + NAVIGATION_CSS
-        + NAV_LINKS_CSS
-        + FEED_CSS
-        + """</style>
-</head>
-<body>"""
-        + navigation_html("feed")
-        + FEED_BODY
-        + FEED_SCRIPT
-        + """</body>
-</html>"""
-    )

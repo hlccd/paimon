@@ -1,0 +1,106 @@
+        <div class="dash-page-header">
+  <div>
+    <h1 class="dash-page-title"><span data-icon="bell"></span>订阅</h1>
+    <p class="dash-page-subtitle">topic UGC 多源调研 + 每日热点 + 近期回顾（风神管辖）</p>
+  </div>
+  <div>
+    <button class="refresh-btn" onclick="refreshAll()">刷新</button>
+  </div>
+</div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('hotspot',this)">📰 今日热点</button>
+            <button class="tab-btn" onclick="switchTab('weekly',this)">📅 近期回顾</button>
+            <button class="tab-btn" onclick="switchTab('subs',this)">🔔 订阅管理</button>
+            <button class="tab-btn" onclick="switchTab('login',this)">🔑 站点登录</button>
+        </div>
+
+        <!-- Tab 1: 今日热点 -->
+        <div id="hotspot" class="tab-panel active">
+            <div class="hotspot-section">
+                <div class="hotspot-head">
+                    <span class="hotspot-meta" id="hotspotMeta">加载中...</span>
+                    <select id="hotspotPicker" onchange="onHotspotPick()" style="display:none"></select>
+                    <button class="btn-action" id="hotspotRunBtn" onclick="runHotspot()">▶ 立即跑</button>
+                </div>
+                <div class="hotspot-body" id="hotspotBody">
+                    <div class="empty-state" style="padding:20px;font-size:13px">加载中...</div>
+                </div>
+            </div>
+            <div class="form-hint" style="margin-top:8px">
+                cron 每天 11:00 / 17:00 自动跑两次（6 源 UGC：B 站+小红书+知乎+贴吧+微博+HackerNews · LLM 综合排序）
+            </div>
+        </div>
+
+        <!-- Tab 2: 近期回顾 -->
+        <div id="weekly" class="tab-panel">
+            <div class="hotspot-section" id="weeklySection">
+                <div class="hotspot-head">
+                    <span class="hotspot-meta" id="weeklyMeta">加载中...</span>
+                    <button class="btn-action" id="weeklyRunBtn" onclick="runWeekly()">▶ 立即跑</button>
+                </div>
+                <div class="hotspot-body" id="weeklyBody">
+                    <div class="empty-state" style="padding:20px;font-size:13px">加载中...</div>
+                </div>
+            </div>
+            <div class="form-hint" style="margin-top:8px">
+                cron 每周六 10:00 跑一次（汇总采集日往前 7 天的 daily 热点，跨日合并 + LLM 综合）
+            </div>
+        </div>
+
+        <!-- Tab 3: 订阅管理 -->
+        <div id="subs" class="tab-panel">
+            <div class="sub-form">
+                <h3>新增订阅</h3>
+                <div class="form-row">
+                    <div class="form-field" style="flex:2">
+                        <label>关键词</label>
+                        <input id="formQuery" placeholder="例: Claude 4.7 新特性" />
+                    </div>
+                    <div class="form-field">
+                        <label>触发频率</label>
+                        <select id="formCronMode" onchange="onCronModeChange()">
+                            <option value="daily" selected>每天</option>
+                            <option value="weekday">工作日</option>
+                            <option value="custom">自定义 cron</option>
+                        </select>
+                    </div>
+                    <div class="form-field" id="formCronTimeWrap">
+                        <label>时间</label>
+                        <input id="formCronTime" type="time" value="07:00" step="60" />
+                    </div>
+                    <div class="form-field" id="formCronCustomWrap" style="display:none">
+                        <label>cron</label>
+                        <input id="formCron" placeholder="0 7 * * *" />
+                    </div>
+                    <button class="btn-primary" onclick="createSub()">创建订阅</button>
+                </div>
+                <div class="form-hint">默认每天 7:00 跑一次（5 源 UGC 30 天调研，覆盖式刷新最新一份）</div>
+            </div>
+            <div id="subListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
+        </div>
+
+        <!-- Tab 4: 站点登录 -->
+        <div id="login" class="tab-panel">
+            <div class="form-hint" style="margin-bottom:12px">
+                topic 调研需要的各站 cookies 在这里扫码取得（B 站免登录，知乎 / 小红书 / 微博 / 贴吧 / 虎扑 / TapTap 需要登录态）。
+                cookies 落到 <code>~/.paimon/cookies/&lt;site&gt;.json</code>，3-12 个月失效后回这里重扫。
+            </div>
+            <div id="loginListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
+        </div>
+    </div>
+
+    <!-- 扫码登录 modal -->
+    <div id="qrModal" class="qr-modal-backdrop" style="display:none" onclick="if(event.target.id==='qrModal')closeQrModal()">
+        <div class="qr-modal-box">
+            <div class="qr-modal-header">
+                <span id="qrModalTitle">扫码登录</span>
+                <button class="qr-modal-close" onclick="closeQrModal()">×</button>
+            </div>
+            <div class="qr-modal-body" id="qrModalBody">
+                <div class="empty-state">启动浏览器中...</div>
+            </div>
+            <div class="qr-modal-footer" id="qrModalFooter">
+                <span id="qrModalStatus">pending</span>
+            </div>
+        </div>
