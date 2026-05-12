@@ -1,0 +1,145 @@
+/* Paimon Design Tokens — 清冷风（slate 系冷灰 + 月影白衍生底 + blue accent）
+ * 调性：专业 / 职能 / 整洁 / 美观 / 易用 / 优雅 / 清冷 */
+
+:root {
+  /* ── 背景 ─────────────────────────────────────── */
+  --pm-bg-page:    #E5E8E7;  /* 月影白衍生主底，明度 91%，比纯白多一份冷灰工具感 */
+  --pm-bg-card:    #FFFFFF;  /* 卡片层 — 浮在主底上拉层次 */
+  --pm-bg-input:   #FFFFFF;
+  --pm-bg-hover:   #DCDFDE;  /* hover/列表项 */
+  --pm-bg-active:  #D4D8D7;
+  --pm-bg-subtle:  #EEF1F0;  /* 次级面板（介于 page/card 之间）*/
+  --pm-bg-overlay: rgba(15, 23, 42, 0.4);  /* modal 遮罩 */
+
+  /* ── 边框（同色相递进）──────────────────────── */
+  --pm-border:        #C8CCCB;
+  --pm-border-strong: #A8ADAC;
+  --pm-border-focus:  #2563EB;
+
+  /* ── 文字（slate 系冷调）───────────────────── */
+  --pm-text-primary:    #0F172A;  /* slate-900 */
+  --pm-text-secondary:  #475569;  /* slate-600 */
+  --pm-text-muted:      #94A3B8;  /* slate-400 */
+  --pm-text-on-primary: #FFFFFF;  /* 主色按钮上的文字 */
+  --pm-text-link:       #2563EB;
+
+  /* ── 主色 / 语义 ─────────────────────────────── */
+  --pm-primary:         #2563EB;  /* blue-600 沉稳 */
+  --pm-primary-hover:   #1D4ED8;  /* blue-700 */
+  --pm-primary-active:  #1E3A8A;  /* blue-900 */
+  --pm-primary-subtle:  #EFF6FF;  /* blue-50 — 选中态/badge 底 */
+  --pm-primary-border:  #BFDBFE;  /* blue-200 */
+
+  --pm-success:        #16A34A;
+  --pm-success-subtle: #F0FDF4;
+  --pm-warning:        #D97706;
+  --pm-warning-subtle: #FFFBEB;
+  --pm-danger:         #DC2626;
+  --pm-danger-subtle:  #FEF2F2;
+  --pm-info:           #0EA5E9;
+  --pm-info-subtle:    #F0F9FF;
+
+  /* ── 阴影（清冷风 — 极轻）────────────────────── */
+  --pm-shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --pm-shadow-md: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --pm-shadow-lg: 0 4px 8px 0 rgba(15, 23, 42, 0.06), 0 2px 4px 0 rgba(15, 23, 42, 0.04);
+  --pm-shadow-xl: 0 12px 24px 0 rgba(15, 23, 42, 0.08), 0 4px 8px 0 rgba(15, 23, 42, 0.04);
+
+  /* ── 圆角（不可爱）────────────────────────── */
+  --pm-radius-xs: 2px;
+  --pm-radius-sm: 4px;
+  --pm-radius-md: 6px;
+  --pm-radius-lg: 8px;
+  --pm-radius-xl: 12px;
+  --pm-radius-full: 9999px;
+
+  /* ── 间距（4-grid）──────────────────────────── */
+  --pm-space-1:  4px;
+  --pm-space-2:  8px;
+  --pm-space-3:  12px;
+  --pm-space-4:  16px;
+  --pm-space-5:  20px;
+  --pm-space-6:  24px;
+  --pm-space-8:  32px;
+  --pm-space-10: 40px;
+  --pm-space-12: 48px;
+  --pm-space-16: 64px;
+
+  /* ── 字体 ─────────────────────────────────── */
+  --pm-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                  "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --pm-font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  --pm-font-xs:   12px;
+  --pm-font-sm:   13px;
+  --pm-font-base: 14px;  /* 默认 */
+  --pm-font-md:   15px;
+  --pm-font-lg:   16px;
+  --pm-font-xl:   18px;
+  --pm-font-2xl:  24px;
+  --pm-font-3xl:  28px;
+  --pm-font-4xl:  36px;
+
+  --pm-weight-normal: 400;
+  --pm-weight-medium: 500;
+  --pm-weight-semi:   600;
+  --pm-weight-bold:   700;
+
+  --pm-line-tight:   1.25;
+  --pm-line-normal:  1.5;
+  --pm-line-relaxed: 1.75;
+
+  /* ── 过渡 ───────────────────────────────── */
+  --pm-transition-fast: 100ms ease-out;
+  --pm-transition:      150ms ease-out;
+  --pm-transition-slow: 250ms ease-out;
+
+  /* ── z-index 层级 ──────────────────────── */
+  --pm-z-dropdown: 100;
+  --pm-z-sticky:   200;
+  --pm-z-overlay:  900;
+  --pm-z-modal:    1000;
+  --pm-z-toast:    1100;
+}
+
+/* ── 全局 reset 和 base ─────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--pm-font-sans);
+  font-size: var(--pm-font-base);
+  line-height: var(--pm-line-normal);
+  color: var(--pm-text-primary);
+  background: var(--pm-bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--pm-text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, pre, kbd, samp { font-family: var(--pm-font-mono); }
+
+::selection {
+  background: var(--pm-primary-subtle);
+  color: var(--pm-primary-active);
+}
+
+/* 全局 focus-visible — 键盘 tab 才显示蓝色 ring */
+*:focus { outline: none; }
+*:focus-visible {
+  outline: 2px solid var(--pm-primary);
+  outline-offset: 2px;
+  border-radius: var(--pm-radius-sm);
+}
+
+/* 滚动条（清冷风 — 细、不张扬）*/
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--pm-border);
+  border-radius: var(--pm-radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--pm-border-strong); }

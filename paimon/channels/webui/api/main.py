@@ -43,9 +43,10 @@ async def dashboard(channel, request: web.Request) -> web.Response:
         if not token or token not in channel.valid_tokens:
             return web.Response(text=channel._get_login_html(), content_type="text/html")
 
-    from paimon.channels.webui.dashboard_html import build_dashboard_html
+    # dashboard 是温馨柔和风 + 左 sidebar 的实验页（独立 layout，不走 _layout 公共布局）
+    from paimon.channels.webui.render import render
     return web.Response(
-        text=build_dashboard_html(),
+        text=render("dashboard"),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )

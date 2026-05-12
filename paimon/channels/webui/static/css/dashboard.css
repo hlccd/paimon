@@ -1,0 +1,306 @@
+/* dashboard 专属样式：温馨柔和风（暖米白底 + violet accent + stone 暖灰）+ 左 sidebar
+ * 通过 .dash-warm 在 <body> 上 override tokens.css 的 CSS 变量，
+ * 不影响其他页面（其他 page 仍走全局 tokens）。
+ */
+
+.dash-warm {
+  /* ── 温馨柔和 token override ──────────────── */
+  --pm-bg-page:    #FAF7F2;  /* 暖米白主底，暖一点不刺眼 */
+  --pm-bg-card:    #FFFFFF;
+  --pm-bg-input:   #FFFFFF;
+  --pm-bg-hover:   #F2EEE6;  /* hover/列表项 */
+  --pm-bg-active:  #EAE5DB;
+  --pm-bg-subtle:  #F6F2EB;
+  --pm-bg-overlay: rgba(28, 25, 23, 0.4);
+
+  --pm-border:        #E7E2DA;  /* stone-200 暖淡灰 */
+  --pm-border-strong: #C7C0B5;
+  --pm-border-focus:  #7C3AED;
+
+  --pm-text-primary:    #1C1917;  /* stone-900 暖黑 */
+  --pm-text-secondary:  #57534E;  /* stone-600 */
+  --pm-text-muted:      #A8A29E;  /* stone-400 */
+  --pm-text-on-primary: #FFFFFF;
+  --pm-text-link:       #7C3AED;
+
+  --pm-primary:         #7C3AED;  /* violet-600 暖紫 */
+  --pm-primary-hover:   #6D28D9;
+  --pm-primary-active:  #5B21B6;
+  --pm-primary-subtle:  #F5F3FF;
+  --pm-primary-border:  #DDD6FE;
+
+  --pm-info:           #0891B2;
+  --pm-info-subtle:    #ECFEFF;
+
+  /* 阴影 — 暖色调（柔和） */
+  --pm-shadow-sm: 0 1px 2px 0 rgba(120, 80, 50, 0.05);
+  --pm-shadow-md: 0 2px 4px 0 rgba(120, 80, 50, 0.06), 0 1px 2px 0 rgba(120, 80, 50, 0.04);
+  --pm-shadow-lg: 0 4px 12px 0 rgba(120, 80, 50, 0.08), 0 2px 4px 0 rgba(120, 80, 50, 0.04);
+  --pm-shadow-xl: 0 12px 32px 0 rgba(120, 80, 50, 0.12), 0 4px 8px 0 rgba(120, 80, 50, 0.06);
+
+  /* 圆角 — 柔和（比清冷风大一档） */
+  --pm-radius-xs: 4px;
+  --pm-radius-sm: 6px;
+  --pm-radius-md: 8px;
+  --pm-radius-lg: 12px;
+  --pm-radius-xl: 16px;
+}
+
+/* ═══ 左 sidebar 布局 ════════════════════════════ */
+.dash-app {
+  display: flex;
+  min-height: 100vh;
+  background: var(--pm-bg-page);
+}
+
+.dash-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--pm-bg-card);
+  border-right: 1px solid var(--pm-border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: var(--pm-space-5) 0 var(--pm-space-3);
+}
+
+.dash-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  padding: 0 var(--pm-space-5) var(--pm-space-5);
+  font-size: var(--pm-font-lg);
+  font-weight: var(--pm-weight-bold);
+  color: var(--pm-text-primary);
+  letter-spacing: -0.01em;
+}
+.dash-brand__mark {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  background: var(--pm-primary);
+  color: #FFFFFF;
+  border-radius: var(--pm-radius-md);
+  flex-shrink: 0;
+}
+.dash-brand__mark svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
+}
+.dash-brand__name {
+  font-size: var(--pm-font-lg);
+  font-weight: var(--pm-weight-semi);
+}
+
+.dash-nav { flex: 1; padding: 0 var(--pm-space-3); overflow-y: auto; }
+.dash-nav__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dash-nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  padding: var(--pm-space-2) var(--pm-space-3);
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-text-secondary);
+  font-size: var(--pm-font-sm);
+  font-weight: var(--pm-weight-medium);
+  text-decoration: none;
+  transition: color var(--pm-transition), background var(--pm-transition);
+}
+.dash-nav__link [data-icon] {
+  display: inline-flex;
+  color: var(--pm-text-muted);
+  flex-shrink: 0;
+}
+.dash-nav__link [data-icon] svg { width: 18px; height: 18px; }
+.dash-nav__link:hover {
+  color: var(--pm-text-primary);
+  background: var(--pm-bg-hover);
+  text-decoration: none;
+}
+.dash-nav__link:hover [data-icon] { color: var(--pm-text-secondary); }
+.dash-nav__link.is-active {
+  color: var(--pm-primary);
+  background: var(--pm-primary-subtle);
+  font-weight: var(--pm-weight-semi);
+}
+.dash-nav__link.is-active [data-icon] { color: var(--pm-primary); }
+
+.dash-sidebar__footer {
+  padding: var(--pm-space-3);
+  border-top: 1px solid var(--pm-border);
+}
+.dash-bell {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  padding: var(--pm-space-2) var(--pm-space-3);
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-text-secondary);
+  font-family: inherit;
+  font-size: var(--pm-font-sm);
+  font-weight: var(--pm-weight-medium);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--pm-transition), color var(--pm-transition);
+}
+.dash-bell [data-icon] svg { width: 18px; height: 18px; }
+.dash-bell:hover { background: var(--pm-bg-hover); color: var(--pm-text-primary); }
+
+/* ═══ 主内容区 ════════════════════════════════ */
+.dash-main {
+  flex: 1;
+  min-width: 0;  /* 防止 flex 子项溢出 */
+  overflow-y: auto;
+}
+.dash-content {
+  max-width: 1200px;
+  padding: var(--pm-space-8) var(--pm-space-8);
+  margin: 0 auto;
+}
+
+.dash-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pm-space-4);
+  margin-bottom: var(--pm-space-6);
+}
+.dash-page-title {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  margin: 0 0 var(--pm-space-2);
+  font-size: var(--pm-font-2xl);
+  font-weight: var(--pm-weight-semi);
+  color: var(--pm-text-primary);
+}
+.dash-page-title svg { width: 24px; height: 24px; color: var(--pm-text-secondary); }
+.dash-page-subtitle {
+  margin: 0;
+  font-size: var(--pm-font-sm);
+  color: var(--pm-text-secondary);
+}
+
+/* ═══ 控件细节 — 让通用按钮的 active 在 violet 主色下好看 ══ */
+.dash-warm .dash-ctrl-group .pm-btn.is-active {
+  background: var(--pm-primary-subtle);
+  border-color: var(--pm-primary);
+  color: var(--pm-primary);
+}
+
+/* ═══ 柱状图（保留温馨色调）═══════════════════ */
+.dash-chart-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--pm-space-5);
+}
+.dash-ctrl-group { display: flex; align-items: center; gap: var(--pm-space-1); }
+.dash-ctrl-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--pm-border);
+  margin: 0 var(--pm-space-2);
+}
+.dash-ctrl-right { margin-left: auto; }
+
+.dash-chart-wrap { position: relative; padding-left: 56px; }
+.dash-chart-y {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 28px;
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.dash-chart-y span {
+  font-size: var(--pm-font-xs);
+  color: var(--pm-text-muted);
+  line-height: 1;
+}
+.dash-chart-cols {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 220px;
+  border-left: 1px solid var(--pm-border);
+  border-bottom: 1px solid var(--pm-border);
+  padding: 0 2px;
+}
+.dash-chart-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  justify-content: flex-end;
+}
+.dash-chart-bar {
+  width: 80%;
+  max-width: 64px;
+  min-width: 6px;
+  border-radius: 4px 4px 0 0;
+  background: var(--pm-primary);
+  cursor: pointer;
+  position: relative;
+  transition: height 250ms ease, opacity var(--pm-transition);
+}
+.dash-chart-bar.is-cost { background: var(--pm-info); }
+.dash-chart-bar:hover { opacity: 0.85; }
+.dash-chart-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--pm-bg-card);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-md);
+  padding: var(--pm-space-2) var(--pm-space-3);
+  font-size: var(--pm-font-xs);
+  color: var(--pm-text-primary);
+  white-space: pre-line;
+  z-index: 20;
+  pointer-events: none;
+  min-width: 140px;
+  text-align: center;
+  line-height: 1.5;
+  box-shadow: var(--pm-shadow-md);
+}
+.dash-chart-bar:hover .dash-chart-tip { display: block; }
+.dash-chart-labels {
+  display: flex;
+  gap: 3px;
+  padding: 0 2px;
+}
+.dash-chart-lbl {
+  flex: 1;
+  text-align: center;
+  font-size: var(--pm-font-xs);
+  color: var(--pm-text-muted);
+  padding-top: var(--pm-space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

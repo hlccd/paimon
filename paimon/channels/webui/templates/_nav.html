@@ -1,0 +1,20 @@
+<nav class="pm-nav" aria-label="主导航">
+  <a class="pm-nav__brand" href="/">Paimon</a>
+  <ul class="pm-nav__items">
+    <li><a class="pm-nav__link {{nav_chat_active|safe}}" href="/"><span data-icon="message-square"></span>对话</a></li>
+    <li><a class="pm-nav__link {{nav_dashboard_active|safe}}" href="/dashboard"><span data-icon="bar-chart-3"></span>用量</a></li>
+    <li><a class="pm-nav__link {{nav_tasks_active|safe}}" href="/tasks"><span data-icon="list-checks"></span>任务</a></li>
+    <li><a class="pm-nav__link {{nav_feed_active|safe}}" href="/feed"><span data-icon="bell"></span>订阅</a></li>
+    <li><a class="pm-nav__link {{nav_wealth_active|safe}}" href="/wealth"><span data-icon="wallet"></span>理财</a></li>
+    <li><a class="pm-nav__link {{nav_game_active|safe}}" href="/game"><span data-icon="gamepad-2"></span>游戏</a></li>
+    <li><a class="pm-nav__link {{nav_knowledge_active|safe}}" href="/knowledge"><span data-icon="database"></span>世界树</a></li>
+    <li><a class="pm-nav__link {{nav_plugins_active|safe}}" href="/plugins"><span data-icon="plug"></span>插件</a></li>
+    <li><a class="pm-nav__link {{nav_selfcheck_active|safe}}" href="/selfcheck"><span data-icon="activity"></span>自检</a></li>
+    <li><a class="pm-nav__link {{nav_llm_active|safe}}" href="/llm"><span data-icon="cpu"></span>模型</a></li>
+  </ul>
+  <div class="pm-nav__right">
+    <button id="pm-push-bell" class="pm-btn pm-btn--ghost pm-btn--icon-only" aria-label="推送红点" title="推送通知">
+      <span class="pm-btn__icon" data-icon="inbox"></span>
+    </button>
+  </div>
+</nav>

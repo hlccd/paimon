@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用量 · Paimon</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%237C3AED'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body class="dash-warm">
+  <div class="dash-app">
+    <aside class="dash-sidebar" aria-label="主导航">
+      <div class="dash-brand">
+        <span class="dash-brand__mark" data-icon="circle"></span>
+        <span class="dash-brand__name">Paimon</span>
+      </div>
+      <nav class="dash-nav">
+        <ul class="dash-nav__items">
+          <li><a class="dash-nav__link" href="/"><span data-icon="message-square"></span><span>对话</span></a></li>
+          <li><a class="dash-nav__link is-active" href="/dashboard"><span data-icon="bar-chart-3"></span><span>用量</span></a></li>
+          <li><a class="dash-nav__link" href="/tasks"><span data-icon="list-checks"></span><span>任务</span></a></li>
+          <li><a class="dash-nav__link" href="/feed"><span data-icon="bell"></span><span>订阅</span></a></li>
+          <li><a class="dash-nav__link" href="/wealth"><span data-icon="wallet"></span><span>理财</span></a></li>
+          <li><a class="dash-nav__link" href="/game"><span data-icon="gamepad-2"></span><span>游戏</span></a></li>
+          <li><a class="dash-nav__link" href="/knowledge"><span data-icon="database"></span><span>世界树</span></a></li>
+          <li><a class="dash-nav__link" href="/plugins"><span data-icon="plug"></span><span>插件</span></a></li>
+          <li><a class="dash-nav__link" href="/selfcheck"><span data-icon="activity"></span><span>自检</span></a></li>
+          <li><a class="dash-nav__link" href="/llm"><span data-icon="cpu"></span><span>模型</span></a></li>
+        </ul>
+      </nav>
+      <div class="dash-sidebar__footer">
+        <button class="dash-bell" aria-label="推送通知" title="推送通知">
+          <span data-icon="inbox"></span>
+          <span>通知</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="dash-main">
+      <div class="dash-content">
+        <div class="dash-page-header">
+          <div>
+            <h1 class="dash-page-title"><span data-icon="bar-chart-3"></span>用量</h1>
+            <p class="dash-page-subtitle">Paimon 各组件 LLM 调用统计与花费分析</p>
+          </div>
+          <div>
+            <button id="dash-refresh" class="pm-btn pm-btn--default">
+              <span class="pm-btn__icon" data-icon="refresh-cw"></span>
+              <span class="pm-btn__label">刷新</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="pm-grid pm-grid--4" style="margin-bottom: 28px;">
+          <div class="pm-stat-card">
+            <div class="pm-stat-card__label">总调用次数</div>
+            <div class="pm-stat-card__value" id="cCalls">—</div>
+          </div>
+          <div class="pm-stat-card">
+            <div class="pm-stat-card__label">总 Token</div>
+            <div class="pm-stat-card__value" id="cTokens">—</div>
+            <div class="pm-stat-card__hint" id="cTokensSub"></div>
+          </div>
+          <div class="pm-stat-card">
+            <div class="pm-stat-card__label">总花费</div>
+            <div class="pm-stat-card__value" id="cCost">—</div>
+          </div>
+          <div class="pm-stat-card">
+            <div class="pm-stat-card__label">缓存命中率</div>
+            <div class="pm-stat-card__value" id="cCache">—</div>
+            <div class="pm-stat-card__hint" id="cCacheSub"></div>
+          </div>
+        </div>
+
+        <div class="pm-tabs" role="tablist">
+          <button class="pm-tab is-active" role="tab" aria-selected="true" data-target="dash-detail">调用明细</button>
+          <button class="pm-tab" role="tab" aria-selected="false" data-target="dash-chart">统计图表</button>
+        </div>
+
+        <div id="dash-detail" role="tabpanel">
+          <div class="pm-card">
+            <div id="detailEl" class="pm-empty">
+              <span class="pm-spinner pm-spinner--lg"></span>
+              <p class="pm-empty__desc" style="margin-top: 12px;">加载中…</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="dash-chart" role="tabpanel" hidden>
+          <div class="pm-card">
+            <div class="pm-card__body">
+              <div class="dash-chart-controls">
+                <div class="dash-ctrl-group">
+                  <button class="pm-btn pm-btn--default pm-btn--sm is-active" data-p="day"><span class="pm-btn__label">按日</span></button>
+                  <button class="pm-btn pm-btn--default pm-btn--sm" data-p="week"><span class="pm-btn__label">按周</span></button>
+                  <button class="pm-btn pm-btn--default pm-btn--sm" data-p="month"><span class="pm-btn__label">按月</span></button>
+                  <span class="dash-ctrl-sep"></span>
+                  <button class="pm-btn pm-btn--default pm-btn--sm" data-p="hour"><span class="pm-btn__label">按小时</span></button>
+                  <button class="pm-btn pm-btn--default pm-btn--sm" data-p="weekday"><span class="pm-btn__label">按星期</span></button>
+                </div>
+                <div class="dash-ctrl-group dash-ctrl-right">
+                  <button class="pm-btn pm-btn--default pm-btn--sm is-active" data-m="tokens"><span class="pm-btn__label">Token</span></button>
+                  <button class="pm-btn pm-btn--default pm-btn--sm" data-m="cost"><span class="pm-btn__label">花费</span></button>
+                </div>
+              </div>
+              <div id="chartArea" class="pm-empty">
+                <span class="pm-spinner pm-spinner--lg"></span>
+                <p class="pm-empty__desc" style="margin-top: 12px;">加载中…</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/js/icons.js"></script>
+  <script src="/static/js/components.js"></script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

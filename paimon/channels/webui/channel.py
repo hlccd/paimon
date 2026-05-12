@@ -52,6 +52,12 @@ class WebUIChannel(Channel):
             "/static/pushes/", path=str(self._pushes_root), show_index=False,
         )
 
+        # 通用 UI 静态资源（CSS / JS / 图片）— 给 templates 引用
+        _STATIC_DIR = Path(__file__).parent / "static"
+        self.app.router.add_static(
+            "/static/", path=str(_STATIC_DIR), show_index=False,
+        )
+
         # 业务面板路由（草神/神之心/风神/岩神/水神/三月各面板及 / · /dashboard ·
         # /api/auth · /api/chat 等核心路由都委托给 api/ 子包统一注册）
         from paimon.channels.webui.api import register_all_routes
