@@ -1,16 +1,12 @@
-"""LLM_BODY chunk · 自动切片，原始字符串拼接还原。"""
-
-LLM_BODY = """
-    <div class="container">
-        <div class="page-header">
-            <div>
-                <h1>🧠 模型</h1>
-                <div class="sub">管理模型 profile · 配置每个调用点用哪个模型</div>
-            </div>
-            <div class="header-actions">
-                <button class="btn" onclick="refreshActiveTab()">刷新</button>
-            </div>
-        </div>
+        <div class="dash-page-header">
+  <div>
+    <h1 class="dash-page-title"><span data-icon="cpu"></span>模型</h1>
+    <p class="dash-page-subtitle">LLM Profile 管理 + 调用点路由配置（神之心管辖）</p>
+  </div>
+  <div class="header-actions">
+    <button class="btn" onclick="refreshActiveTab()">刷新</button>
+  </div>
+</div>
 
         <div class="tabs">
             <button class="tab-btn active" data-tab="profiles" onclick="switchTab('profiles', this)">📋 模型管理</button>
@@ -110,5 +106,3 @@ LLM_BODY = """
                 <button class="btn btn-primary" onclick="saveProfile()">保存</button>
             </div>
         </div>
-    </div>
-"""

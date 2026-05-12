@@ -15,9 +15,15 @@ if TYPE_CHECKING:
 async def llm_page(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.Response(text=channel._get_login_html(), content_type="text/html")
-    from paimon.channels.webui.llm_html import build_llm_html
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=build_llm_html(),
+        text=render_warm_page(
+            title="模型",
+            content_template="llm",
+            active="llm",
+            extra_css='<link rel="stylesheet" href="/static/css/llm.css">',
+            extra_js='<script src="/static/js/llm.js"></script>',
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
