@@ -1,0 +1,26 @@
+<aside class="dash-sidebar" aria-label="主导航">
+  <div class="dash-brand">
+    <span class="dash-brand__mark" data-icon="circle"></span>
+    <span class="dash-brand__name">Paimon</span>
+  </div>
+  <nav class="dash-nav">
+    <ul class="dash-nav__items">
+      <li><a class="dash-nav__link {{nav_chat_active|safe}}" href="/"><span data-icon="message-square"></span><span>对话</span></a></li>
+      <li><a class="dash-nav__link {{nav_dashboard_active|safe}}" href="/dashboard"><span data-icon="bar-chart-3"></span><span>用量</span></a></li>
+      <li><a class="dash-nav__link {{nav_tasks_active|safe}}" href="/tasks"><span data-icon="list-checks"></span><span>任务</span></a></li>
+      <li><a class="dash-nav__link {{nav_feed_active|safe}}" href="/feed"><span data-icon="bell"></span><span>订阅</span></a></li>
+      <li><a class="dash-nav__link {{nav_wealth_active|safe}}" href="/wealth"><span data-icon="wallet"></span><span>理财</span></a></li>
+      <li><a class="dash-nav__link {{nav_game_active|safe}}" href="/game"><span data-icon="gamepad-2"></span><span>游戏</span></a></li>
+      <li><a class="dash-nav__link {{nav_knowledge_active|safe}}" href="/knowledge"><span data-icon="database"></span><span>世界树</span></a></li>
+      <li><a class="dash-nav__link {{nav_plugins_active|safe}}" href="/plugins"><span data-icon="plug"></span><span>插件</span></a></li>
+      <li><a class="dash-nav__link {{nav_selfcheck_active|safe}}" href="/selfcheck"><span data-icon="activity"></span><span>自检</span></a></li>
+      <li><a class="dash-nav__link {{nav_llm_active|safe}}" href="/llm"><span data-icon="cpu"></span><span>模型</span></a></li>
+    </ul>
+  </nav>
+  <div class="dash-sidebar__footer">
+    <button class="dash-bell" aria-label="推送通知" title="推送通知">
+      <span data-icon="inbox"></span>
+      <span>通知</span>
+    </button>
+  </div>
+</aside>

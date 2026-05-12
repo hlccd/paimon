@@ -1,0 +1,202 @@
+/* warm.css — 温馨柔和风公共布局 + token override
+ * 给所有用 _warm_layout.html 的 page 共享：sidebar / 主内容容器 / 暖系 token override
+ * Page 自己的特定样式（柱状图、表格变体等）单独写到 <page>.css */
+
+.dash-warm {
+  /* ── 温馨柔和 token override（暖米白底 + violet 紫 + stone 暖灰 + 暖阴影）── */
+  --pm-bg-page:    #FAF7F2;
+  --pm-bg-card:    #FFFFFF;
+  --pm-bg-input:   #FFFFFF;
+  --pm-bg-hover:   #F2EEE6;
+  --pm-bg-active:  #EAE5DB;
+  --pm-bg-subtle:  #F6F2EB;
+  --pm-bg-overlay: rgba(28, 25, 23, 0.4);
+
+  --pm-border:        #E7E2DA;
+  --pm-border-strong: #C7C0B5;
+  --pm-border-focus:  #7C3AED;
+
+  --pm-text-primary:    #1C1917;
+  --pm-text-secondary:  #57534E;
+  --pm-text-muted:      #A8A29E;
+  --pm-text-on-primary: #FFFFFF;
+  --pm-text-link:       #7C3AED;
+
+  --pm-primary:         #7C3AED;
+  --pm-primary-hover:   #6D28D9;
+  --pm-primary-active:  #5B21B6;
+  --pm-primary-subtle:  #F5F3FF;
+  --pm-primary-border:  #DDD6FE;
+
+  --pm-info:           #0891B2;
+  --pm-info-subtle:    #ECFEFF;
+
+  --pm-shadow-sm: 0 1px 2px 0 rgba(120, 80, 50, 0.05);
+  --pm-shadow-md: 0 2px 4px 0 rgba(120, 80, 50, 0.06), 0 1px 2px 0 rgba(120, 80, 50, 0.04);
+  --pm-shadow-lg: 0 4px 12px 0 rgba(120, 80, 50, 0.08), 0 2px 4px 0 rgba(120, 80, 50, 0.04);
+  --pm-shadow-xl: 0 12px 32px 0 rgba(120, 80, 50, 0.12), 0 4px 8px 0 rgba(120, 80, 50, 0.06);
+
+  --pm-radius-xs: 4px;
+  --pm-radius-sm: 6px;
+  --pm-radius-md: 8px;
+  --pm-radius-lg: 12px;
+  --pm-radius-xl: 16px;
+}
+
+/* ═══ App / Sidebar / Main 布局 ═════════════════════ */
+.dash-app {
+  display: flex;
+  min-height: 100vh;
+  background: var(--pm-bg-page);
+}
+
+.dash-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--pm-bg-card);
+  border-right: 1px solid var(--pm-border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: var(--pm-space-5) 0 var(--pm-space-3);
+}
+
+.dash-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  padding: 0 var(--pm-space-5) var(--pm-space-5);
+  font-size: var(--pm-font-lg);
+  font-weight: var(--pm-weight-bold);
+  color: var(--pm-text-primary);
+  letter-spacing: -0.01em;
+}
+.dash-brand__mark {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  background: var(--pm-primary);
+  color: #FFFFFF;
+  border-radius: var(--pm-radius-md);
+  flex-shrink: 0;
+}
+.dash-brand__mark svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
+}
+.dash-brand__name {
+  font-size: var(--pm-font-lg);
+  font-weight: var(--pm-weight-semi);
+}
+
+.dash-nav { flex: 1; padding: 0 var(--pm-space-3); overflow-y: auto; }
+.dash-nav__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dash-nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  padding: var(--pm-space-2) var(--pm-space-3);
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-text-secondary);
+  font-size: var(--pm-font-sm);
+  font-weight: var(--pm-weight-medium);
+  text-decoration: none;
+  transition: color var(--pm-transition), background var(--pm-transition);
+}
+.dash-nav__link [data-icon] {
+  display: inline-flex;
+  color: var(--pm-text-muted);
+  flex-shrink: 0;
+}
+.dash-nav__link [data-icon] svg { width: 18px; height: 18px; }
+.dash-nav__link:hover {
+  color: var(--pm-text-primary);
+  background: var(--pm-bg-hover);
+  text-decoration: none;
+}
+.dash-nav__link:hover [data-icon] { color: var(--pm-text-secondary); }
+.dash-nav__link.is-active {
+  color: var(--pm-primary);
+  background: var(--pm-primary-subtle);
+  font-weight: var(--pm-weight-semi);
+}
+.dash-nav__link.is-active [data-icon] { color: var(--pm-primary); }
+
+.dash-sidebar__footer {
+  padding: var(--pm-space-3);
+  border-top: 1px solid var(--pm-border);
+}
+.dash-bell {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  padding: var(--pm-space-2) var(--pm-space-3);
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-text-secondary);
+  font-family: inherit;
+  font-size: var(--pm-font-sm);
+  font-weight: var(--pm-weight-medium);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--pm-transition), color var(--pm-transition);
+}
+.dash-bell [data-icon] svg { width: 18px; height: 18px; }
+.dash-bell:hover { background: var(--pm-bg-hover); color: var(--pm-text-primary); }
+
+/* ═══ 主内容区 ═══════════════════════════════════ */
+.dash-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+.dash-content {
+  max-width: 1200px;
+  padding: var(--pm-space-8);
+  margin: 0 auto;
+}
+
+.dash-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pm-space-4);
+  margin-bottom: var(--pm-space-6);
+}
+.dash-page-title {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  margin: 0 0 var(--pm-space-2);
+  font-size: var(--pm-font-2xl);
+  font-weight: var(--pm-weight-semi);
+  color: var(--pm-text-primary);
+}
+.dash-page-title svg { width: 24px; height: 24px; color: var(--pm-text-secondary); }
+.dash-page-subtitle {
+  margin: 0;
+  font-size: var(--pm-font-sm);
+  color: var(--pm-text-secondary);
+}
+
+/* ═══ 控件局部增强（warm 主题下 active 状态用 violet）═══ */
+.dash-warm .pm-btn.is-active {
+  background: var(--pm-primary-subtle);
+  border-color: var(--pm-primary);
+  color: var(--pm-primary);
+}

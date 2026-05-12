@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{title}} · Paimon</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%237C3AED'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/warm.css">
+  {{extra_css|safe}}
+</head>
+<body class="dash-warm">
+  <div class="dash-app">
+    {{include:_warm_sidebar}}
+    <main class="dash-main">
+      <div class="dash-content">
+        {{content|safe}}
+      </div>
+    </main>
+  </div>
+  <script src="/static/js/icons.js"></script>
+  <script src="/static/js/components.js"></script>
+  {{extra_js|safe}}
+</body>
+</html>

@@ -17,9 +17,15 @@ async def tasks_page(channel: "WebUIChannel", request: web.Request) -> web.Respo
         token = request.cookies.get("paimon_token")
         if not token or token not in channel.valid_tokens:
             return web.Response(text=channel._get_login_html(), content_type="text/html")
-    from paimon.channels.webui.tasks_html import build_tasks_html
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=build_tasks_html(),
+        text=render_warm_page(
+            title="任务观测",
+            content_template="tasks",
+            active="tasks",
+            extra_css='<link rel="stylesheet" href="/static/css/tasks.css">',
+            extra_js='<script src="/static/js/tasks.js"></script>',
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )

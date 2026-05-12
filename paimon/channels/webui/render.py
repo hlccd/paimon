@@ -66,3 +66,35 @@ def render(template_name: str, ctx: dict[str, Any] | None = None) -> str:
 def clear_cache() -> None:
     """开发期热重载用 — 清模板缓存让下次 render 重新读盘。"""
     _read_template.cache_clear()
+
+
+_NAV_KEYS = (
+    "chat", "dashboard", "tasks", "feed", "wealth",
+    "game", "knowledge", "plugins", "selfcheck", "llm",
+)
+
+
+def render_warm_page(
+    *, title: str, content_template: str, active: str,
+    extra_css: str = "", extra_js: str = "",
+    extra_ctx: dict[str, Any] | None = None,
+) -> str:
+    """温馨柔和风 page render helper — 走 _warm_layout 公共布局，简化 nav active 填充。
+
+    Args:
+        title: 浏览器 tab 标题（不含 ' · Paimon' 后缀）
+        content_template: 内容模板名（如 "dashboard"、"tasks"），渲染后填进 layout
+        active: 当前 page 的 nav key（须在 _NAV_KEYS 内）
+        extra_css/extra_js: 注入 page-specific <link> / <script>
+        extra_ctx: 内容模板自身需要的 context（透传给 content_template）
+    """
+    content = render(content_template, extra_ctx or {})
+    ctx: dict[str, Any] = {
+        "title": title,
+        "content": content,
+        "extra_css": extra_css,
+        "extra_js": extra_js,
+    }
+    for k in _NAV_KEYS:
+        ctx[f"nav_{k}_active"] = "is-active" if k == active else ""
+    return render("_warm_layout", ctx)
