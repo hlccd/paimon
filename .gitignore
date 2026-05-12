@@ -1,8 +1,11 @@
 .git
-.claude
 .env
 .env.local
 .paimon/
+
+# .claude/ 只同步项目级指令文档，不同步权限/会话/缓存
+.claude/*
+!.claude/CLAUDE.md
 
 # watchdog / nohup 写的运行日志（部署到仓库根的兼容兜底；新部署应落 .paimon/paimon.log）
 paimon.log
@@ -16,5 +19,9 @@ build/
 .venv/
 .check/
 
-# graphify 项目地图产出 — 6MB+ 二进制，不进 git 历史
-graphify-out/
+# graphify 项目地图产出 — 只同步 AI 分析需要的核心数据，
+# 不同步可重生成的 cache / graph.html / manifest / 锁文件
+graphify-out/*
+!graphify-out/graph.json
+!graphify-out/GRAPH_REPORT.md
+!graphify-out/.graphify_labels.json
