@@ -15,11 +15,35 @@ async def selfcheck_page(channel, request: web.Request) -> web.Response:
         return web.Response(
             text=channel._get_login_html(), content_type="text/html",
         )
-    from paimon.channels.webui.selfcheck_html import build_selfcheck_html
+    from paimon.channels.webui.render import render_warm_page, render
     cfg = channel.state.cfg
     deep_hidden = bool(getattr(cfg, "selfcheck_deep_hidden", True)) if cfg else True
+    if deep_hidden:
+        deep_btn_style = ' style="display:none"'
+        tab_bar_html = (
+            '<div class="tab active" data-tab="quick">Quick 历史</div>'
+            '<div style="margin-left:auto;padding:10px 14px;color:var(--pm-text-muted);'
+            'font-size:12px" title="当前模型执行不充分，等切换 Claude Opus 级模型后启用">'
+            'Deep 暂缓</div>'
+        )
+    else:
+        deep_btn_style = ""
+        tab_bar_html = (
+            '<div class="tab active" data-tab="deep">Deep 历史</div>'
+            '<div class="tab" data-tab="quick">Quick 历史</div>'
+        )
     return web.Response(
-        text=build_selfcheck_html(deep_hidden=deep_hidden),
+        text=render_warm_page(
+            title="自检",
+            content_template="selfcheck",
+            active="selfcheck",
+            extra_css='<link rel="stylesheet" href="/static/css/selfcheck.css">',
+            extra_js='<script src="/static/js/selfcheck.js"></script>',
+            extra_ctx={
+                "deep_btn_style": deep_btn_style,
+                "tab_bar_html": tab_bar_html,
+            },
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
