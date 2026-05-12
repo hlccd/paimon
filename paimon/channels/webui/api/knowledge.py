@@ -18,9 +18,15 @@ async def knowledge_page(channel, request: web.Request) -> web.Response:
         if not token or token not in channel.valid_tokens:
             return web.Response(text=channel._get_login_html(), content_type="text/html")
 
-    from paimon.channels.webui.knowledge_html import build_knowledge_html
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=build_knowledge_html(),
+        text=render_warm_page(
+            title="世界树",
+            content_template="knowledge",
+            active="knowledge",
+            extra_css='<link rel="stylesheet" href="/static/css/knowledge.css">',
+            extra_js='<script src="/static/js/knowledge.js"></script>',
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )

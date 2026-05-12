@@ -1,0 +1,361 @@
+/* knowledge 页特定样式（pill / form modal / flash bar / 表格 / chip）
+ * 通用部分走 components.css 和 warm.css */
+
+/* ── tabs（同 tasks，可后续抽公共）──────── */
+.tabs {
+  display: flex;
+  gap: var(--pm-space-1);
+  margin-bottom: var(--pm-space-6);
+  border-bottom: 1px solid var(--pm-border);
+}
+.tab-btn {
+  position: relative;
+  padding: var(--pm-space-3) var(--pm-space-4);
+  background: transparent;
+  border: none;
+  color: var(--pm-text-secondary);
+  cursor: pointer;
+  font-size: var(--pm-font-base);
+  font-weight: var(--pm-weight-medium);
+  font-family: inherit;
+  transition: color var(--pm-transition);
+}
+.tab-btn:hover { color: var(--pm-text-primary); }
+.tab-btn.active { color: var(--pm-primary); }
+.tab-btn.active::after {
+  content: "";
+  position: absolute;
+  left: var(--pm-space-3);
+  right: var(--pm-space-3);
+  bottom: -1px;
+  height: 2px;
+  background: var(--pm-primary);
+  border-radius: 1px;
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.tab-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 var(--pm-space-2);
+  margin-left: var(--pm-space-1);
+  font-size: var(--pm-font-xs);
+  line-height: 16px;
+  border-radius: var(--pm-radius-full);
+  background: var(--pm-bg-hover);
+  color: var(--pm-text-muted);
+  vertical-align: middle;
+}
+.tab-btn.active .tab-count {
+  background: var(--pm-primary-subtle);
+  color: var(--pm-primary);
+}
+.tab-count:empty { display: none; }
+
+/* ── pill 二级筛选 ──────────────────────────── */
+.pills-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--pm-space-4);
+  gap: var(--pm-space-4);
+  flex-wrap: wrap;
+}
+.pills { display: flex; gap: var(--pm-space-2); flex: 1; flex-wrap: wrap; }
+.pill {
+  padding: 6px var(--pm-space-3);
+  background: var(--pm-bg-card);
+  color: var(--pm-text-secondary);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-full);
+  cursor: pointer;
+  font-size: var(--pm-font-sm);
+  transition: color var(--pm-transition), background var(--pm-transition), border-color var(--pm-transition);
+}
+.pill:hover { color: var(--pm-text-primary); border-color: var(--pm-border-strong); }
+.pill.active {
+  background: var(--pm-primary-subtle);
+  color: var(--pm-primary);
+  border-color: var(--pm-primary);
+}
+
+/* ── 操作按钮 ──────────────────────────── */
+.btn-add {
+  padding: 6px var(--pm-space-3);
+  background: transparent;
+  color: var(--pm-primary);
+  border: 1px solid var(--pm-primary-border);
+  border-radius: var(--pm-radius-md);
+  cursor: pointer;
+  font-size: var(--pm-font-sm);
+  font-weight: var(--pm-weight-medium);
+  font-family: inherit;
+  transition: all var(--pm-transition);
+}
+.btn-add:hover {
+  background: var(--pm-primary-subtle);
+  border-color: var(--pm-primary);
+}
+.btn-add:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ── 表单 modal 内字段 ──────────────────── */
+.modal-actions { display: flex; align-items: center; gap: var(--pm-space-2); }
+.form-body {
+  padding: var(--pm-space-2) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.form-field { display: flex; flex-direction: column; gap: var(--pm-space-1); }
+.form-field label {
+  font-size: var(--pm-font-xs);
+  color: var(--pm-text-muted);
+}
+.form-field input[type="text"],
+.form-field textarea,
+.form-field select {
+  padding: var(--pm-space-2) var(--pm-space-3);
+  background: var(--pm-bg-input);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-text-primary);
+  font-size: var(--pm-font-sm);
+  font-family: inherit;
+  transition: border-color var(--pm-transition), box-shadow var(--pm-transition);
+}
+.form-field input[type="text"]:focus,
+.form-field textarea:focus,
+.form-field select:focus {
+  outline: none;
+  border-color: var(--pm-primary);
+  box-shadow: 0 0 0 3px var(--pm-primary-subtle);
+}
+.form-field input[disabled] { opacity: 0.6; cursor: not-allowed; }
+.form-field textarea {
+  min-height: 160px;
+  resize: vertical;
+  font-family: var(--pm-font-mono);
+  line-height: var(--pm-line-normal);
+}
+.form-field .hint {
+  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-style: italic;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--pm-space-3);
+  margin-top: var(--pm-space-4);
+  padding-top: var(--pm-space-3);
+  border-top: 1px solid var(--pm-border);
+}
+.btn-save {
+  padding: 6px var(--pm-space-5);
+  background: var(--pm-primary);
+  color: var(--pm-text-on-primary);
+  border: none;
+  border-radius: var(--pm-radius-md);
+  cursor: pointer;
+  font-size: var(--pm-font-sm);
+  font-weight: var(--pm-weight-semi);
+  font-family: inherit;
+}
+.btn-save:hover { background: var(--pm-primary-hover); }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.form-error {
+  margin-top: var(--pm-space-3);
+  padding: var(--pm-space-2) var(--pm-space-3);
+  background: var(--pm-danger-subtle);
+  border: 1px solid #FECACA;
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-danger);
+  font-size: var(--pm-font-xs);
+  display: none;
+}
+.form-error.active { display: block; }
+
+/* ── Flash toast（独立，不抢 pmToast）──── */
+.flash-bar {
+  position: fixed;
+  top: 70px;
+  right: var(--pm-space-6);
+  padding: var(--pm-space-3) 14px;
+  max-width: 420px;
+  background: var(--pm-bg-card);
+  border: 1px solid var(--pm-border);
+  border-left-width: 3px;
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-text-primary);
+  font-size: var(--pm-font-sm);
+  line-height: var(--pm-line-normal);
+  box-shadow: var(--pm-shadow-lg);
+  z-index: 2000;
+  opacity: 0;
+  transform: translateX(20px);
+  transition: opacity var(--pm-transition), transform var(--pm-transition);
+  pointer-events: none;
+}
+.flash-bar.active { opacity: 1; transform: translateX(0); }
+.flash-bar.success { border-left-color: var(--pm-success); }
+.flash-bar.info    { border-left-color: var(--pm-primary); }
+.flash-bar.warn    { border-left-color: var(--pm-warning); }
+.flash-bar .flash-title { font-weight: var(--pm-weight-semi); margin-bottom: var(--pm-space-1); }
+.flash-bar .flash-reason { color: var(--pm-text-muted); font-size: var(--pm-font-xs); }
+
+/* ── 数据表 + chip ──────────────────────── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.data-table th,
+.data-table td {
+  padding: var(--pm-space-3) var(--pm-space-4);
+  border-bottom: 1px solid var(--pm-border);
+  font-size: var(--pm-font-base);
+  text-align: left;
+  vertical-align: top;
+}
+.data-table th {
+  color: var(--pm-text-secondary);
+  font-weight: var(--pm-weight-semi);
+  font-size: var(--pm-font-sm);
+  background: var(--pm-bg-subtle);
+}
+.data-table tbody tr:hover td { background: var(--pm-bg-hover); }
+
+.chip {
+  display: inline-block;
+  padding: 2px var(--pm-space-2);
+  margin: 2px var(--pm-space-1) 2px 0;
+  border-radius: var(--pm-radius-full);
+  font-size: var(--pm-font-xs);
+  background: var(--pm-bg-hover);
+  color: var(--pm-text-secondary);
+  border: 1px solid var(--pm-border);
+}
+
+/* ── 行内操作按钮 ──────────────────────── */
+.btn-revoke {
+  padding: 4px var(--pm-space-3);
+  background: transparent;
+  border: 1px solid #FECACA;
+  color: var(--pm-danger);
+  border-radius: var(--pm-radius-md);
+  cursor: pointer;
+  font-size: var(--pm-font-xs);
+  font-family: inherit;
+}
+.btn-revoke:hover { background: var(--pm-danger-subtle); }
+.btn-view {
+  padding: 4px var(--pm-space-3);
+  background: transparent;
+  border: 1px solid var(--pm-primary-border);
+  color: var(--pm-primary);
+  border-radius: var(--pm-radius-md);
+  cursor: pointer;
+  font-size: var(--pm-font-xs);
+  font-family: inherit;
+  margin-right: var(--pm-space-1);
+}
+.btn-view:hover { background: var(--pm-primary-subtle); }
+
+/* ── empty-state（重用 tasks 命名以兼容旧 JS）── */
+.empty-state {
+  text-align: center;
+  padding: 60px var(--pm-space-5);
+  color: var(--pm-text-muted);
+  font-size: var(--pm-font-base);
+}
+.empty-state code {
+  background: var(--pm-bg-hover);
+  padding: 2px 6px;
+  border-radius: var(--pm-radius-sm);
+  font-family: var(--pm-font-mono);
+  color: var(--pm-primary);
+}
+
+.desc {
+  color: var(--pm-text-muted);
+  font-size: var(--pm-font-xs);
+  margin-top: var(--pm-space-1);
+  line-height: var(--pm-line-normal);
+}
+.body-preview {
+  font-size: var(--pm-font-sm);
+  color: var(--pm-text-secondary);
+  line-height: var(--pm-line-normal);
+  max-width: 500px;
+  word-break: break-word;
+}
+.mono {
+  font-family: var(--pm-font-mono);
+  font-size: var(--pm-font-xs);
+  color: var(--pm-text-secondary);
+}
+
+/* ── 详情/表单 modal 共享 ───────────────── */
+.modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--pm-bg-overlay);
+  z-index: var(--pm-z-modal);
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop.active { display: flex; }
+.modal {
+  background: var(--pm-bg-card);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-xl);
+  max-width: 840px;
+  width: 90%;
+  max-height: 85vh;
+  overflow: auto;
+  padding: var(--pm-space-6);
+  box-shadow: var(--pm-shadow-xl);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--pm-space-4);
+  padding-bottom: var(--pm-space-3);
+  border-bottom: 1px solid var(--pm-border);
+}
+.modal-header h3 {
+  color: var(--pm-text-primary);
+  font-size: var(--pm-font-xl);
+  font-weight: var(--pm-weight-semi);
+  margin: 0;
+}
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--pm-text-muted);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 6px;
+}
+.modal-close:hover { color: var(--pm-text-primary); }
+.modal-body {
+  white-space: pre-wrap;
+  font-size: var(--pm-font-sm);
+  line-height: var(--pm-line-normal);
+  color: var(--pm-text-primary);
+  padding: 14px;
+  background: var(--pm-bg-subtle);
+  border-radius: var(--pm-radius-md);
+  font-family: var(--pm-font-mono);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.modal-meta {
+  color: var(--pm-text-muted);
+  font-size: var(--pm-font-xs);
+  margin-top: var(--pm-space-3);
+  line-height: var(--pm-line-normal);
+}
