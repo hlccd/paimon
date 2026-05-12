@@ -6,11 +6,8 @@ AkShare 已移除，数据源统一使用 BaoStock（provider_baostock.py）。
 from __future__ import annotations
 
 import json
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
-
-from loguru import logger
 
 # 缓存有效期（小时）
 CACHE_TTL = {
@@ -18,34 +15,6 @@ CACHE_TTL = {
     'financial': 30 * 24,  # 财务数据 30 天
     'price': 7 * 24,       # 行情数据 7 天
 }
-
-MAX_RETRIES = 6
-RETRY_BASE_DELAY = 3
-
-
-def _retry(fn, max_retries=MAX_RETRIES, base_delay=RETRY_BASE_DELAY):
-    """带重试的同步调用"""
-    import requests.exceptions
-    from http.client import RemoteDisconnected
-    from urllib3.exceptions import ProtocolError
-
-    for attempt in range(max_retries):
-        try:
-            return fn()
-        except (
-            ConnectionError, TimeoutError,
-            requests.exceptions.ConnectionError,
-            requests.exceptions.Timeout,
-            RemoteDisconnected, ProtocolError,
-        ):
-            if attempt < max_retries - 1:
-                wait = base_delay * (attempt + 1)
-                logger.debug(f"[provider] 网络错误, {wait}s 后重试 ({attempt+1}/{max_retries})")
-                time.sleep(wait)
-            else:
-                raise
-    raise RuntimeError("unreachable")
-
 
 def _load_cache(path: Path, ttl_hours: int):
     """从缓存文件读取"""

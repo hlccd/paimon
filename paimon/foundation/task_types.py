@@ -93,16 +93,3 @@ def register(meta: TaskTypeMeta) -> None:
 
 def get(task_type: str) -> TaskTypeMeta | None:
     return _REGISTRY.get(task_type)
-
-
-def all_types() -> list[TaskTypeMeta]:
-    return list(_REGISTRY.values())
-
-
-def is_registered(task_type: str) -> bool:
-    return task_type in _REGISTRY
-
-
-def clear_for_test() -> None:
-    """仅测试用：清空注册表。"""
-    _REGISTRY.clear()

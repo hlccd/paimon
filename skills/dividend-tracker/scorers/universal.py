@@ -10,7 +10,6 @@
 - 成长维度 (10分): 分红持续性 + 股息率趋势
 """
 
-from datetime import datetime
 
 
 class UniversalScorer:
@@ -298,81 +297,3 @@ class UniversalScorer:
             reasons.append("✅ 防御性行业：适合长期配置，波动较小")
 
         return reasons
-
-    @staticmethod
-    def format_report(results, top_n):
-        """
-        格式化输出报告
-
-        Args:
-            results: 候选股票列表（已排序）
-            top_n: 显示前N名
-
-        Returns:
-            str: 格式化的报告文本
-        """
-        lines = []
-        now = datetime.now().strftime('%Y-%m-%d %H:%M')
-
-        lines.append(f"\n🔍 红利股扫描报告（{now}）")
-        lines.append("━" * 55)
-
-        lines.append(f"\n🏆 TOP {top_n} 推荐（按综合评分排序）\n")
-
-        for i, stock in enumerate(results[:top_n], 1):
-            sd = stock['stock_data']
-            sc = stock['score']
-            total = sum(sc.values())
-            stars = '★' * (int(total) // 18) + '☆' * (5 - int(total) // 18)
-            industry = sd['industry']
-
-            tag = '⚠️' if stock['classification']['is_cyclical'] else '🏭'
-            cycle_note = '（周期股）' if stock['classification']['is_cyclical'] else ''
-
-            recent_count = sd.get('recent_dividend_count', 1)
-            dividend_text = f"年化{sd['dividend_yield']*100:.1f}%（近12月{recent_count}次）" if recent_count > 1 else f"{sd['dividend_yield']*100:.1f}%"
-
-            lines.append(f"{i}. {sd['name']} ({sd['code']}) {tag} {industry}{cycle_note}")
-            lines.append(f"   综合评分：{total:.1f}/100 {stars}")
-            lines.append(f"")
-            lines.append(f"   📈 关键指标")
-            lines.append(f"   - 股息率：{dividend_text} | 历史分红：{sd['history_count']}次")
-            lines.append(f"   - 市盈率：{sd['pe']:.1f} | 市净率：{sd['pb']:.2f}")
-            lines.append(f"   - 市值：{sd['market_cap']/100000000:.0f}亿 | 最新价：{sd['price']:.2f}")
-
-            # 显示财务指标（如果有）
-            if 'financial_data' in stock and stock['financial_data']:
-                fd = stock['financial_data']
-                roe = fd.get('roe')
-                profit_growth = fd.get('profit_growth')
-                debt_ratio = fd.get('debt_ratio')
-
-                financial_indicators = []
-                if roe is not None:
-                    financial_indicators.append(f"ROE {roe:.1f}%")
-                if profit_growth is not None:
-                    financial_indicators.append(f"利润增长 {profit_growth:.1f}%")
-                if debt_ratio is not None:
-                    financial_indicators.append(f"负债率 {debt_ratio:.1f}%")
-
-                if financial_indicators:
-                    lines.append(f"   - 财务数据：{' | '.join(financial_indicators)}")
-
-            lines.append(f"")
-            lines.append(f"   💡 评分明细")
-            for reason in stock['reasons']:
-                lines.append(f"   {reason}")
-            lines.append("")
-            lines.append("━" * 55)
-            lines.append("")
-
-        # 投资建议
-        lines.append("💡 投资建议")
-        lines.append("1. 优先配置：防御性行业（银行、电力、高速公路）")
-        lines.append("2. 适度配置：优质消费、制造业龙头")
-        lines.append("3. 谨慎配置：周期股（需择时，关注宏观）")
-        lines.append("4. 分散投资：建议配置 10-15 只，分散行业风险")
-        lines.append("")
-        lines.append("⚠️ 风险提示：本报告仅供参考，不构成投资建议。股市有风险，投资需谨慎。")
-
-        return '\n'.join(lines)

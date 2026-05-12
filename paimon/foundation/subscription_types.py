@@ -75,16 +75,3 @@ def register(meta: SubscriptionTypeMeta) -> None:
 
 def get(binding_kind: str) -> SubscriptionTypeMeta | None:
     return _REGISTRY.get(binding_kind)
-
-
-def all_types() -> list[SubscriptionTypeMeta]:
-    return list(_REGISTRY.values())
-
-
-def is_registered(binding_kind: str) -> bool:
-    return binding_kind in _REGISTRY
-
-
-def clear_for_test() -> None:
-    """仅测试用：清空注册表。"""
-    _REGISTRY.clear()
