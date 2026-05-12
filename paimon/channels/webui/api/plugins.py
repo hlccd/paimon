@@ -16,9 +16,15 @@ async def plugins_page(channel: "WebUIChannel", request: web.Request) -> web.Res
         token = request.cookies.get("paimon_token")
         if not token or token not in channel.valid_tokens:
             return web.Response(text=channel._get_login_html(), content_type="text/html")
-    from paimon.channels.webui.plugins_html import build_plugins_html
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=build_plugins_html(),
+        text=render_warm_page(
+            title="插件",
+            content_template="plugins",
+            active="plugins",
+            extra_css='<link rel="stylesheet" href="/static/css/plugins.css">',
+            extra_js='<script src="/static/js/plugins.js"></script>',
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )

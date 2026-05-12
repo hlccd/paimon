@@ -1,0 +1,67 @@
+        <div class="dash-page-header">
+  <div>
+    <h1 class="dash-page-title"><span data-icon="plug"></span>插件</h1>
+    <p class="dash-page-subtitle">Skill 生态 + 永久授权 + 自进化提案</p>
+  </div>
+  <div>
+    <button class="refresh-btn" onclick="refreshAll()">刷新</button>
+  </div>
+</div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('skills',this)">Skill 生态</button>
+            <button class="tab-btn" onclick="switchTab('authz',this)">永久授权</button>
+            <button class="tab-btn" onclick="switchTab('proposals',this)">
+                自进化提案<span id="propBadge" class="tab-badge zero">0</span>
+            </button>
+        </div>
+
+        <div id="skills" class="tab-panel active">
+            <div id="skillsEl"><div class="empty-state">加载中...</div></div>
+        </div>
+
+        <div id="authz" class="tab-panel">
+            <div id="authzEl"><div class="empty-state">加载中...</div></div>
+        </div>
+
+        <div id="proposals" class="tab-panel">
+            <div class="sub-tabs" id="propSubTabs">
+                <button class="sub-tab active" data-status="pending" onclick="switchProp('pending',this)">待审 <span id="propCntPending"></span></button>
+                <button class="sub-tab" data-status="approved" onclick="switchProp('approved',this)">已同意 <span id="propCntApproved"></span></button>
+                <button class="sub-tab" data-status="applied" onclick="switchProp('applied',this)">已落盘 <span id="propCntApplied"></span></button>
+                <button class="sub-tab" data-status="rejected" onclick="switchProp('rejected',this)">已拒 <span id="propCntRejected"></span></button>
+            </div>
+            <div id="proposalsEl"><div class="empty-state">加载中...</div></div>
+        </div>
+
+        <!-- 提建议改写 modal -->
+    <div id="reviseModal" class="modal-backdrop" onclick="closeReviseModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div>
+                    <h3>提建议改写草案</h3>
+                    <div class="modal-sub" id="reviseModalSub"></div>
+                </div>
+                <button class="modal-close" onclick="closeReviseModal()">×</button>
+            </div>
+            <div class="form-body">
+                <div class="form-field">
+                    <label for="reviseFeedback">你的建议（可留空仅触发重审）</label>
+                    <textarea id="reviseFeedback" placeholder="例如：&#10;- 应该支持非米哈游游戏，比如英雄联盟、永劫无间&#10;- 步骤 3 写得不够具体，要展开下数据来源&#10;- triggers 描述太含糊，应该列出具体场景&#10;&#10;留空 → 退化为「按原内容重审」（适合挽救 verdict 不准的提案）"></textarea>
+                </div>
+                <div class="form-tips">
+                    <span class="tip-label">提交后会发生什么：</span>
+                    <ul>
+                        <li>生执根据你的建议重写完整草案（in-place 覆盖 system_prompt / triggers / 工具列表）</li>
+                        <li>死执自动重审一道，verdict 刷新</li>
+                        <li>revision_count +1，原建议留痕显示在卡片上</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn-cancel" onclick="closeReviseModal()">取消</button>
+                <button class="btn-save" id="reviseSubmitBtn" onclick="submitRevise()">提交重写</button>
+            </div>
+            <div id="reviseError" class="form-error"></div>
+        </div>
+    </div>

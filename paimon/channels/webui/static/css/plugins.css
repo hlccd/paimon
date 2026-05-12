@@ -1,0 +1,232 @@
+/* plugins 页特定样式（skill 生态 + 永久授权 + 自进化提案 三 tab） */
+
+body { min-height: 100vh; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .page-header h1 { font-size: 24px; color: var(--pm-text-primary); font-weight: 600; }
+    .page-header .sub { font-size: 13px; color: var(--pm-text-muted); margin-top: 4px; }
+    .refresh-btn {
+        padding: 8px 16px; background: var(--pm-bg-subtle); color: var(--pm-text-secondary);
+        border: 1px solid var(--pm-border); border-radius: 6px; cursor: pointer; font-size: 13px;
+    }
+    .refresh-btn:hover { border-color: var(--pm-primary-hover); color: var(--pm-primary); }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--pm-border); }
+    .tab-btn {
+        padding: 10px 20px; background: transparent; border: none; color: var(--pm-text-muted);
+        cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent;
+    }
+    .tab-btn:hover { color: var(--pm-text-primary); }
+    .tab-btn.active { color: var(--pm-primary); border-bottom-color: var(--pm-primary); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th, .data-table td {
+        padding: 12px 16px; border-bottom: 1px solid var(--pm-border);
+        font-size: 14px; text-align: left; vertical-align: top;
+    }
+    .data-table th { color: var(--pm-primary); font-weight: 600; font-size: 13px; }
+    .data-table tbody tr:hover td { background: var(--pm-bg-card); }
+
+    .badge {
+        display: inline-block; padding: 3px 8px; border-radius: 4px;
+        font-size: 12px; font-weight: 500;
+    }
+    .badge-normal { background: rgba(8,145,178,.12); color: var(--pm-info); }
+    .badge-sensitive { background: rgba(124,58,237,.15); color: var(--pm-warning); }
+    .badge-allow { background: rgba(16,185,129,.15); color: var(--pm-success); }
+    .badge-deny { background: rgba(239,68,68,.15); color: var(--pm-danger); }
+
+    .chip {
+        display: inline-block; padding: 2px 8px; margin: 2px 4px 2px 0;
+        border-radius: 10px; font-size: 12px;
+        background: var(--pm-bg-subtle); color: var(--pm-text-secondary);
+        border: 1px solid var(--pm-border);
+    }
+    .chip.sensitive { border-color: var(--pm-warning); color: var(--pm-warning); }
+
+    .btn-revoke {
+        padding: 4px 12px; background: transparent; border: 1px solid var(--pm-danger);
+        color: var(--pm-danger); border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+    .btn-revoke:hover { background: rgba(239,68,68,.1); }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--pm-text-muted); font-size: 14px; }
+    .desc { color: var(--pm-text-muted); font-size: 12px; margin-top: 4px; line-height: 1.5; }
+    .mono { font-family: var(--pm-font-mono); font-size: 12px; color: var(--pm-text-secondary); }
+
+    /* tab badge（pending 数量提示） */
+    .tab-badge {
+        display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 6px;
+        border-radius: 9px; font-size: 11px; line-height: 18px; text-align: center;
+        background: var(--pm-warning); color: #1a1a1a; font-weight: 600;
+    }
+    .tab-badge.zero { background: var(--pm-bg-subtle); color: var(--pm-text-muted); }
+
+    /* sub-tab 行（pending / approved / rejected / applied 切换）*/
+    .sub-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .sub-tab {
+        padding: 6px 14px; border: 1px solid var(--pm-border); border-radius: 16px;
+        background: transparent; color: var(--pm-text-muted); cursor: pointer; font-size: 12px;
+    }
+    .sub-tab:hover { border-color: var(--pm-primary-hover); color: var(--pm-text-secondary); }
+    .sub-tab.active { background: var(--pm-primary); color: #1a1a1a; border-color: var(--pm-primary); }
+
+    /* 提案 card */
+    .prop-card {
+        background: var(--pm-bg-card); border: 1px solid var(--pm-border);
+        border-radius: 8px; margin-bottom: 12px; overflow: hidden;
+        transition: border-color .15s;
+    }
+    .prop-card:hover { border-color: var(--pm-primary-hover); }
+    .prop-head {
+        display: flex; align-items: center; padding: 14px 16px; gap: 12px;
+        cursor: pointer; user-select: none;
+    }
+    .prop-head .arrow {
+        color: var(--pm-text-muted); font-size: 12px; transition: transform .15s;
+        transform: rotate(90deg);  /* 默认展开 → 朝下 */
+    }
+    .prop-name { font-weight: 600; color: var(--pm-text-primary); font-size: 14px; }
+    .prop-meta { flex: 1; min-width: 0; }
+    .prop-desc { color: var(--pm-text-muted); font-size: 12px; margin-top: 3px;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .prop-badges { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .prop-actions {
+        padding: 0 16px 14px 36px;  /* 跟 prop-name 对齐 */
+        display: flex; gap: 8px;
+    }
+
+    .badge-kind-new { background: rgba(8,145,178,.12); color: var(--pm-info); }
+    .badge-kind-improve { background: rgba(168,85,247,.15); color: #c084fc; }
+
+    .badge-status-pending { background: rgba(124,58,237,.15); color: var(--pm-warning); }
+    .badge-status-approved { background: rgba(16,185,129,.15); color: var(--pm-success); }
+    .badge-status-rejected { background: rgba(115,115,115,.15); color: var(--pm-text-muted); }
+    .badge-status-applied { background: rgba(8,145,178,.18); color: var(--pm-info); }
+
+    .badge-verdict-pass { background: rgba(16,185,129,.12); color: var(--pm-success); }
+    .badge-verdict-revise { background: rgba(124,58,237,.15); color: var(--pm-warning); }
+    .badge-verdict-reject { background: rgba(239,68,68,.15); color: var(--pm-danger); }
+    .badge-verdict-empty { background: var(--pm-bg-subtle); color: var(--pm-text-muted); }
+
+    /* 默认展开（提案信息密度高，折叠会埋掉关键信息）；点 head 可折叠 */
+    .prop-body { display: block; padding: 0 16px 16px 36px; border-top: 1px dashed var(--pm-border); padding-top: 14px; }
+    .prop-card.collapsed .prop-body { display: none; }
+    .prop-card.collapsed .arrow { transform: rotate(0deg); }
+    .prop-section { margin-bottom: 12px; }
+    .prop-section-label {
+        font-size: 11px; color: var(--pm-primary); text-transform: uppercase;
+        letter-spacing: .5px; margin-bottom: 4px; font-weight: 600;
+    }
+    .prop-section-content { font-size: 13px; color: var(--pm-text-secondary); line-height: 1.6; }
+    .prop-section-content.code {
+        background: var(--pm-bg-subtle); padding: 10px 12px; border-radius: 4px;
+        font-family: var(--pm-font-mono); font-size: 12px;
+        white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto;
+    }
+
+    .btn-approve, .btn-reject, .btn-revise, .btn-delete-prop {
+        padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;
+        border: 1px solid; background: transparent;
+    }
+    .btn-approve { border-color: var(--pm-success); color: var(--pm-success); }
+    .btn-approve:hover:not(:disabled) { background: rgba(16,185,129,.1); }
+    .btn-approve:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-reject { border-color: var(--pm-warning); color: var(--pm-warning); }
+    .btn-reject:hover { background: rgba(124,58,237,.1); }
+    .btn-revise { border-color: var(--pm-primary-hover); color: var(--pm-primary); }
+    .btn-revise:hover:not(:disabled) { background: rgba(245,200,80,.1); }
+    .btn-revise:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-reject:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-delete-prop { border-color: var(--pm-danger); color: var(--pm-danger); }
+    .btn-delete-prop:hover { background: rgba(239,68,68,.1); }
+
+    /* 重写中状态条 */
+    .revising-banner {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 14px; margin-bottom: 12px;
+        background: rgba(245,200,80,.08); border: 1px solid rgba(245,200,80,.3);
+        border-radius: 6px;
+        color: var(--pm-primary); font-size: 12px;
+    }
+    .revising-banner .pulse {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--pm-primary);
+        animation: revising-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes revising-pulse {
+        0%, 100% { opacity: .3; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.4); }
+    }
+
+    /* 提建议改写 modal —— 风格对齐 /knowledge 的 form modal */
+    .modal-backdrop {
+        display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000;
+        align-items: center; justify-content: center;
+    }
+    .modal-backdrop.active { display: flex; }
+    .modal {
+        background: var(--pm-bg-card); border: 1px solid var(--pm-border);
+        border-radius: 8px; max-width: 640px; width: 90%;
+        max-height: 85vh; overflow: auto; padding: 24px;
+    }
+    .modal-header {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 16px; padding-bottom: 12px;
+        border-bottom: 1px solid var(--pm-border);
+    }
+    .modal-header h3 { color: var(--pm-primary); font-size: 18px; font-weight: 600; }
+    .modal-header .modal-sub {
+        font-size: 12px; color: var(--pm-text-muted); margin-top: 4px;
+        font-family: var(--pm-font-mono);
+    }
+    .modal-close {
+        background: transparent; border: none; color: var(--pm-text-muted); font-size: 22px;
+        cursor: pointer; padding: 0 6px;
+    }
+    .modal-close:hover { color: var(--pm-text-primary); }
+    .form-body { padding: 8px 0; display: flex; flex-direction: column; gap: 14px; }
+    .form-field { display: flex; flex-direction: column; gap: 4px; }
+    .form-field label { font-size: 12px; color: var(--pm-text-muted); }
+    .form-field textarea {
+        padding: 10px 12px; background: var(--pm-bg-page);
+        border: 1px solid var(--pm-border); border-radius: 4px;
+        color: var(--pm-text-primary); font-size: 13px;
+        font-family: inherit; line-height: 1.6;
+        min-height: 140px; resize: vertical;
+    }
+    .form-field textarea:focus { outline: none; border-color: var(--pm-primary); }
+    .form-field .hint { font-size: 11px; color: var(--pm-text-muted); font-style: italic; }
+    .form-tips {
+        background: var(--pm-bg-subtle); border: 1px solid var(--pm-border);
+        border-radius: 4px; padding: 10px 12px;
+        font-size: 12px; color: var(--pm-text-secondary); line-height: 1.7;
+    }
+    .form-tips .tip-label { color: var(--pm-primary); font-weight: 600; }
+    .form-tips ul { margin: 4px 0 0 18px; }
+    .form-actions {
+        display: flex; justify-content: flex-end; gap: 10px;
+        margin-top: 16px; padding-top: 12px;
+        border-top: 1px solid var(--pm-border);
+    }
+    .btn-cancel {
+        padding: 6px 18px; background: transparent; border: 1px solid var(--pm-border);
+        color: var(--pm-text-secondary); border-radius: 4px; cursor: pointer; font-size: 13px;
+    }
+    .btn-cancel:hover { border-color: var(--pm-text-secondary); color: var(--pm-text-primary); }
+    .btn-save {
+        padding: 6px 18px; background: var(--pm-primary); color: #000;
+        border: none; border-radius: 4px; cursor: pointer;
+        font-size: 13px; font-weight: 600;
+    }
+    .btn-save:hover { background: var(--pm-primary-hover); }
+    .btn-save:disabled { opacity: .5; cursor: not-allowed; }
+    .form-error {
+        margin-top: 10px; padding: 8px 12px;
+        background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3);
+        border-radius: 4px; color: var(--pm-danger); font-size: 12px;
+        display: none;
+    }
+    .form-error.active { display: block; }
