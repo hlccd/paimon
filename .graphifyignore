@@ -1,0 +1,7 @@
+# Paimon-specific graphify ignore — paimon 项目特化的图谱抽取忽略规则
+# 语法同 .gitignore，graphify 默认已排 __pycache__ / .git / *.egg-info / graphify-out / .venv / node_modules
+
+# 派生 / 运行态目录（顶层 .gitignore 已排但 graphify 不读 .gitignore）
+.paimon/
+paimon.egg-info/
+*.log

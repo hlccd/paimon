@@ -15,3 +15,6 @@ dist/
 build/
 .venv/
 .check/
+
+# graphify 项目地图产出 — 6MB+ 二进制，不进 git 历史
+graphify-out/
