@@ -17,9 +17,19 @@ if TYPE_CHECKING:
 async def game_page(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.Response(text=channel._get_login_html(), content_type="text/html")
-    from paimon.channels.webui.game_html import build_game_html
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=build_game_html(), content_type="text/html",
+        text=render_warm_page(
+            title="游戏",
+            content_template="game",
+            active="game",
+            extra_css=(
+                '<link rel="stylesheet" href="/static/css/game.css">\n'
+                '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>'
+            ),
+            extra_js='<script src="/static/js/game.js"></script>',
+        ),
+        content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 

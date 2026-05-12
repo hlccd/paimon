@@ -1,0 +1,653 @@
+/* game 页特定样式（水神 mihoyo 游戏：紧凑卡片 + 详情展开 + qr modal） */
+
+body { min-height: 100vh; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+    /* ========= 顶部状态条 ========= */
+    .status-bar {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 20px;
+    }
+    .status-title h1 { font-size: 22px; color: var(--pm-text-primary); font-weight: 600; }
+    .status-title .sub { font-size: 12px; color: var(--pm-text-muted); margin-top: 2px; }
+    .status-actions { display: flex; gap: 8px; }
+
+    /* ========= 按钮 ========= */
+    .btn {
+        padding: 7px 14px; font-size: 13px; border-radius: 6px;
+        background: var(--pm-bg-card); color: var(--pm-text-secondary);
+        border: 1px solid var(--pm-border); cursor: pointer;
+        transition: border-color .15s, color .15s, background .15s;
+    }
+    .btn:hover { border-color: var(--pm-primary-hover); color: var(--pm-primary); }
+    .btn.primary {
+        background: linear-gradient(135deg, var(--pm-primary), var(--pm-primary-active));
+        color: #000; border: none; font-weight: 600;
+    }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.danger:hover { color: var(--pm-danger); border-color: var(--pm-danger); }
+    .btn.tiny { padding: 4px 10px; font-size: 12px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ========= 账号卡 ========= */
+    .account-card {
+        background: var(--pm-bg-card); border: 1px solid var(--pm-border);
+        border-radius: 12px; margin-bottom: 14px; overflow: hidden;
+        transition: border-color .2s;
+    }
+    .account-card:hover { border-color: var(--pm-primary-hover); }
+
+    /* ---- 紧凑摘要行 ---- */
+    .ac-summary {
+        display: grid;
+        grid-template-columns: 200px 1fr auto;
+        gap: 18px; align-items: center;
+        padding: 14px 18px;
+    }
+    .ac-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    /* 游戏 logo：汉字核心 + 官方主色渐变圆，不依赖外链图片 */
+    .game-logo {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px; border-radius: 50%;
+        font-size: 18px; font-weight: 700; color: #fff;
+        font-family: "Noto Sans CJK SC", "Microsoft YaHei", serif;
+        flex-shrink: 0; letter-spacing: 0;
+        box-shadow: 0 2px 6px rgba(0,0,0,.35);
+        text-shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+    .game-logo.gs  { background: linear-gradient(135deg, #d4af37 0%, #8b7530 100%); }  /* 原神金 */
+    .game-logo.sr  { background: linear-gradient(135deg, #b084f0 0%, #5a3a8c 100%); }  /* 星穹紫 */
+    .game-logo.zzz { background: linear-gradient(135deg, #f0d530 0%, #a08010 100%); color: #2a2000; }  /* 绝区零黄 */
+    .ac-names { min-width: 0; }
+    .ac-game-name {
+        color: var(--pm-primary); font-weight: 600; font-size: 14px;
+        display: flex; align-items: baseline; gap: 6px;
+    }
+    .ac-note {
+        color: var(--pm-text-primary); font-weight: 500;
+    }
+    .ac-uid {
+        font-family: monospace; color: var(--pm-text-muted); font-size: 11px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* 中间状态区：树脂条 + 状态 chips */
+    .ac-status { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .ac-resin-line {
+        display: flex; align-items: center; gap: 10px;
+    }
+    .ac-resin-label {
+        font-size: 11px; color: var(--pm-text-muted);
+        min-width: 40px; text-align: right;
+    }
+    .ac-resin-bar {
+        flex: 1; height: 8px; background: var(--pm-border);
+        border-radius: 4px; overflow: hidden; position: relative;
+        max-width: 260px;
+    }
+    .ac-resin-fill {
+        height: 100%; border-radius: 4px; transition: width .3s;
+        background: linear-gradient(90deg, #6ec6ff, #bb86fc);
+    }
+    .ac-resin-fill.warn  { background: linear-gradient(90deg, var(--pm-primary), #f4c430); }
+    .ac-resin-fill.full  { background: linear-gradient(90deg, var(--pm-danger), var(--pm-primary)); }
+    .ac-resin-num {
+        font-family: monospace; font-size: 12px; color: var(--pm-text-primary);
+        min-width: 68px; text-align: right;
+    }
+    .ac-resin-when {
+        font-size: 11px; color: var(--pm-text-muted); min-width: 88px;
+    }
+    .ac-resin-when.urgent { color: var(--pm-danger); font-weight: 600; }
+
+    .ac-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+        padding: 2px 10px; border-radius: 12px;
+        font-size: 11px; background: var(--pm-bg-page);
+        color: var(--pm-text-secondary); white-space: nowrap;
+    }
+    .chip.ok   { color: var(--pm-success); }
+    .chip.warn { color: var(--pm-primary); }
+    .chip.bad  { color: var(--pm-danger); }
+
+    /* 右侧操作 */
+    .ac-ops { display: flex; gap: 6px; align-items: center; }
+    .ac-toggle {
+        background: transparent; border: 1px solid var(--pm-border);
+        color: var(--pm-text-muted); cursor: pointer; padding: 6px 10px;
+        border-radius: 6px; font-size: 12px; transition: color .15s, transform .15s;
+    }
+    .ac-toggle:hover { color: var(--pm-primary); }
+    .ac-toggle .arrow { display: inline-block; transition: transform .2s; margin-left: 2px; }
+    .ac-toggle.open .arrow { transform: rotate(180deg); }
+
+    /* ---- 展开详情区 ---- */
+    .ac-detail {
+        display: none;
+        border-top: 1px solid var(--pm-border);
+        padding: 16px 18px;
+        background: rgba(0,0,0,.15);
+    }
+    .ac-detail.open { display: block; }
+    /* 详情页 grid：左中两 panel（抽卡上 / 深渊下） + 右栏（角色，跨两行） */
+    /* 状态条已在外层 ac-summary 里显示树脂+chips，detail 内不重复 */
+    .ac-detail-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto;
+        gap: 12px;
+    }
+    @media (min-width: 980px) {
+        .ac-detail-grid { grid-template-columns: minmax(0,1fr) 340px; }
+    }
+    .ac-detail-grid > .gacha-pane { grid-column: 1; grid-row: 1; }
+    .ac-detail-grid > .abyss-pane { grid-column: 1; grid-row: 2; }
+    @media (min-width: 980px) {
+        .ac-detail-grid > .chars-pane { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+    }
+    .ac-panel {
+        background: rgba(0,0,0,.18); border: 1px solid var(--pm-border);
+        border-radius: 8px; padding: 12px 14px; min-width: 0;
+        display: flex; flex-direction: column;
+    }
+    .ac-panel.h-fixed { height: 360px; }
+    .ac-panel.h-fixed > .panel-body { flex: 1; min-height: 0; overflow-y: auto; position: relative; }
+    .ac-panel.h-fixed-tall { height: calc(360px * 2 + 12px); max-height: 80vh; }
+    .ac-panel.h-fixed-tall > .panel-body { flex: 1; min-height: 0; overflow-y: auto; }
+    .panel-title {
+        font-size: 11px; color: var(--pm-text-muted); text-transform: uppercase;
+        letter-spacing: .6px; margin-bottom: 10px;
+        display: flex; justify-content: space-between; align-items: center;
+        flex-shrink: 0;
+    }
+    .panel-hint { font-size: 10px; color: var(--pm-text-muted); text-transform: none; letter-spacing: 0; font-weight: normal; }
+    /* 抽卡同步按钮粘底 */
+    .gacha-pane .gacha-sync-row {
+        position: sticky; bottom: 0; margin-top: 8px;
+        padding: 8px 0 4px; background: rgba(0,0,0,.18);
+        border-top: 1px solid var(--pm-border);
+        z-index: 2;
+    }
+    /* 角色 filter 粘顶（滚动时永远可见） */
+    .chars-pane .char-filter-bar, .chars-pane .char-stat-line {
+        position: sticky; background: rgba(0,0,0,.18); z-index: 2;
+        padding: 4px 0;
+    }
+    .chars-pane .char-stat-line { top: 0; }
+    .chars-pane .char-filter-bar { top: 28px; border-bottom: 1px solid var(--pm-border); margin-bottom: 6px; }
+    /* "最欧/最歪/平均"小标签 */
+    .gacha-luck-row {
+        display: flex; gap: 8px; padding: 6px 8px; margin-top: 6px;
+        background: rgba(0,0,0,.2); border-radius: 4px;
+        font-size: 11px; flex-wrap: wrap;
+    }
+    .gacha-luck-row .luck-item { color: var(--pm-text-muted); }
+    .gacha-luck-row .luck-item .v { color: var(--pm-text-primary); font-family: monospace; font-weight: 600; margin-left: 4px; }
+    .gacha-luck-row .luck-item.lucky .v { color: var(--status-ok, #4caf50); }
+    .gacha-luck-row .luck-item.heavy .v { color: var(--pm-danger); }
+    /* 主力角色 chips（深渊出场频次） */
+    .top-heroes {
+        display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 10px;
+    }
+    .top-heroes .hero-chip {
+        padding: 2px 8px; border-radius: 10px; font-size: 11px;
+        background: var(--pm-bg-page); color: var(--pm-text-secondary);
+    }
+    .top-heroes .hero-chip .cnt { color: var(--pm-primary); font-family: monospace; margin-left: 3px; }
+    .top-heroes-label { font-size: 10px; color: var(--pm-text-muted); margin-bottom: 4px; }
+    .detail-section { margin-bottom: 18px; }
+    .detail-section:last-child { margin-bottom: 0; }
+    .detail-title {
+        font-size: 11px; color: var(--pm-text-muted); text-transform: uppercase;
+        letter-spacing: .6px; margin-bottom: 10px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    /* 顶部状态条：树脂/体力/电量 + 委托/派遣 chips */
+    .status-bar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+        padding: 12px 14px; border-radius: 8px;
+        background: linear-gradient(90deg, rgba(212,175,55,.06), rgba(0,0,0,.18));
+        border: 1px solid var(--pm-border);
+    }
+    .status-stamina {
+        display: flex; align-items: center; gap: 8px; min-width: 220px;
+    }
+    .status-stamina .label { color: var(--pm-text-muted); font-size: 12px; }
+    .status-stamina .num { color: var(--pm-primary); font-family: monospace; font-weight: 600; font-size: 14px; }
+    .status-stamina .full { color: var(--pm-danger); }
+    .status-stamina .when { color: var(--pm-text-muted); font-size: 11px; }
+    .status-bar-bar {
+        flex: 1; height: 6px; background: var(--pm-bg-page); border-radius: 3px;
+        overflow: hidden; min-width: 100px; max-width: 240px;
+    }
+    .status-bar-fill { height: 100%; background: var(--pm-primary); transition: width .3s; }
+    .status-bar-fill.full { background: var(--pm-danger); }
+    .status-chip {
+        padding: 4px 10px; border-radius: 12px; font-size: 11px;
+        background: var(--pm-bg-page); color: var(--pm-text-secondary);
+    }
+    .status-chip.done { color: var(--pm-success); border: 1px solid rgba(76,175,80,.3); }
+    .status-chip .num { color: var(--pm-text-primary); font-family: monospace; font-weight: 600; }
+
+    /* 深渊行 + 队伍展开 */
+    .abyss-row { cursor: pointer; }
+    .abyss-row:hover { background: rgba(255,255,255,.03); }
+    .abyss-teams {
+        display: block;       /* 默认展开看队伍，点击行可收起 */
+        padding: 6px 0 4px 12px; margin: 0 0 6px 0;
+        border-left: 2px solid var(--pm-border);
+    }
+    .abyss-teams.closed { display: none; }
+    .abyss-team {
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        padding: 4px 0;
+        font-size: 11px; color: var(--pm-text-muted);
+    }
+    .abyss-team-label { min-width: 64px; color: var(--pm-text-muted); font-family: monospace; }
+    .abyss-team-avatar {
+        display: inline-flex; align-items: center; gap: 3px;
+        padding: 2px 6px; background: var(--pm-bg-page); border-radius: 10px;
+        font-size: 11px;
+    }
+    .abyss-team-avatar.r5 { color: #f4d03f; border: 1px solid rgba(244,208,63,.3); }
+    .abyss-team-avatar.r4 { color: #b46cff; border: 1px solid rgba(180,108,255,.3); }
+    .abyss-team-avatar .lv { color: var(--pm-text-muted); font-size: 10px; }
+    .abyss-toggle { color: var(--pm-text-muted); font-size: 10px; margin-left: 6px; }
+
+    /* 战报表格 */
+    .abyss-rows { }
+    .abyss-row {
+        display: grid; grid-template-columns: 140px 1fr 80px 100px;
+        align-items: center; gap: 10px;
+        padding: 7px 0; border-bottom: 1px dashed var(--pm-border);
+        font-size: 13px;
+    }
+    .abyss-row:last-child { border-bottom: none; }
+    .abyss-name  { color: var(--pm-text-secondary); }
+    .abyss-floor { color: var(--pm-text-primary); font-family: monospace; font-size: 12px; }
+    .abyss-star  { color: var(--pm-primary); text-align: right; font-family: monospace; font-weight: 600; }
+    .abyss-meta  { color: var(--pm-text-muted); text-align: right; font-size: 11px; }
+    .abyss-empty { color: var(--pm-text-muted); font-size: 12px; text-align: center; padding: 12px 0; }
+
+    /* 派遣 chips（展开后完整列表） */
+    .exp-detail { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .exp-chip {
+        padding: 2px 8px; background: var(--pm-bg-page); border-radius: 10px;
+        font-size: 11px; color: var(--pm-text-muted);
+    }
+    .exp-chip.ready { color: var(--pm-success); border: 1px solid var(--pm-success); }
+
+    /* 抽卡 */
+    .gacha-head {
+        display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .gpool {
+        padding: 3px 10px; background: var(--pm-bg-page);
+        border: 1px solid var(--pm-border); border-radius: 10px;
+        font-size: 11px; cursor: pointer; color: var(--pm-text-muted);
+    }
+    .gpool.active { border-color: var(--pm-primary); color: var(--pm-primary); }
+    .gacha-summary {
+        font-size: 12px; color: var(--pm-text-secondary); margin-bottom: 10px;
+        padding: 8px 12px; background: var(--pm-bg-page); border-radius: 6px;
+    }
+    .gacha-summary .pity { color: var(--pm-primary); font-weight: 600; font-family: monospace; }
+    .gacha-summary .pity.warn { color: var(--pm-danger); }
+    .gacha-summary .pity.soft { color: #f4d03f; }     /* ≥软保底但未到硬保底 */
+    .gacha-summary .sep { color: var(--pm-text-muted); margin: 0 8px; }
+    .gacha-five-list { max-height: 260px; overflow-y: auto; }
+    .gfive {
+        display: grid; grid-template-columns: 28px 1fr 56px 56px 92px;
+        gap: 6px; align-items: center; padding: 6px 4px;
+        font-size: 12px; border-bottom: 1px dashed var(--pm-border);
+    }
+    .gfive:last-child { border-bottom: none; }
+    .gfive-badge { color: #f4d03f; font-weight: 700; text-align: center; }
+    .gfive-name  { color: var(--pm-text-primary); }
+    .gfive-pull  { color: var(--pm-primary); font-family: monospace; text-align: center; }
+    .gfive-pull.lucky { color: var(--status-ok, #4caf50); }     /* ≤30 抽欧皇 */
+    .gfive-pull.heavy { color: var(--pm-danger); }            /* ≥80 抽接近硬保底 */
+    .gfive-up { font-size: 10px; padding: 1px 0; border-radius: 3px; text-align: center; font-weight: 600; }
+    .gfive-up.on  { background: rgba(76,175,80,.15); color: var(--status-ok, #4caf50); border: 1px solid rgba(76,175,80,.4); }
+    .gfive-up.off { background: rgba(255,152,0,.15); color: #ff9800; border: 1px solid rgba(255,152,0,.4); }
+    .gfive-up.none{ color: var(--pm-text-muted); border: 1px solid var(--pm-border); }
+    .gfive-time  { color: var(--pm-text-muted); font-family: monospace; font-size: 11px; text-align: right; }
+    .gacha-sync-row {
+        display: flex; justify-content: flex-end; align-items: center;
+        gap: 8px; margin-top: 10px;
+    }
+    .gacha-sync-status {
+        font-size: 11px; color: var(--pm-text-muted); font-family: monospace;
+    }
+    .gacha-sync-status.running { color: var(--pm-primary); }
+    .gacha-sync-status.failed  { color: var(--pm-danger); }
+    .gacha-sync-status.done    { color: var(--status-ok, #4caf50); }
+
+    /* ========= URL 导入 modal ========= */
+    .urlimport-modal {
+        background: var(--pm-bg-card); border: 1px solid var(--pm-border);
+        border-radius: 12px; padding: 24px; max-width: 600px; width: 92%;
+    }
+    .urlimport-modal h3 { color: var(--pm-primary); font-size: 15px; margin-bottom: 12px; }
+    .urlimport-modal .tutorial {
+        background: var(--pm-bg-page); border-left: 3px solid var(--pm-primary);
+        padding: 10px 14px; border-radius: 4px; margin-bottom: 12px;
+        font-size: 12px; color: var(--pm-text-secondary); line-height: 1.7;
+    }
+    .urlimport-modal .tutorial b { color: var(--pm-text-primary); }
+    .urlimport-modal .tutorial code {
+        background: rgba(0,0,0,.25); padding: 1px 6px; border-radius: 3px;
+        font-family: monospace; font-size: 11px;
+    }
+    .urlimport-modal textarea {
+        width: 100%; min-height: 90px; padding: 8px 10px; box-sizing: border-box;
+        background: var(--pm-bg-page); color: var(--pm-text-primary);
+        border: 1px solid var(--pm-border); border-radius: 4px;
+        font-family: monospace; font-size: 11px; resize: vertical;
+    }
+    .urlimport-modal .actions {
+        display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;
+    }
+    /* 教程里的 PowerShell 命令块 */
+    .ps-cmd-box { position: relative; margin-top: 4px; }
+    .ps-cmd-box textarea {
+        width: 100%; height: 64px; box-sizing: border-box;
+        padding: 6px 70px 6px 8px; font-size: 10px; font-family: monospace;
+        background: rgba(0,0,0,.35); color: var(--pm-text-primary);
+        border: 1px solid var(--pm-border); border-radius: 4px; resize: none;
+    }
+    .ps-cmd-copy {
+        position: absolute; top: 4px; right: 4px;
+        padding: 3px 10px; font-size: 11px; cursor: pointer;
+        background: var(--pm-bg-card); color: var(--pm-primary);
+        border: 1px solid var(--pm-primary); border-radius: 4px;
+    }
+    .ps-cmd-copy:hover { background: var(--pm-primary); color: var(--pm-bg-card); }
+    .ps-cmd-copy.done { color: var(--status-ok, #4caf50); border-color: var(--status-ok, #4caf50); }
+    .gacha-empty {
+        color: var(--pm-text-muted); font-size: 12px; text-align: center; padding: 16px 0;
+    }
+
+    /* 高级操作 */
+    .detail-ops {
+        display: flex; justify-content: flex-end; gap: 6px;
+        padding-top: 12px; border-top: 1px dashed var(--pm-border);
+    }
+
+    /* ========= 空状态（未绑定） ========= */
+    .empty-bind {
+        text-align: center; padding: 60px 20px;
+        background: var(--pm-bg-card); border: 1px dashed var(--pm-border);
+        border-radius: 12px;
+    }
+    .empty-bind h2 { font-size: 16px; color: var(--pm-text-secondary); margin-bottom: 8px; font-weight: 500; }
+    .empty-bind p  { font-size: 13px; color: var(--pm-text-muted); margin-bottom: 18px; }
+
+    /* ========= 扫码 modal ========= */
+    .qr-modal-backdrop {
+        display: none; position: fixed; inset: 0;
+        background: rgba(0,0,0,.65); backdrop-filter: blur(4px);
+        z-index: 1000; align-items: center; justify-content: center;
+    }
+    .qr-modal-backdrop.show { display: flex; }
+    .qr-modal {
+        background: var(--pm-bg-card); border: 1px solid var(--pm-border);
+        border-radius: 12px; padding: 24px; max-width: 360px; width: 92%;
+    }
+    .qr-modal-head {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 14px;
+    }
+    .qr-modal-head h3 { color: var(--pm-primary); font-size: 15px; }
+    .qr-close {
+        background: transparent; border: none; color: var(--pm-text-muted);
+        font-size: 22px; cursor: pointer; line-height: 1; padding: 0 6px;
+    }
+    .qr-close:hover { color: var(--pm-danger); }
+    .qr-box {
+        width: 240px; height: 240px; background: #fff; border-radius: 8px;
+        margin: 0 auto; display: flex; align-items: center; justify-content: center;
+    }
+    .qr-box img { width: 100%; height: 100%; }
+    .qr-hint { text-align: center; font-size: 12px; color: var(--pm-text-secondary); margin-top: 12px; }
+    .qr-hint.small { font-size: 11px; color: var(--pm-text-muted); margin-top: 4px; }
+    .qr-status { text-align: center; font-size: 12px; color: var(--pm-text-muted); margin-top: 8px; min-height: 16px; }
+
+    /* ========= 响应式（窄屏） ========= */
+    @media (max-width: 720px) {
+        .ac-summary { grid-template-columns: 1fr; gap: 10px; }
+        .ac-ops { justify-content: flex-end; }
+    }
+
+    /* ========= Tab 切换（总览 / 原神 / 崩铁 / 绝区零） ========= */
+    .tabs-bar {
+        display: flex; gap: 2px; margin-bottom: 18px;
+        border-bottom: 1px solid var(--pm-border);
+    }
+    .tab-btn {
+        padding: 10px 18px; background: transparent; border: none;
+        color: var(--pm-text-muted); font-size: 14px; cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: color .15s, border-color .15s;
+    }
+    .tab-btn:hover { color: var(--pm-text-primary); }
+    .tab-btn.active {
+        color: var(--pm-primary); border-bottom-color: var(--pm-primary); font-weight: 500;
+    }
+    /* tab 里的小 logo 球（比 ac-icon 那个小一号） */
+    .tab-logo {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 20px; height: 20px; border-radius: 50%; margin-right: 6px;
+        font-size: 11px; font-weight: 700; color: #fff;
+        vertical-align: -4px;
+    }
+    .tab-logo.gs  { background: linear-gradient(135deg, #d4af37, #8b7530); }
+    .tab-logo.sr  { background: linear-gradient(135deg, #b084f0, #5a3a8c); }
+    .tab-logo.zzz { background: linear-gradient(135deg, #f0d530, #a08010); color: #2a2000; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* 单游戏 tab 内的"该游戏无账号"提示 */
+    .tab-empty {        text-align: center; padding: 40px 20px; color: var(--pm-text-muted);
+        background: var(--pm-bg-card); border: 1px dashed var(--pm-border);
+        border-radius: 10px;
+    }
+
+    /* ========= 角色养成网格 ========= */
+    .char-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: 10px;
+    }
+    .char-card {
+        background: var(--pm-bg-page); border: 1px solid var(--pm-border);
+        border-radius: 8px; padding: 10px; display: flex; gap: 10px; align-items: center;
+        transition: border-color .15s;
+    }
+    .char-card:hover { border-color: var(--pm-primary-hover); }
+    .char-card.r5 { border-color: #c88a3a; background: linear-gradient(135deg, rgba(200,138,58,.08), var(--pm-bg-page)); }
+    .char-card.r4 { border-color: #8a5fc8; background: linear-gradient(135deg, rgba(138,95,200,.08), var(--pm-bg-page)); }
+    .char-icon {
+        width: 44px; height: 44px; border-radius: 6px; flex-shrink: 0;
+        background: var(--pm-border) center/cover no-repeat;
+    }
+    .char-main { min-width: 0; flex: 1; }
+    .char-name {
+        font-size: 13px; font-weight: 600; color: var(--pm-text-primary);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .char-meta {
+        font-size: 11px; color: var(--pm-text-muted); margin-top: 2px;
+        display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .char-lv { color: var(--pm-primary); font-family: monospace; font-weight: 500; }
+    .char-cons {
+        display: inline-flex; gap: 2px;
+    }
+    .cons-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: var(--pm-border);
+    }
+    .cons-dot.on { background: var(--pm-primary); }
+    .cons-dot.r5.on { background: #e5b255; }
+    .char-filter-bar {
+        display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .char-filter {
+        padding: 3px 10px; background: var(--pm-bg-page);
+        border: 1px solid var(--pm-border); border-radius: 10px;
+        font-size: 11px; cursor: pointer; color: var(--pm-text-muted);
+    }
+    .char-filter.active { border-color: var(--pm-primary); color: var(--pm-primary); }
+    .char-stat-line {
+        font-size: 11px; color: var(--pm-text-muted); margin-bottom: 10px;
+    }
+    .char-stat-line .num { color: var(--pm-primary); font-family: monospace; font-weight: 600; }
+
+    /* 单列角色 list（每行一个，含武器名） */
+    .char-list { display: flex; flex-direction: column; gap: 4px; }
+    .char-row {
+        display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; padding: 6px 8px;
+        align-items: center; border-radius: 6px;
+        background: rgba(0,0,0,.15); border-left: 2px solid var(--pm-border);
+    }
+    .char-row.r5 { border-left-color: var(--pm-primary); background: linear-gradient(90deg, rgba(212,175,55,.06), rgba(0,0,0,.15)); }
+    .char-row.r4 { border-left-color: #8a5fc8; background: linear-gradient(90deg, rgba(138,95,200,.06), rgba(0,0,0,.15)); }
+    .char-icon-sm {
+        width: 36px; height: 36px; border-radius: 50%;
+        background: var(--pm-border) center/cover no-repeat;
+    }
+    .char-info { min-width: 0; }
+    .char-line1 { display: flex; align-items: baseline; gap: 8px; line-height: 1.3; }
+    .char-line1 .char-name { font-size: 13px; color: var(--pm-text-primary); font-weight: 500; }
+    .char-line1 .char-lv { font-size: 11px; color: var(--pm-text-muted); font-family: monospace; }
+    .char-line1 .char-ca {
+        font-size: 11px; color: var(--pm-primary); font-family: monospace; font-weight: 600;
+        margin-left: auto; padding: 1px 6px; border: 1px solid rgba(212,175,55,.3); border-radius: 8px;
+    }
+    .char-line2 { font-size: 11px; color: var(--pm-text-muted); margin-top: 1px; }
+    .char-line2.wp5 { color: #f4d03f; }
+    .char-line2.wp4 { color: #b46cff; }
+    .char-line2 .muted { color: var(--pm-text-muted); opacity: .6; }
+
+    /* 占位（用于尚未接入的 sr/zzz 角色 tab） */
+    .coming-soon {
+        padding: 24px; text-align: center; color: var(--pm-text-muted);
+        background: var(--pm-bg-page); border-radius: 8px; font-size: 13px;
+        border: 1px dashed var(--pm-border);
+    }
+    .coming-soon .cs-title { color: var(--pm-primary); font-size: 13px; margin-bottom: 6px; }
+
+    /* markdown body 样式（通用 — 水神资讯 / 角色搜索 共用）*/
+    .markdown-body {
+        font-size: 13px; color: var(--pm-text-primary); line-height: 1.6;
+        padding: 6px 4px;
+    }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3,
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+        color: var(--pm-primary); font-weight: 600;
+        margin: 12px 0 6px; line-height: 1.3;
+    }
+    .markdown-body h1 { font-size: 16px; }
+    .markdown-body h2 { font-size: 15px; }
+    .markdown-body h3 { font-size: 14px; }
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-size: 13px; }
+    .markdown-body p { margin: 6px 0; }
+    .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 22px; }
+    .markdown-body li { margin: 2px 0; }
+    .markdown-body a { color: var(--pm-primary-active); text-decoration: underline; }
+    .markdown-body a:hover { color: var(--pm-primary); }
+    .markdown-body code {
+        background: var(--pm-bg-page); padding: 1px 5px; border-radius: 3px;
+        font-family: 'SF Mono', Consolas, monospace; font-size: 12px;
+        color: var(--pm-primary-active);
+    }
+    .markdown-body pre {
+        background: var(--pm-bg-page); padding: 8px 10px; border-radius: 5px;
+        overflow-x: auto; margin: 6px 0;
+    }
+    .markdown-body pre code {
+        background: transparent; padding: 0; color: var(--pm-text-primary);
+    }
+    .markdown-body blockquote {
+        border-left: 3px solid var(--pm-primary-hover);
+        padding: 2px 10px; margin: 6px 0;
+        color: var(--pm-text-muted);
+    }
+    .markdown-body strong { color: var(--pm-text-primary); font-weight: 600; }
+    .markdown-body hr { border: none; border-top: 1px dashed var(--pm-border); margin: 10px 0; }
+
+    /* ========= 水神·游戏资讯 + 角色搜索（嵌入各 game tab 顶部）========= */
+    .fr-section {
+        margin: 0 0 12px;
+        background: var(--pm-bg-page);
+        border: 1px solid var(--pm-border);
+        border-radius: 8px;
+        padding: 8px 12px;
+    }
+    .fr-body { display: flex; gap: 0; min-height: 140px; }
+    .fr-col { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 10px; }
+    .fr-col-news { padding-left: 0; }
+    .fr-col-search {
+        padding-right: 0;
+        border-left: 1px dashed var(--pm-border);
+    }
+    .fr-col-title {
+        font-size: 12px; font-weight: 600; color: var(--pm-text-primary);
+        margin-bottom: 4px; padding-bottom: 3px;
+        border-bottom: 1px dashed var(--pm-border);
+        display: flex; align-items: baseline;
+    }
+    .fr-col-hint {
+        font-weight: 400; color: var(--pm-text-muted); margin-left: auto; font-size: 10px;
+    }
+    .fr-col-scroll {
+        flex: 1; overflow-y: auto; max-height: 28vh;
+        padding: 2px 4px 2px 0;
+        font-size: 12px; line-height: 1.5; color: var(--pm-text-secondary);
+    }
+    .fr-col-scroll.markdown-body { padding: 2px 4px 2px 0; }
+    .fr-col-scroll .markdown-body { padding: 0; }
+    .fr-empty {
+        padding: 14px 10px; text-align: center;
+        color: var(--pm-text-muted); font-style: italic;
+        line-height: 1.55; font-size: 12px;
+    }
+    .fr-empty-icon {
+        display: block; font-size: 20px; opacity: .55;
+        margin-bottom: 4px; font-style: normal;
+    }
+    .fr-search-bar { display: flex; gap: 6px; margin-bottom: 6px; }
+    .fr-search-input {
+        flex: 1; min-width: 0; padding: 5px 9px;
+        background: var(--paimon-bg-deep); color: var(--pm-text-primary);
+        border: 1px solid var(--pm-border); border-radius: 5px;
+        font-size: 12px;
+    }
+    .fr-search-input:focus { outline: none; border-color: var(--pm-primary-hover); }
+    .fr-search-input::placeholder { color: var(--pm-text-muted); }
+    .fr-result-meta {
+        font-size: 10px; color: var(--pm-text-muted); font-style: italic;
+        margin-bottom: 6px; padding-bottom: 4px;
+        border-bottom: 1px dashed var(--pm-border);
+    }
+
+    /* char-row 永久显示的 🔍 按钮（grid 第三列 auto） */
+    .char-research-btn {
+        background: transparent;
+        border: 1px solid var(--pm-border);
+        border-radius: 4px;
+        width: 26px; height: 26px;
+        font-size: 13px; line-height: 1;
+        cursor: pointer;
+        color: var(--pm-text-muted);
+        transition: all .15s;
+    }
+    .char-research-btn:hover {
+        background: var(--pm-primary-hover); color: var(--pm-bg-page);
+        border-color: var(--pm-primary);
+    }
+    .char-row:hover .char-research-btn {
+        color: var(--pm-primary);
+        border-color: var(--pm-primary-hover);
+    }

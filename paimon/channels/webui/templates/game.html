@@ -1,41 +1,6 @@
-"""水神 · 游戏面板 — 玩家视角紧凑布局
-
-设计哲学：
-玩家日常最关心的就 3 件事 —— 树脂满没 / 委托做完没 / 今天签了没。
-战报、抽卡是**偶尔**才翻的低频信息，不该和日常信息挤一起。
-
-布局：
-- 顶部状态条：绑定总数 + [+添加] + 刷新
-- 每个账号一张**紧凑卡片**：只显示关键状态（一眼能判断是否要操作）
-  - 树脂进度条（颜色随满额程度变）
-  - 今日委托 / 派遣 / 签到状态（状态 chip）
-  - 右上角：签到按钮（最常用）+ 展开按钮
-- 点击"▾ 详情"展开：战报 + 抽卡（原神独占）+ 高级操作
-- 扫码登录：modal 弹窗，不常驻
-"""
-from paimon.channels.webui.theme import (
-    THEME_COLORS, BASE_CSS, NAVIGATION_CSS, NAV_LINKS_CSS, navigation_html,
-)
-
-# ---- chunks ----
-from ._game_css_1 import GAME_CSS_1
-from ._game_css_2 import GAME_CSS_2
-from ._game_script_1 import GAME_SCRIPT_1
-from ._game_script_2 import GAME_SCRIPT_2
-from ._game_script_3 import GAME_SCRIPT_3
-from ._game_script_4 import GAME_SCRIPT_4
-
-
-
-GAME_CSS = GAME_CSS_1 + GAME_CSS_2
-
-
-GAME_BODY = """
-    <div class="container">
-
         <div class="status-bar">
             <div class="status-title">
-                <h1>🎮 游戏</h1>
+                <h1><span data-icon="gamepad-2" style="display:inline-flex;vertical-align:middle;margin-right:8px"></span>游戏</h1>
                 <div class="sub" id="statusSub">加载中...</div>
             </div>
             <div class="status-actions">
@@ -77,38 +42,3 @@ GAME_BODY = """
                 <button class="btn primary tiny" onclick="submitUrlImport()">导入</button>
             </div>
         </div>
-    </div>
-"""
-
-
-GAME_SCRIPT = GAME_SCRIPT_1 + GAME_SCRIPT_2 + GAME_SCRIPT_3 + GAME_SCRIPT_4
-
-
-def build_game_html() -> str:
-    return (
-        """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paimon - 游戏</title>
-    <!-- 推送内容用 markdown 渲染（同主聊天面板） -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>"""
-        + THEME_COLORS
-        + BASE_CSS
-        + NAVIGATION_CSS
-        + NAV_LINKS_CSS
-        + GAME_CSS
-        + """</style>
-</head>
-<body>"""
-        + navigation_html("game")
-        + GAME_BODY
-        + GAME_SCRIPT
-        + """</body>
-</html>"""
-    )
-
-# ---- 大 string const 切片 chunks（自动生成） ----
-
