@@ -20,7 +20,7 @@ async def tasks_page(channel: "WebUIChannel", request: web.Request) -> web.Respo
     from paimon.channels.webui.render import render_warm_page
     return web.Response(
         text=render_warm_page(
-            title="任务观测",
+            title="任务",
             content_template="tasks",
             active="tasks",
             extra_css='<link rel="stylesheet" href="/static/css/tasks.css">',
