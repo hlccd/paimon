@@ -169,6 +169,103 @@ async def feed_topic_research_api(channel, request: web.Request) -> web.Response
 
 
 # ─────────────────────────────────────────────────────────────
+# 每日热点 API（cron 11/17 跑；前端进面板拉最新一份展示）
+# ─────────────────────────────────────────────────────────────
+
+async def hotspot_today_api(channel, request: web.Request) -> web.Response:
+    """拉最新一份每日热点（按 captured_at 倒序第一条）+ inflight 状态。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    irminsul = channel.state.irminsul
+    venti = channel.state.venti
+    running = bool(venti and venti.is_hotspot_running())
+    if not irminsul:
+        return web.json_response({"hotspot": None, "running": running})
+    rec = await irminsul.daily_hotspot_get_latest()
+    return web.json_response({"hotspot": rec, "running": running})
+
+
+async def hotspot_list_api(channel, request: web.Request) -> web.Response:
+    """近 N 天的所有 slot 列表（最多 N×2 条，倒序）。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    irminsul = channel.state.irminsul
+    if not irminsul:
+        return web.json_response({"items": []})
+    try:
+        days = max(1, min(int(request.query.get("days", "7")), 30))
+    except (TypeError, ValueError):
+        days = 7
+    items = await irminsul.daily_hotspot_list_recent(days)
+    return web.json_response({"items": items})
+
+
+async def hotspot_run_api(channel, request: web.Request) -> web.Response:
+    """手动触发一次每日热点采集（前端「立即跑」按钮）。
+
+    同步设 inflight=True 后再 bg：保证 API 返回时 venti.is_hotspot_running()=true，
+    前端立刻拉 /today 也能看到 running=true（避免 race 闪回）。
+    """
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    venti = channel.state.venti
+    if not venti or not channel.state.irminsul or not channel.state.model:
+        return web.json_response({"ok": False, "error": "依赖未就绪"}, status=500)
+    if venti.is_hotspot_running():
+        return web.json_response({"ok": False, "error": "已在采集中"})
+
+    venti._hotspot_inflight = True  # 同步设上，return 时必然 true
+
+    async def _go():
+        from paimon.archons.venti.hotspot import run_daily_hotspot_collect
+        try:
+            await run_daily_hotspot_collect(channel.state)
+        except Exception as e:
+            logger.exception("[风神·hotspot] 手动采集异常: {}", e)
+        finally:
+            venti._hotspot_inflight = False
+    bg(_go(), label="venti·hotspot·webui-manual")
+    return web.json_response({"ok": True})
+
+
+async def weekly_latest_api(channel, request: web.Request) -> web.Response:
+    """拉最新一份近期回顾（整张表只 1 条）+ inflight 状态。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    irminsul = channel.state.irminsul
+    venti = channel.state.venti
+    running = bool(venti and venti.is_weekly_running())
+    if not irminsul:
+        return web.json_response({"weekly": None, "running": running})
+    rec = await irminsul.weekly_hotspot_get_latest()
+    return web.json_response({"weekly": rec, "running": running})
+
+
+async def weekly_run_api(channel, request: web.Request) -> web.Response:
+    """手动触发一次近期回顾（同 hotspot：同步设 inflight 后 bg）。"""
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    venti = channel.state.venti
+    if not venti or not channel.state.irminsul or not channel.state.model:
+        return web.json_response({"ok": False, "error": "依赖未就绪"}, status=500)
+    if venti.is_weekly_running():
+        return web.json_response({"ok": False, "error": "已在生成中"})
+
+    venti._weekly_inflight = True
+
+    async def _go():
+        from paimon.archons.venti.hotspot import run_weekly_hotspot_collect
+        try:
+            await run_weekly_hotspot_collect(channel.state)
+        except Exception as e:
+            logger.exception("[风神·近期回顾] 手动生成异常: {}", e)
+        finally:
+            venti._weekly_inflight = False
+    bg(_go(), label="venti·weekly·webui-manual")
+    return web.json_response({"ok": True})
+
+
+# ─────────────────────────────────────────────────────────────
 # 站点登录 API（cookies 扫码管理；归风神主管，给 topic 等登录态 collector 用）
 # ─────────────────────────────────────────────────────────────
 
@@ -270,6 +367,11 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_delete("/api/feed/subs/{sub_id}", lambda r, ch=channel: feed_subs_delete_api(ch, r))
     app.router.add_post("/api/feed/subs/{sub_id}/run", lambda r, ch=channel: feed_subs_run_api(ch, r))
     app.router.add_get("/api/feed/topic_research/{sub_id}", lambda r, ch=channel: feed_topic_research_api(ch, r))
+    app.router.add_get("/api/feed/hotspot/today", lambda r, ch=channel: hotspot_today_api(ch, r))
+    app.router.add_get("/api/feed/hotspot/list", lambda r, ch=channel: hotspot_list_api(ch, r))
+    app.router.add_post("/api/feed/hotspot/run", lambda r, ch=channel: hotspot_run_api(ch, r))
+    app.router.add_get("/api/feed/weekly/latest", lambda r, ch=channel: weekly_latest_api(ch, r))
+    app.router.add_post("/api/feed/weekly/run", lambda r, ch=channel: weekly_run_api(ch, r))
     # 站点登录扫码
     app.router.add_get("/api/feed/login/overview", lambda r, ch=channel: login_overview_api(ch, r))
     app.router.add_post("/api/feed/login/start", lambda r, ch=channel: login_start_api(ch, r))

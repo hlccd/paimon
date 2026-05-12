@@ -89,6 +89,44 @@ async def _ensure_mihoyo_collect_cron() -> None:
         logger.warning("[水神·游戏·启动] 创建 cron 异常（不阻塞）: {}", e)
 
 
+async def _ensure_daily_hotspot_cron() -> None:
+    """风神·每日热点 cron：每天 11:00 + 17:00 各跑一次（错峰避开订阅 7:00）。
+    顺带 ensure 周报 cron：每周六 10:00 跑一次（汇总过去 7 天数据）。
+    """
+    try:
+        from paimon.channels.webui.channel import PUSH_CHAT_ID
+        existing = await state.march.list_tasks()
+
+        # 每日（同 task_type 多条按 cron expr 去重）
+        existing_daily = {
+            (t.trigger_value or {}).get("expr", "")
+            for t in existing if t.task_type == "daily_hotspot_collect"
+        }
+        for expr, label in [("0 11 * * *", "11:00"), ("0 17 * * *", "17:00")]:
+            if expr in existing_daily:
+                continue
+            await state.march.create_task(
+                chat_id=PUSH_CHAT_ID, channel_name="webui", prompt="",
+                trigger_type="cron", trigger_value={"expr": expr},
+                task_type="daily_hotspot_collect", source_entity_id="all",
+            )
+            logger.info("[风神·hotspot·启动] 已创建每日热点 cron（{}）", label)
+
+        # 近期回顾（一条；周六 10:00）
+        weekly_present = any(
+            t.task_type == "weekly_hotspot_collect" for t in existing
+        )
+        if not weekly_present:
+            await state.march.create_task(
+                chat_id=PUSH_CHAT_ID, channel_name="webui", prompt="",
+                trigger_type="cron", trigger_value={"expr": "0 10 * * 6"},
+                task_type="weekly_hotspot_collect", source_entity_id="all",
+            )
+            logger.info("[风神·近期回顾·启动] 已创建 cron（周六 10:00）")
+    except Exception as e:
+        logger.warning("[风神·hotspot·启动] 创建 cron 异常（不阻塞）: {}", e)
+
+
 async def _ensure_skill_proposal_cron() -> None:
     """自进化提案 cron：月度扫描（每月 1 日 04:00）+ 周度 prune（周一 03:30）。
 

@@ -190,3 +190,40 @@ class _RuntimeMixin:
     async def feed_topic_research_get(self, sub_id: str) -> dict | None:
         return await self._subscription.topic_research_get(sub_id)
 
+    # ============ 域 11.7: 风神 · 每日热点 ============
+    async def daily_hotspot_upsert(
+        self, *, capture_date: str, capture_slot: str,
+        markdown: str, sources_ok: str, sources_fail: str,
+        items_total: int, duration_s: int, actor: str = "风神",
+    ) -> None:
+        await self._hotspot.upsert(
+            capture_date=capture_date, capture_slot=capture_slot,
+            markdown=markdown, sources_ok=sources_ok, sources_fail=sources_fail,
+            items_total=items_total, duration_s=duration_s, actor=actor,
+        )
+
+    async def daily_hotspot_get_latest(self) -> dict | None:
+        return await self._hotspot.get_latest()
+
+    async def daily_hotspot_get_by_slot(
+        self, capture_date: str, capture_slot: str,
+    ) -> dict | None:
+        return await self._hotspot.get_by_slot(capture_date, capture_slot)
+
+    async def daily_hotspot_list_recent(self, days: int = 7) -> list[dict]:
+        return await self._hotspot.list_recent(days)
+
+    # ============ 域 11.8: 风神 · 近期回顾 ============
+    async def weekly_hotspot_upsert(
+        self, *, capture_date: str, range_start: str, range_end: str,
+        markdown: str, daily_count: int, duration_s: int, actor: str = "风神",
+    ) -> None:
+        await self._hotspot.weekly_upsert(
+            capture_date=capture_date, range_start=range_start, range_end=range_end,
+            markdown=markdown, daily_count=daily_count,
+            duration_s=duration_s, actor=actor,
+        )
+
+    async def weekly_hotspot_get_latest(self) -> dict | None:
+        return await self._hotspot.weekly_get_latest()
+

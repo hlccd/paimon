@@ -62,6 +62,68 @@ def register_task_types() -> None:
         dispatcher=_dispatch,
     ))
 
+    # 每日热点 cron（11/17 各跑一次）；source_entity_id 不绑业务实体，统一空串
+    async def _desc_hotspot(sid: str, irminsul: "Irminsul") -> str:
+        return "每日热点采集（4 源 UGC 综合 LLM 排序）"
+
+    async def _dispatch_hotspot(task, state) -> None:
+        from paimon.archons.venti.hotspot import run_daily_hotspot_collect
+        venti = state.venti
+        if venti and venti.is_hotspot_running():
+            logger.info("[风神·hotspot] 已在采集中，跳过 cron 触发")
+            return
+        if venti:
+            venti._hotspot_inflight = True
+        try:
+            await run_daily_hotspot_collect(state)
+        except Exception as e:
+            logger.exception("[风神·hotspot] 采集异常: {}", e)
+        finally:
+            if venti:
+                venti._hotspot_inflight = False
+
+    task_types.register(task_types.TaskTypeMeta(
+        task_type="daily_hotspot_collect",
+        display_label="风神·每日热点",
+        manager_panel="/feed",
+        archon="venti",
+        icon="rss",
+        description_builder=_desc_hotspot,
+        anchor_builder=lambda _sid: "hotspot",
+        dispatcher=_dispatch_hotspot,
+    ))
+
+    # 近期回顾 cron（周六 10 点）；每次跑 = 当日往前 7 天的 daily_hotspot
+    async def _desc_weekly(sid: str, irminsul: "Irminsul") -> str:
+        return "风神·近期回顾（汇总过去 7 天 daily 热点）"
+
+    async def _dispatch_weekly(task, state) -> None:
+        from paimon.archons.venti.hotspot import run_weekly_hotspot_collect
+        venti = state.venti
+        if venti and venti.is_weekly_running():
+            logger.info("[风神·近期回顾] 已在生成中，跳过 cron 触发")
+            return
+        if venti:
+            venti._weekly_inflight = True
+        try:
+            await run_weekly_hotspot_collect(state)
+        except Exception as e:
+            logger.exception("[风神·近期回顾] 异常: {}", e)
+        finally:
+            if venti:
+                venti._weekly_inflight = False
+
+    task_types.register(task_types.TaskTypeMeta(
+        task_type="weekly_hotspot_collect",
+        display_label="风神·近期回顾",
+        manager_panel="/feed",
+        archon="venti",
+        icon="rss",
+        description_builder=_desc_weekly,
+        anchor_builder=lambda _sid: "weekly",
+        dispatcher=_dispatch_weekly,
+    ))
+
 
 def register_subscription_types() -> None:
     """注册风神名下的订阅类型。

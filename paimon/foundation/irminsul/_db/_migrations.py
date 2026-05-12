@@ -48,6 +48,9 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("skill_proposals", "user_feedback", "TEXT NOT NULL DEFAULT ''"),
     ("skill_proposals", "revision_count", "INTEGER NOT NULL DEFAULT 0"),
     ("skill_proposals", "revising_at", "REAL"),
+    # 2026-05 风神近期回顾改语义：从周一-周日改为"采集日往前 7 天"
+    ("weekly_hotspot", "range_start", "TEXT NOT NULL DEFAULT ''"),
+    ("weekly_hotspot", "range_end", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

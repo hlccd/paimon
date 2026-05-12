@@ -19,10 +19,11 @@
 
 ## 1. 职能层面
 
-- [ ] **风神 · 每日热点资讯 / 新闻获取** —— 每天定时跑一次综合热点（不需用户手填 query），输出当天最热、最值得关注的 N 条新闻 / 资讯
-  - 区别于现有 `topic_research`（按 query 跑）：这是**全局热点扫描**，由风神主动发起
-  - 候选实现：聚合多源（topic 用 5 源 UGC + 新闻 SERP + 36kr / 虎嗅 / 少数派 / hacker-news）→ LLM 综合排序 → 落库 `daily_hotspot` 表（覆盖式按天）
-  - 接入点：放 `/feed` 顶部独立"今日热点"区，或单建 `feed_collect` 域内的 `daily_hotspot` 子任务
+- [ ] **风神 · 热点资讯 chat 入口** —— 让用户在 chat 里直接问"今日热点"/"近期回顾"也能拿到内容
+  - 现状：只有 webui `/feed` 面板能看（`daily_hotspot` / `weekly_hotspot` 表已存好）
+  - 候选实现：thin skill 包装 `daily_hotspot_get_latest` + `weekly_hotspot_get_latest` facade，
+    意图分类规则引擎加触发词（"今日热点"/"今天热点"/"最近热点"/"近期回顾"/"这周热点"等）
+  - 不需要重写底层（hotspot collector / cron / LLM 综合都已实装）
 
 - [ ] **推送策略深化**
   - **已做**：`march.ring_event` 60s/10 次滑窗限流 + `dedup_per_day=True` 日级 upsert + `push_archive` 持久化 + 审计 + leyline `push.archived` publish + PushHub 进程内 SSE 扇出

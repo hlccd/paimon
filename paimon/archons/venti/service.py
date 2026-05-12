@@ -30,12 +30,21 @@ class VentiArchon(_CollectMixin, _DigestMixin, _LoginMixin, Archon):
         # 订阅采集 in-flight 集合：进入 collect_subscription 加入、finally 移除
         # 用途：① 前端卡片显示「采集中」角标 ② 防并发重入（cron + 手动按钮重叠）
         self._inflight: set[str] = set()
+        # hotspot / 近期回顾 单例 inflight 标志（不绑 sub_id；防并发 + 前端跨刷新看状态）
+        self._hotspot_inflight: bool = False
+        self._weekly_inflight: bool = False
         # 站点扫码登录会话池（_LoginMixin 用，惰性初始化但显式声明便于追踪）
         self._pending_login: dict = {}
         self._login_gc_task = None
 
     def is_running(self, sub_id: str) -> bool:
         return sub_id in self._inflight
+
+    def is_hotspot_running(self) -> bool:
+        return self._hotspot_inflight
+
+    def is_weekly_running(self) -> bool:
+        return self._weekly_inflight
 
     async def execute(self) -> str:
         # 保留方法签名仅为满足 Archon ABC 约定（archon 实例不参与执行路径）

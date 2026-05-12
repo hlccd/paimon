@@ -74,6 +74,28 @@ FEED_CSS = """
     .sub-info .sub-meta span { margin-right: 12px; }
     .sub-info .sub-err { color: var(--status-error); font-size: 12px; margin-top: 4px; }
 
+    /* 今日热点 / 近期回顾 区（4 tab 各一个独立 section）*/
+    .hotspot-section {
+        background: var(--paimon-panel); border: 1px solid var(--paimon-border);
+        border-radius: 10px; padding: 14px 18px;
+    }
+    .hotspot-head {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 10px; padding-bottom: 10px;
+        border-bottom: 1px dashed var(--paimon-border);
+    }
+    .hotspot-meta {
+        flex: 1; font-size: 13px; color: var(--text-primary); font-weight: 500;
+    }
+    .hotspot-section select {
+        padding: 4px 10px; background: var(--paimon-bg);
+        border: 1px solid var(--paimon-border); border-radius: 4px;
+        color: var(--text-primary); font-size: 12px;
+    }
+    .hotspot-body {
+        padding: 4px 0;
+    }
+
     /* topic_research 订阅卡的 markdown 内容区 */
     .topic-research-md {
         margin-top: 10px; padding: 10px 14px;
@@ -161,11 +183,47 @@ FEED_BODY = """
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('subs',this)">订阅管理</button>
-            <button class="tab-btn" onclick="switchTab('login',this)">站点登录</button>
+            <button class="tab-btn active" onclick="switchTab('hotspot',this)">📰 今日热点</button>
+            <button class="tab-btn" onclick="switchTab('weekly',this)">📅 近期回顾</button>
+            <button class="tab-btn" onclick="switchTab('subs',this)">🔔 订阅管理</button>
+            <button class="tab-btn" onclick="switchTab('login',this)">🔑 站点登录</button>
         </div>
 
-        <div id="subs" class="tab-panel active">
+        <!-- Tab 1: 今日热点 -->
+        <div id="hotspot" class="tab-panel active">
+            <div class="hotspot-section">
+                <div class="hotspot-head">
+                    <span class="hotspot-meta" id="hotspotMeta">加载中...</span>
+                    <select id="hotspotPicker" onchange="onHotspotPick()" style="display:none"></select>
+                    <button class="btn-action" id="hotspotRunBtn" onclick="runHotspot()">▶ 立即跑</button>
+                </div>
+                <div class="hotspot-body" id="hotspotBody">
+                    <div class="empty-state" style="padding:20px;font-size:13px">加载中...</div>
+                </div>
+            </div>
+            <div class="form-hint" style="margin-top:8px">
+                cron 每天 11:00 / 17:00 自动跑两次（6 源 UGC：B 站+小红书+知乎+贴吧+微博+HackerNews · LLM 综合排序）
+            </div>
+        </div>
+
+        <!-- Tab 2: 近期回顾 -->
+        <div id="weekly" class="tab-panel">
+            <div class="hotspot-section" id="weeklySection">
+                <div class="hotspot-head">
+                    <span class="hotspot-meta" id="weeklyMeta">加载中...</span>
+                    <button class="btn-action" id="weeklyRunBtn" onclick="runWeekly()">▶ 立即跑</button>
+                </div>
+                <div class="hotspot-body" id="weeklyBody">
+                    <div class="empty-state" style="padding:20px;font-size:13px">加载中...</div>
+                </div>
+            </div>
+            <div class="form-hint" style="margin-top:8px">
+                cron 每周六 10:00 跑一次（汇总采集日往前 7 天的 daily 热点，跨日合并 + LLM 综合）
+            </div>
+        </div>
+
+        <!-- Tab 3: 订阅管理 -->
+        <div id="subs" class="tab-panel">
             <div class="sub-form">
                 <h3>新增订阅</h3>
                 <div class="form-row">
@@ -196,6 +254,7 @@ FEED_BODY = """
             <div id="subListEl" class="sub-list"><div class="empty-state">加载中...</div></div>
         </div>
 
+        <!-- Tab 4: 站点登录 -->
         <div id="login" class="tab-panel">
             <div class="form-hint" style="margin-bottom:12px">
                 topic 调研需要的各站 cookies 在这里扫码取得（B 站免登录，知乎 / 小红书 / 微博 / 贴吧 / 虎扑 / TapTap 需要登录态）。
@@ -239,10 +298,142 @@ FEED_SCRIPT = """
             document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
             document.getElementById(key).classList.add('active');
             btn.classList.add('active');
-            if(key==='login')loadLoginOverview();
+            // 按需 lazy load 各 tab 数据（避免一开始就把所有 API 都打一遍）
+            if(key==='hotspot') loadHotspot();
+            if(key==='weekly') loadWeekly();
+            if(key==='subs') loadSubs();
+            if(key==='login') loadLoginOverview();
         };
 
-        window.refreshAll=function(){ loadSubs(); };
+        // 刷新当前 active tab
+        window.refreshAll=function(){
+            var active = document.querySelector('.tab-panel.active');
+            if(!active) return;
+            var key = active.id;
+            if(key==='hotspot') loadHotspot();
+            else if(key==='weekly') loadWeekly();
+            else if(key==='subs') loadSubs();
+            else if(key==='login') loadLoginOverview();
+        };
+
+        // ── 每日热点 ──
+        var _hotspotItems = [];   // 历史 list（每天 1 条）
+        var _hotspotCurrent = null;
+        var _hotspotRunning = false;  // 后端 inflight 状态（API running 字段，render 据此设按钮）
+        var _hotspotPollTimer = null;
+
+        async function loadHotspot(){
+            try{
+                var [todayResp, listResp] = await Promise.all([
+                    fetch('/api/feed/hotspot/today'),
+                    fetch('/api/feed/hotspot/list?days=7'),
+                ]);
+                var td = await todayResp.json();
+                var ld = await listResp.json();
+                _hotspotItems = ld.items || [];
+                _hotspotCurrent = td.hotspot || null;
+                _hotspotRunning = !!td.running;
+                renderHotspot();
+                // 后端在跑 → 2s 后自动 reload；崩溃恢复后下次 reload 拿到 false 自然停
+                if(_hotspotPollTimer){ clearTimeout(_hotspotPollTimer); _hotspotPollTimer=null; }
+                if(_hotspotRunning){
+                    _hotspotPollTimer = setTimeout(loadHotspot, 2000);
+                }
+            }catch(e){
+                document.getElementById('hotspotBody').innerHTML =
+                    '<div class="sub-err">加载失败: '+esc(String(e))+'</div>';
+            }
+        }
+
+        function renderHotspot(){
+            var meta = document.getElementById('hotspotMeta');
+            var body = document.getElementById('hotspotBody');
+            var picker = document.getElementById('hotspotPicker');
+            var btn = document.getElementById('hotspotRunBtn');
+
+            // 按钮 = 后端 running 的镜像（参考订阅卡 sub.running 模式）：
+            // - 刷新页面 / 切 tab 时 loadHotspot 拿到最新 running → 按钮立即正确
+            // - paimon 崩溃重启 inflight 默认 false → 按钮"立即跑"
+            if(_hotspotRunning){
+                btn.disabled = true;
+                btn.textContent = '采集中… 约 1-2 分钟';
+            } else {
+                btn.disabled = false;
+                btn.textContent = '▶ 立即跑';
+            }
+
+            if(!_hotspotCurrent){
+                meta.textContent = _hotspotRunning ? '首次采集中…' : '尚未跑过';
+                body.innerHTML = '<div class="empty-state" style="padding:24px;font-size:13px">'
+                    + (_hotspotRunning ? '正在跑 6 源 + LLM 综合，约 1-2 分钟…' : '点 ▶ 立即跑 看看 6 源热榜综合（约 1-2 分钟）')
+                    + '<br><span style="font-size:11px;opacity:.6">每天 11:00 / 17:00 cron 自动跑</span>'
+                    + '</div>';
+                picker.style.display='none';
+                return;
+            }
+
+            // 历史下拉：每天最多 1 条，按 capture_date 列
+            if(_hotspotItems.length > 1){
+                picker.style.display='';
+                picker.innerHTML = _hotspotItems.map(function(it){
+                    var sel = (it.id === _hotspotCurrent.id) ? ' selected' : '';
+                    return '<option value="'+it.id+'"'+sel+'>'+esc(it.capture_date)+'</option>';
+                }).join('');
+            } else {
+                picker.style.display='none';
+            }
+
+            var ts = fmtTime(_hotspotCurrent.captured_at);
+            var sourcesOk = _hotspotCurrent.sources_ok || '-';
+            var sourcesFail = _hotspotCurrent.sources_fail
+                ? ' · 失败: '+_hotspotCurrent.sources_fail : '';
+            meta.innerHTML = esc(_hotspotCurrent.capture_date)
+                + '<span style="margin-left:8px;color:var(--text-muted);font-size:11px">'
+                + esc('上次更新 '+ts+' · 源: '+sourcesOk+sourcesFail) + '</span>';
+
+            var md = _hotspotCurrent.markdown || '';
+            var html = '';
+            if(md){
+                if(typeof marked!=='undefined' && marked.parse){
+                    try { html = marked.parse(md); }
+                    catch(e){ html = '<pre>'+esc(md)+'</pre>'; }
+                } else {
+                    html = '<pre>'+esc(md)+'</pre>';
+                }
+            }
+            body.innerHTML = '<div class="topic-md-body markdown-body">'+html+'</div>';
+            body.querySelectorAll('a[href^="http"]').forEach(function(a){
+                a.setAttribute('target','_blank');
+                a.setAttribute('rel','noopener noreferrer');
+            });
+        }
+
+        window.onHotspotPick = function(){
+            var id = parseInt(document.getElementById('hotspotPicker').value);
+            var match = _hotspotItems.find(function(x){return x.id===id;});
+            if(match){
+                _hotspotCurrent = match;
+                renderHotspot();
+            }
+        };
+
+        window.runHotspot = async function(){
+            // 立即视觉反馈，不等后端 race（同订阅卡的 runSub 模式）
+            var btn = document.getElementById('hotspotRunBtn');
+            btn.disabled = true;
+            btn.textContent = '采集中… 约 1-2 分钟';
+            _hotspotRunning = true;
+            try{
+                // 不论 ok（新触发）还是 fail（"已在采集中"）—— loadHotspot 拿到 running=true 都正确
+                await fetch('/api/feed/hotspot/run', {method:'POST'});
+                await loadHotspot();  // 自带 2s 续 poll，跑完拿到 running=false 自动恢复
+            }catch(e){
+                _hotspotRunning = false;
+                btn.disabled=false; btn.textContent='▶ 立即跑';
+                alert('请求失败: '+e);
+            }
+        };
+
 
         // markdown 缓存：sub_id → {at: last_run_at, html: rendered}
         // loadSubs 重建 DOM 时同步注入缓存的 HTML，避免「加载中 → 有内容」闪烁；
@@ -474,8 +665,106 @@ FEED_SCRIPT = """
             tryScroll(8);  // 最多等 2s
         }
         window.onload=function(){
-            loadSubs();
+            // 默认 active tab = 今日热点；其他 tab 切到时再 lazy load
+            loadHotspot();
             _scrollToSubFromHash();
+        };
+
+        // ── 近期回顾（整张表只 1 条，不展示历史）──
+        var _weeklyCurrent = null;
+        var _weeklyRunning = false;
+        var _weeklyPollTimer = null;
+
+        // 计算"今天往前 7 天"的范围（兜底，没数据时 meta 也能展示）
+        function _defaultRange(){
+            var today = new Date();
+            var pad = function(n){ return ('0'+n).slice(-2); };
+            var fmt = function(d){
+                return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+            };
+            var start = new Date(today.getTime() - 6*86400000);
+            return {start: fmt(start), end: fmt(today)};
+        }
+
+        async function loadWeekly(){
+            try{
+                var r = await fetch('/api/feed/weekly/latest');
+                var d = await r.json();
+                _weeklyCurrent = d.weekly || null;
+                _weeklyRunning = !!d.running;
+                renderWeekly();
+                if(_weeklyPollTimer){ clearTimeout(_weeklyPollTimer); _weeklyPollTimer=null; }
+                if(_weeklyRunning){
+                    _weeklyPollTimer = setTimeout(loadWeekly, 2000);
+                }
+            }catch(e){
+                document.getElementById('weeklyBody').innerHTML =
+                    '<div class="sub-err">加载失败: '+esc(String(e))+'</div>';
+            }
+        }
+
+        function renderWeekly(){
+            var meta = document.getElementById('weeklyMeta');
+            var body = document.getElementById('weeklyBody');
+            var btn = document.getElementById('weeklyRunBtn');
+
+            if(_weeklyRunning){
+                btn.disabled = true;
+                btn.textContent = '生成中… 1-2 分钟';
+            } else {
+                btn.disabled = false;
+                btn.textContent = '▶ 立即跑';
+            }
+
+            if(!_weeklyCurrent){
+                var dr = _defaultRange();
+                meta.textContent = '近期回顾 · '+dr.start+' ~ '+dr.end + (_weeklyRunning ? '（生成中…）' : '（还没跑过）');
+                body.innerHTML = '<div class="empty-state" style="padding:24px;font-size:13px">'
+                    + (_weeklyRunning ? '正在汇总过去 7 天 daily 数据，约 1-2 分钟…' : '点 ▶ 立即跑 综合过去 7 天已采集的 daily 数据')
+                    + '<br><span style="font-size:11px;opacity:.6">每周六 10:00 cron 自动跑</span>'
+                    + '</div>';
+                return;
+            }
+
+            // 数据范围：优先用 range_start/end；老数据没字段时用前端默认
+            var rs = _weeklyCurrent.range_start || _defaultRange().start;
+            var re = _weeklyCurrent.range_end || _defaultRange().end;
+            var dailyN = _weeklyCurrent.daily_count || 0;
+            meta.innerHTML = esc('近期回顾 · '+rs+' ~ '+re)
+                + '<span style="margin-left:8px;color:var(--text-muted);font-size:11px">'
+                + esc('已合 '+dailyN+'/14 次 daily · '+fmtTime(_weeklyCurrent.updated_at))
+                + '</span>';
+
+            var md = _weeklyCurrent.markdown || '';
+            var html = '';
+            if(md){
+                if(typeof marked!=='undefined' && marked.parse){
+                    try { html = marked.parse(md); }
+                    catch(e){ html = '<pre>'+esc(md)+'</pre>'; }
+                } else {
+                    html = '<pre>'+esc(md)+'</pre>';
+                }
+            }
+            body.innerHTML = '<div class="topic-md-body markdown-body">'+html+'</div>';
+            body.querySelectorAll('a[href^="http"]').forEach(function(a){
+                a.setAttribute('target','_blank');
+                a.setAttribute('rel','noopener noreferrer');
+            });
+        }
+
+        window.runWeekly = async function(){
+            var btn = document.getElementById('weeklyRunBtn');
+            btn.disabled = true;
+            btn.textContent = '生成中… 1-2 分钟';
+            _weeklyRunning = true;
+            try{
+                await fetch('/api/feed/weekly/run', {method:'POST'});
+                await loadWeekly();
+            }catch(e){
+                _weeklyRunning = false;
+                btn.disabled=false; btn.textContent='▶ 立即跑';
+                alert('请求失败: '+e);
+            }
         };
         window.addEventListener('hashchange', _scrollToSubFromHash);
 

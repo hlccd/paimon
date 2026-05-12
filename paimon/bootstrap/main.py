@@ -27,6 +27,7 @@ from ._handlers import (
 from ._llm import _make_provider, _seed_llm_profiles_if_empty
 from ._phases import (
     _autoallow_loaded_skills_and_archons,
+    _ensure_daily_hotspot_cron,
     _ensure_dividend_cron,
     _ensure_hygiene_cron,
     _ensure_mihoyo_collect_cron,
@@ -179,6 +180,7 @@ async def create_app(cfg: Config) -> list[Channel]:
     await _ensure_mihoyo_collect_cron()
     await _ensure_hygiene_cron()
     await _ensure_skill_proposal_cron()
+    await _ensure_daily_hotspot_cron()
 
     # 授权体系：世界树灌缓存 + 决策器初始化
     from paimon.core.authz import AuthzCache, AuthzDecision

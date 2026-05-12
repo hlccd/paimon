@@ -378,6 +378,36 @@ CREATE TABLE IF NOT EXISTS feed_topic_research (
     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id)
 );
 
+-- ============ 域 11.7: 风神 · 每日热点（cron 每天 11/17 两次）============
+-- 聚合 6 源（bili/hn/zhihu/weibo/xhs/tieba）热榜后 LLM 综合排序，按 (date, slot)
+-- 自然累积历史。Phase 1 先 4 源（无 xhs/tieba），失败的源走 sources_fail。
+CREATE TABLE IF NOT EXISTS daily_hotspot (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    captured_at   INTEGER NOT NULL,                  -- unix 时间戳
+    capture_date  TEXT NOT NULL,                     -- YYYY-MM-DD（本地）
+    capture_slot  TEXT NOT NULL,                     -- 'morning'(11) / 'afternoon'(17)
+    markdown      TEXT NOT NULL DEFAULT '',
+    sources_ok    TEXT NOT NULL DEFAULT '',          -- 成功源 'bili,zhihu,hn'
+    sources_fail  TEXT NOT NULL DEFAULT '',          -- 失败源 + 简因 'weibo:cookies'
+    items_total   INTEGER NOT NULL DEFAULT 0,
+    duration_s    INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(capture_date, capture_slot)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_hotspot_date ON daily_hotspot(capture_date DESC, capture_slot);
+
+-- ============ 域 11.8: 风神 · 近期回顾（汇总过去 7 天 ×2 = 14 次 daily_hotspot）============
+-- 周六早 10 点 cron 跑；PK = 采集日（YYYY-MM-DD），同日重跑覆盖。
+-- 数据范围：每次跑都是"采集日往前 7 天"（含当天），由 range_start/range_end 标识。
+CREATE TABLE IF NOT EXISTS weekly_hotspot (
+    week_start    TEXT PRIMARY KEY,        -- 采集日 YYYY-MM-DD（旧字段名保留兼容）
+    markdown      TEXT NOT NULL DEFAULT '',
+    daily_count   INTEGER NOT NULL DEFAULT 0,  -- 实际汇总几次（≤14）
+    duration_s    INTEGER NOT NULL DEFAULT 0,
+    updated_at    INTEGER NOT NULL DEFAULT 0,
+    range_start   TEXT NOT NULL DEFAULT '', -- 数据范围起 YYYY-MM-DD（采集日 -6 天）
+    range_end     TEXT NOT NULL DEFAULT ''  -- 数据范围止 YYYY-MM-DD（采集日）
+);
+
 -- ============ 域 9: 聊天会话 ============
 CREATE TABLE IF NOT EXISTS session_records (
     id TEXT PRIMARY KEY,

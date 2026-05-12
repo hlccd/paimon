@@ -54,8 +54,11 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("自进化触发", "should_propose_chat"),
     ("空执", "namespace 壳"),  # 占位（skill 落盘装载，无独立 LLM）
     # ── 七神 · archon 业务接口（按七神保留铁律全列，未调 LLM 的标 disabled）──
-    # 风神 topic_research 订阅走 topic skill LLM 综合（component='topic'，skills 段动态枚举），
-    # archon 自身不再聚合，故 KNOWN_CALLSITES 无风神条目
+    # 风神 topic_research 订阅走 topic skill LLM 综合（component='topic'，skills 段动态枚举）
+    # 「每日热点」是 hotspot collector 的 LLM 综合（每天 11/17 各跑一次）
+    # 「近期回顾」是 weekly hotspot collector 的 LLM 综合（每周六 10:00 跑一次，汇总 7 天）
+    ("风神", "每日热点"),
+    ("风神", "近期回顾"),
     ("草神", "L1 记忆提取"),
     ("岩神", "关注股日报"),         # stock_watch 订阅走 run_web_search_collect → _compose_digest
     ("水神", "业务接入·不调 LLM"),  # 米哈游游戏 + topic_research 都不打"水神"标签
