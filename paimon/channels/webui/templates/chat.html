@@ -1,0 +1,36 @@
+<div class="app-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>对话列表</h2>
+                <div class="subtitle">与派蒙的历史对话</div>
+            </div>
+            <button class="new-chat-btn" onclick="newSession()">+ 新建对话</button>
+            <div class="sessions-list" id="sessionsList"></div>
+        </div>
+
+        <div class="chat-area">
+            <div class="chat-header">
+                <div class="chat-title" id="chatTitle">选择或创建一个会话</div>
+                <div class="chat-status" id="chatStatus">就绪</div>
+            </div>
+            <div class="messages-container" id="messagesContainer">
+                <div class="message assistant">
+                    <div class="message-header">
+                        <div class="message-avatar">P</div>
+                        <span class="message-sender">Paimon</span>
+                    </div>
+                    <div class="message-content">
+                        <h3>前面的区域，以后再来探索吧！</h3>
+                        <p>嘿嘿，派蒙在这里哦~ 有什么要问的尽管说吧！</p>
+                    </div>
+                </div>
+            </div>
+            <div class="input-area">
+                <div class="input-container">
+                    <textarea id="messageInput" class="message-input"
+                        placeholder="和派蒙说点什么吧… (Shift+Enter 换行)" rows="1"></textarea>
+                    <button id="sendBtn" class="send-btn" onclick="sendMessage()">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>

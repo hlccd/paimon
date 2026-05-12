@@ -1,56 +1,37 @@
-from paimon.channels.webui.theme import (
-    THEME_COLORS, BASE_CSS, NAVIGATION_CSS, NAV_LINKS_CSS, navigation_html,
-)
+/* chat 主入口（对话页）专属样式 — 全屏 sidebar(对话列表) + 主聊天区 */
 
-# ---- JS chunks（自动切片）----
-from ._chat_html_body_1 import CHAT_HTML_BODY_1
-from ._chat_html_body_2 import CHAT_HTML_BODY_2
+.dash-warm.chat-fullscreen .dash-content { padding: 0; max-width: none; height: 100vh; overflow: hidden; }
 
-CHAT_HTML = (
-    """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paimon</title>
-    <style>"""
-    + THEME_COLORS
-    + BASE_CSS
-    + NAVIGATION_CSS
-    + NAV_LINKS_CSS
-    + """
-        body { height: 100vh; overflow: hidden; }
-
-        .app-container {
+.app-container {
             display: flex;
-            height: calc(100vh - 60px);
+            height: 100vh;
         }
 
         .sidebar {
             width: 280px;
-            background: var(--paimon-panel);
-            border-right: 1px solid var(--paimon-border);
+            background: var(--pm-bg-card);
+            border-right: 1px solid var(--pm-border);
             display: flex;
             flex-direction: column;
         }
         .sidebar-header {
             padding: 20px;
-            border-bottom: 1px solid var(--paimon-border);
+            border-bottom: 1px solid var(--pm-border);
         }
         .sidebar-header h2 {
             font-size: 16px;
-            color: var(--gold);
+            color: var(--pm-primary);
             margin-bottom: 4px;
         }
         .sidebar-header .subtitle {
             font-size: 12px;
-            color: var(--text-muted);
+            color: var(--pm-text-muted);
         }
         .new-chat-btn {
             width: calc(100% - 32px);
             padding: 12px 16px;
             margin: 16px;
-            background: linear-gradient(135deg, var(--star), var(--star-light));
+            background: linear-gradient(135deg, var(--pm-info), var(--pm-info));
             color: #000;
             border: none;
             border-radius: 8px;
@@ -61,7 +42,7 @@ CHAT_HTML = (
         }
         .new-chat-btn:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(110,198,255,.4);
+            box-shadow: 0 4px 12px rgba(8,145,178,.4);
         }
         .sessions-list {
             flex: 1;
@@ -77,17 +58,17 @@ CHAT_HTML = (
             border: 1px solid transparent;
         }
         .session-item:hover {
-            background: var(--paimon-panel-light);
-            border-color: var(--paimon-border);
+            background: var(--pm-bg-subtle);
+            border-color: var(--pm-border);
         }
         .session-item.active {
-            background: var(--paimon-panel-light);
-            color: var(--gold);
-            border-color: var(--gold-dark);
+            background: var(--pm-bg-subtle);
+            color: var(--pm-primary);
+            border-color: var(--pm-primary-hover);
         }
         .session-name { font-size: 14px; font-weight: 500; }
-        .session-time { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
-        .session-delete { display:none; color:var(--text-muted); font-size:18px; cursor:pointer; padding:0 4px; line-height:1; }
+        .session-time { font-size: 11px; color: var(--pm-text-muted); margin-top: 4px; }
+        .session-delete { display:none; color:var(--pm-text-muted); font-size:18px; cursor:pointer; padding:0 4px; line-height:1; }
         .session-delete:hover { color:#e74c3c; }
         .session-item:hover .session-delete { display:inline; }
 
@@ -95,22 +76,22 @@ CHAT_HTML = (
             flex: 1;
             display: flex;
             flex-direction: column;
-            background: var(--paimon-bg);
+            background: var(--pm-bg-page);
         }
         .chat-header {
             padding: 16px 24px;
-            background: var(--paimon-panel);
-            border-bottom: 1px solid var(--paimon-border);
+            background: var(--pm-bg-card);
+            border-bottom: 1px solid var(--pm-border);
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .chat-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+        .chat-title { font-size: 16px; font-weight: 600; color: var(--pm-text-primary); }
         .chat-status {
             font-size: 12px;
-            color: var(--text-muted);
+            color: var(--pm-text-muted);
             padding: 4px 12px;
-            background: var(--paimon-panel-light);
+            background: var(--pm-bg-subtle);
             border-radius: 12px;
         }
 
@@ -143,10 +124,10 @@ CHAT_HTML = (
             display: flex; align-items: center; justify-content: center;
             font-size: 16px;
         }
-        .message.user .message-avatar     { background: linear-gradient(135deg, var(--gold), var(--gold-light)); }
-        .message.assistant .message-avatar { background: linear-gradient(135deg, var(--star), var(--star-light)); }
-        .message-sender { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-        .message-time   { font-size: 11px; color: var(--text-muted); }
+        .message.user .message-avatar     { background: linear-gradient(135deg, var(--pm-primary), var(--pm-primary-active)); }
+        .message.assistant .message-avatar { background: linear-gradient(135deg, var(--pm-info), var(--pm-info)); }
+        .message-sender { font-size: 13px; font-weight: 600; color: var(--pm-text-secondary); }
+        .message-time   { font-size: 11px; color: var(--pm-text-muted); }
         .message-content {
             margin-left: 40px;
             padding: 16px;
@@ -154,28 +135,28 @@ CHAT_HTML = (
             line-height: 1.6;
         }
         .message.user .message-content {
-            background: var(--paimon-panel);
-            border: 1px solid var(--paimon-border);
+            background: var(--pm-bg-card);
+            border: 1px solid var(--pm-border);
         }
         .message.assistant .message-content {
-            background: var(--paimon-panel-light);
-            border: 1px solid var(--paimon-border);
+            background: var(--pm-bg-subtle);
+            border: 1px solid var(--pm-border);
         }
 
-        .message-content h1, .message-content h2, .message-content h3 { color: var(--gold); margin: 16px 0 8px; }
+        .message-content h1, .message-content h2, .message-content h3 { color: var(--pm-primary); margin: 16px 0 8px; }
         .message-content code {
-            background: var(--paimon-bg); padding: 2px 6px; border-radius: 4px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 13px; color: var(--gold-light);
+            background: var(--pm-bg-page); padding: 2px 6px; border-radius: 4px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 13px; color: var(--pm-primary-active);
         }
         .message-content pre {
-            background: var(--paimon-bg); padding: 16px; border-radius: 8px;
-            overflow-x: auto; border: 1px solid var(--paimon-border);
+            background: var(--pm-bg-page); padding: 16px; border-radius: 8px;
+            overflow-x: auto; border: 1px solid var(--pm-border);
         }
         .message-content pre code { background: none; padding: 0; }
         .message-content table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-        .message-content table th, .message-content table td { padding: 8px 12px; border: 1px solid var(--paimon-border); }
-        .message-content table th { background: var(--paimon-panel); color: var(--gold); font-weight: 600; }
-        .message-content a { color: var(--star-light); text-decoration: none; }
+        .message-content table th, .message-content table td { padding: 8px 12px; border: 1px solid var(--pm-border); }
+        .message-content table th { background: var(--pm-bg-card); color: var(--pm-primary); font-weight: 600; }
+        .message-content a { color: var(--pm-info); text-decoration: none; }
         .message-content a:hover { text-decoration: underline; }
 
         /* notice：中间状态提示，无头像、浅灰小字、窄气泡，视觉上和正文气泡分开 */
@@ -183,9 +164,9 @@ CHAT_HTML = (
             margin: 4px 0 4px 40px;
             padding: 6px 12px;
             font-size: 12px;
-            color: var(--text-muted);
+            color: var(--pm-text-muted);
             line-height: 1.5;
-            border-left: 2px solid var(--paimon-border);
+            border-left: 2px solid var(--pm-border);
             background: transparent;
             white-space: pre-wrap;
             opacity: 0.85;
@@ -195,28 +176,28 @@ CHAT_HTML = (
 
         .input-area {
             padding: 20px 24px;
-            background: var(--paimon-panel);
-            border-top: 1px solid var(--paimon-border);
+            background: var(--pm-bg-card);
+            border-top: 1px solid var(--pm-border);
         }
         .input-container { display: flex; gap: 12px; max-width: 1000px; margin: 0 auto; }
         .message-input {
             flex: 1;
             padding: 14px 18px;
-            background: var(--paimon-bg);
-            border: 1px solid var(--paimon-border);
+            background: var(--pm-bg-page);
+            border: 1px solid var(--pm-border);
             border-radius: 12px;
-            color: var(--text-primary);
+            color: var(--pm-text-primary);
             font-size: 14px;
             font-family: inherit;
             resize: none;
             max-height: 120px;
             transition: border-color .2s;
         }
-        .message-input:focus { outline: none; border-color: var(--gold); }
-        .message-input::placeholder { color: var(--text-muted); }
+        .message-input:focus { outline: none; border-color: var(--pm-primary); }
+        .message-input::placeholder { color: var(--pm-text-muted); }
         .send-btn {
             padding: 14px 24px;
-            background: linear-gradient(135deg, var(--gold), var(--gold-light));
+            background: linear-gradient(135deg, var(--pm-primary), var(--pm-primary-active));
             color: #000;
             border: none;
             border-radius: 12px;
@@ -234,7 +215,7 @@ CHAT_HTML = (
         .typing-indicator { display: inline-flex; gap: 4px; padding: 8px; }
         .typing-dot {
             width: 8px; height: 8px;
-            background: var(--star);
+            background: var(--pm-info);
             border-radius: 50%;
             animation: typing 1.4s infinite;
         }
@@ -244,11 +225,3 @@ CHAT_HTML = (
             0%,60%,100% { transform: translateY(0); }
             30% { transform: translateY(-10px); }
         }
-    </style>
-</head>
-<body>
-"""
-    + navigation_html("chat")
-    + CHAT_HTML_BODY_1
-    + CHAT_HTML_BODY_2
-)

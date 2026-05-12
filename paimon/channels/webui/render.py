@@ -78,6 +78,7 @@ def render_warm_page(
     *, title: str, content_template: str, active: str,
     extra_css: str = "", extra_js: str = "",
     extra_ctx: dict[str, Any] | None = None,
+    body_class: str = "",
 ) -> str:
     """温馨柔和风 page render helper — 走 _warm_layout 公共布局，简化 nav active 填充。
 
@@ -87,6 +88,7 @@ def render_warm_page(
         active: 当前 page 的 nav key（须在 _NAV_KEYS 内）
         extra_css/extra_js: 注入 page-specific <link> / <script>
         extra_ctx: 内容模板自身需要的 context（透传给 content_template）
+        body_class: 注入到 <body> 的额外 class（chat 全屏模式用）
     """
     content = render(content_template, extra_ctx or {})
     ctx: dict[str, Any] = {
@@ -94,6 +96,7 @@ def render_warm_page(
         "content": content,
         "extra_css": extra_css,
         "extra_js": extra_js,
+        "body_class": body_class,
     }
     for k in _NAV_KEYS:
         ctx[f"nav_{k}_active"] = "is-active" if k == active else ""

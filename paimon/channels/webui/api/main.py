@@ -29,9 +29,16 @@ async def index(channel, request: web.Request) -> web.Response:
         if not token or token not in channel.valid_tokens:
             return web.Response(text=channel._get_login_html(), content_type="text/html")
 
-    from paimon.channels.webui.static_html import CHAT_HTML
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=CHAT_HTML,
+        text=render_warm_page(
+            title="对话",
+            content_template="chat",
+            active="chat",
+            extra_css='<link rel="stylesheet" href="/static/css/chat.css">',
+            extra_js='<script src="/static/js/chat.js"></script>',
+            body_class="chat-fullscreen",
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )

@@ -1,6 +1,142 @@
-"""CHAT_HTML body chunk 2/2 · 自动切片。"""
+/* chat 主入口脚本 — 对话列表 + SSE 流式聊天 + 权限询问回答 */
 
-CHAT_HTML_BODY_2 = """
+let currentSession = 'default';
+        // 多会话并发支持：每个 session 独立的 pending 状态。
+        // 之前是单一全局 isWaitingResponse 锁导致 A 在跑时不能在 B 发新消息；
+        // 现在按 session id 跟踪，A/B 各自独立 streaming 互不影响。
+        const waitingSessions = new Set();
+        const pendingAuthzAskSessions = new Set();
+        // 工具：取/创建一个 session 的 messages pane
+        function getSessionPane(sid) {
+            const container = document.getElementById('messagesContainer');
+            let pane = container.querySelector('.session-pane[data-sid="' + sid + '"]');
+            if (!pane) {
+                pane = document.createElement('div');
+                pane.className = 'session-pane';
+                pane.dataset.sid = sid;
+                container.appendChild(pane);
+            }
+            return pane;
+        }
+        function showSessionPane(sid) {
+            const container = document.getElementById('messagesContainer');
+            container.querySelectorAll('.session-pane').forEach(function(p) {
+                p.classList.toggle('active', p.dataset.sid === sid);
+            });
+        }
+        // 推送已迁移到顶部红点抽屉（push_archive 表 + /api/push_archive/* 路由），
+        // 不再有 push 会话实体，前端 chat 不再监听 /api/push 长连接。
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSessions();
+            setupInput();
+            // 启动时同步加载 default 绑定的历史消息，避免 UI 空白但后端有旧上下文
+            switchSession('default');
+        });
+
+        function setupInput() {
+            const input = document.getElementById('messageInput');
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+            input.addEventListener('input', () => {
+                input.style.height = 'auto';
+                input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+            });
+        }
+
+        async function loadSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+                const list = document.getElementById('sessionsList');
+                list.innerHTML = '';
+                const sessions = data.sessions || [];
+                sessions.forEach((s, i) => {
+                    const sid = s.id || String(i);
+                    const name = s.name || sid;
+                    const item = document.createElement('div');
+                    item.className = 'session-item' + (sid === currentSession ? ' active' : '');
+                    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
+
+                    const info = document.createElement('div');
+                    info.style.cssText = 'flex:1;min-width:0;cursor:pointer';
+                    info.innerHTML = '<div class="session-name"></div><div class="session-time"></div>';
+                    info.querySelector('.session-name').textContent = name;
+                    info.querySelector('.session-time').textContent = '最近活动';
+                    info.onclick = () => switchSession(sid);
+
+                    item.appendChild(info);
+                    const del_btn = document.createElement('span');
+                    del_btn.className = 'session-delete';
+                    del_btn.title = '删除会话';
+                    del_btn.textContent = '\u00d7';
+                    del_btn.onclick = (e) => { e.stopPropagation(); deleteSession(sid, name); };
+                    item.appendChild(del_btn);
+                    list.appendChild(item);
+                });
+            } catch (err) {
+                console.error('加载会话列表失败:', err);
+            }
+        }
+
+        async function switchSession(sessionId) {
+            currentSession = sessionId;
+            // 每个 session 独立 pane：切 session 时仅切显示，不动其他 pane 的 DOM
+            const pane = getSessionPane(sessionId);
+            showSessionPane(sessionId);
+            loadSessions();
+            updateInputMode();
+            // streaming 中的 session 不重新拉历史（避免覆盖正在 stream 的 typing 气泡）
+            // 仅未 streaming 时才清空 + fetch
+            const isStreaming = waitingSessions.has(sessionId);
+            try {
+                const resp = await fetch('/api/sessions/' + sessionId + '/messages');
+                const data = await resp.json();
+                document.getElementById('chatTitle').textContent = data.name || sessionId;
+                if (!isStreaming) {
+                    pane.innerHTML = '';
+                    (data.messages || []).forEach(function(m) {
+                        if (m.role === 'notice') {
+                            // 切回来时把持久化的 milestone/ack 渲染为小字 hint
+                            // —— 不走 appendMessage 创建气泡
+                            const noticeEl = document.createElement('div');
+                            noticeEl.className = 'notice';
+                            noticeEl.textContent = m.content;
+                            pane.appendChild(noticeEl);
+                        } else {
+                            appendMessage(m.role, m.content, sessionId);
+                        }
+                    });
+                }
+            } catch (e) {
+                document.getElementById('chatTitle').textContent = sessionId;
+            }
+        }
+
+        function updateInputMode() {
+            const input = document.getElementById('messageInput');
+            if (!input) return;
+            input.placeholder = '输入消息...';
+            input.disabled = false;
+            input.style.opacity = '';
+        }
+
+        async function deleteSession(sessionId, name) {
+            if (!confirm('确定删除会话「' + name + '」？')) return;
+            try {
+                await fetch('/api/sessions/' + sessionId + '/delete', { method: 'POST', headers: {'X-Confirm': 'yes'} });
+                // 清掉对应 pane（无论是否当前会话）
+                const oldPane = document.querySelector('.session-pane[data-sid="' + sessionId + '"]');
+                if (oldPane) oldPane.remove();
+                waitingSessions.delete(sessionId);
+                pendingAuthzAskSessions.delete(sessionId);
+                if (currentSession === sessionId) {
+                    currentSession = 'default';
+                    showSessionPane('default');
+                    document.getElementById('chatTitle').textContent = '新对话';
+                }
+
                 loadSessions();
             } catch (e) {
                 console.error('删除会话失败:', e);
@@ -26,7 +162,7 @@ CHAT_HTML_BODY_2 = """
             const reqSession = currentSession;
             // /stop /cancel 类"中断当前任务"命令必须能在 streaming 期间发送
             // 否则旧任务卡住时 user 没法取消（前端 silent reject 让 user 觉得"无法发送"）
-            const isStopCmd = /^\\/(stop|cancel)\\b/i.test(message);
+            const isStopCmd = /^\/(stop|cancel)\b/i.test(message);
             // per-session 状态：当前 session 在 streaming 且无挂起权限询问 → 拒绝；
             // 其他 session 在 streaming 不影响当前 session 发送。
             // 例外：stop 类命令要绕过此 lock。
@@ -94,7 +230,7 @@ CHAT_HTML_BODY_2 = """
                     if (done) break;
 
                     buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\\n');
+                    const lines = buffer.split('\n');
                     buffer = lines.pop() || '';
 
                     for (const line of lines) {
@@ -137,8 +273,8 @@ CHAT_HTML_BODY_2 = """
                                     // 权限询问作为独立气泡。
                                     // 若当前气泡已有正文（例如已回了一段再触发权限询问），
                                     // 必须新建气泡，不能覆盖原内容。
-                                    const q = '🛡️ **权限询问**\\n\\n' + (data.content || '') +
-                                        '\\n\\n*直接在下方输入回复即可。默认 30 秒无答复视为拒绝。*';
+                                    const q = '🛡️ **权限询问**\n\n' + (data.content || '') +
+                                        '\n\n*直接在下方输入回复即可。默认 30 秒无答复视为拒绝。*';
                                     if (fullResponse) {
                                         // 封存已有内容的气泡，新建一个独立气泡放询问
                                         typingMsg = appendMessage('assistant', '', reqSession);
@@ -167,7 +303,7 @@ CHAT_HTML_BODY_2 = """
                                     loadSessions();
                                     if (currentSession === reqSession) scrollToBottom();
                                 } else if (data.type === 'error') {
-                                    fullResponse += '\\n\\n> ' + (data.content || '未知错误');
+                                    fullResponse += '\n\n> ' + (data.content || '未知错误');
                                     typingMsg.querySelector('.message-content').innerHTML = window.safeMd(fullResponse);
                                     waitingSessions.delete(reqSession);
                                     if (currentSession === reqSession) updateStatus('就绪');
@@ -207,7 +343,7 @@ CHAT_HTML_BODY_2 = """
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message ' + role;
 
-            const avatar = role === 'user' ? '\\u{1F60A}' : 'P';
+            const avatar = role === 'user' ? '\u{1F60A}' : 'P';
             const sender = role === 'user' ? '旅行者' : 'Paimon';
             const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 
@@ -232,7 +368,3 @@ CHAT_HTML_BODY_2 = """
             const container = document.getElementById('messagesContainer');
             container.scrollTop = container.scrollHeight;
         }
-    </script>
-</body>
-</html>
-"""
