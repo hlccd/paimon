@@ -17,9 +17,19 @@ if TYPE_CHECKING:
 async def wealth_page(channel, request: web.Request) -> web.Response:
     if not channel._check_auth(request):
         return web.Response(text=channel._get_login_html(), content_type="text/html")
-    from paimon.channels.webui.wealth_html import build_wealth_html
+    from paimon.channels.webui.render import render_warm_page
     return web.Response(
-        text=build_wealth_html(),
+        text=render_warm_page(
+            title="理财",
+            content_template="wealth",
+            active="wealth",
+            extra_css=(
+                '<link rel="stylesheet" href="/static/css/wealth.css">\n'
+                '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>\n'
+                '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>'
+            ),
+            extra_js='<script src="/static/js/wealth.js"></script>',
+        ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
