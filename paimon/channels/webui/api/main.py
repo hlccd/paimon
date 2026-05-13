@@ -35,7 +35,10 @@ async def index(channel, request: web.Request) -> web.Response:
             title="对话",
             content_template="chat",
             active="chat",
-            extra_css='<link rel="stylesheet" href="/static/css/chat.css">',
+            extra_css=(
+                '<link rel="stylesheet" href="/static/css/chat.css">\n'
+                '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>'
+            ),
             extra_js='<script src="/static/js/chat.js"></script>',
             body_class="chat-fullscreen",
         ),

@@ -23,16 +23,16 @@ WebUI 已完成温馨柔和风改造的「面板拆分」阶段（P0 + P2-1 ~ P2
 
 ## 1. 任务清单（5 个 Phase，严格按顺序）
 
-### Phase 1 — 拆完最后一个面板（P2-9）
+### Phase 1 — 拆完最后一个面板（P2-9）✅
 
-- [ ] 拆 `paimon/channels/webui/plugins_html.py`（815 行单文件）→ 独立三件套
+- [x] 拆 `paimon/channels/webui/plugins_html.py`（815 行单文件）→ 独立三件套
   - `paimon/channels/webui/templates/plugins.html`
   - `paimon/channels/webui/static/css/plugins.css`
   - `paimon/channels/webui/static/js/plugins.js`
-- [ ] 改 handler 用 `render_warm_page`
-- [ ] 删除旧 `plugins_html.py`
-- [ ] 实机校验 200 + 0 console error
-- [ ] **独立 commit**：`refactor: P2-9 拆 plugins 面板（插件管理）到温馨柔和风`
+- [x] 改 handler 用 `render_warm_page`
+- [x] 删除旧 `plugins_html.py`
+- [x] 实机校验 200 + 0 console error
+- [x] **独立 commit**：`refactor: P2-9 拆 plugins 面板到温馨柔和风`（19965d6）
 
 > 完成 Phase 1 后，所有 sidebar 入口 page 都已拆到温馨柔和风，没有"还能点回老界面"的入口。
 
@@ -643,34 +643,129 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 
 > 完成一项后立即在此勾选。**不许偷工**。
 
-### Phase 1 — 拆 plugins
-- [ ] templates/plugins.html 写完
-- [ ] static/css/plugins.css 写完
-- [ ] static/js/plugins.js 写完
-- [ ] handler 改完
-- [ ] 旧 plugins_html.py 删
-- [ ] 实机校验 200 + 0 error
-- [ ] commit `refactor: P2-9 ...`
+### Phase 1 — 拆 plugins ✅
+- [x] templates/plugins.html 写完
+- [x] static/css/plugins.css 写完
+- [x] static/js/plugins.js 写完
+- [x] handler 改完
+- [x] 旧 plugins_html.py 删
+- [x] 实机校验 200 + 0 error
+- [x] commit `refactor: P2-9 拆 plugins 面板到温馨柔和风`（19965d6）
 
-### Phase 2 — 命名问题全局审计（不独立 commit，输出问题清单驱动 Phase 4）
-- [ ] templates/*.html 扫完，列出每个 page 的命名违例位置
-- [ ] static/js/*.js 扫完
-- [ ] model_router.py 路由分组扫完
-- [ ] api/*.py 的 title 参数扫完
-- [ ] _warm_sidebar.html 检查
-- [ ] db `token_calls.purpose` 现存值审计：`SELECT DISTINCT purpose FROM token_calls`
-- [ ] 输出问题清单：哪些 page 涉及哪些命名违例 → Phase 4 该 page 迭代时修复
+### Phase 2 — 命名问题全局审计 ✅（不独立 commit，输出清单驱动 Phase 4）
+- [x] templates/*.html 扫完
+- [x] static/js/*.js 扫完
+- [x] model_router.py 路由分组扫完
+- [x] api/*.py 扫完（含 title 参数 + log/actor/error/docstring）
+- [x] _warm_sidebar.html 检查（已干净，无违例）
+- [x] db `primogem.db / token_usage.purpose` 现存值审计 — 全是 `bili/意图分类/标题生成/闲聊`，**已干净，无需 UPDATE DB**
+- [x] 输出问题清单 ↓
 
-### Phase 3 — md 渲染问题全局审计（不独立 commit，输出问题清单驱动 Phase 4）
-- [ ] chat 渲染点排查
-- [ ] feed 渲染点排查
-- [ ] wealth 渲染点排查
-- [ ] game 渲染点排查
-- [ ] knowledge 渲染点排查
-- [ ] 输出问题清单：哪些 page 涉及哪些 md 渲染问题 → Phase 4 该 page 迭代时修复
+#### Phase 2 输出 — 按 page 归类的命名违例清单（Phase 4 各 page 修）
+
+##### `/dashboard` （用量）
+- `templates/dashboard.html:4` 副标题 `（神之心代管）` → 删
+
+##### `/llm` （模型 + 路由）— 改动量最大
+- `templates/llm.html:4` 副标题 `（神之心管辖）` → 删
+- `static/js/llm.js:319-410` 整套路由分组 metadata（GROUP_LABELS / GROUP_TITLES / SECTIONS / SECTION_LABELS / SKILLS_NOTE）按"做什么的事"重命名：派蒙→入口意图分类；出口·skill→工具调用·skill；出口·agents→多视角讨论；出口·evolve→自进化提案；七神 archon→业务面板后台；三月女神→任务调度·自检·响铃；草神-memory→记忆·知识库；外加去掉 `（按七神保留铁律全列）` 这种内部叙事
+- `paimon/foundation/model_router.py:1,27-78,107` docstring + ROUTE_DEFAULTS 里 component 名（"风神"/"草神"/"岩神"/"水神"/"火神"/"雷神"/"冰神"/"晨星"等）→ 全部改"做什么的事"，加载日志去掉"神之心·路由"
+- 注意 ModelRouter 的 component 名是 DB key 也是 web 显示文本，改时要 DB UPDATE 旧记录或先清空 routes 表（实测当前是空表，可直接改源码）
+
+##### `/tasks` （任务）
+- `templates/tasks.html:4` 副标题 `用户定时任务 + archon 注册的系统周期任务（三月管辖）` → `用户定时任务 + 系统周期任务`
+- `api/tasks.py:35` docstring `列三月所有调度任务...按神分组` → `列所有调度任务...按业务分组`
+
+##### `/knowledge`
+- `templates/knowledge.html:4` 副标题 `（草神管辖）` → 删
+- `static/js/knowledge.js:179,228` 提示 `详情见「📨 推送」收件箱的「草神」条目` → `详情见「📨 推送」收件箱的「记忆整理」条目`
+- `static/js/knowledge.js:431` 空状态 `让草神调 knowledge 工具写入...` → `调 knowledge 工具写入或在对话里说...`
+- `api/knowledge.py:121,160,205,207` actor=草神面板/草神 → actor=知识面板（user-visible 字段，必须改）
+
+##### `/selfcheck`
+- `templates/selfcheck.html:4` 副标题 `（三月管辖）` → 删
+
+##### `/wealth`
+- `templates/wealth.html:4` 副标题 `（岩神管辖）` → 删
+- `templates/wealth.html:30` `<h2>📨 岩神 · 理财日报 ...</h2>` → `<h2>理财日报 ...</h2>`
+- `static/js/wealth.js` 多处 actor='岩神' 拉 push_archive 列表 → 必须保留作为查询 key（DB 现存数据用这值），但 UI 显示文字 `岩神·` 前缀 / `暂无岩神推送` 等 → 改"理财·"前缀和"暂无理财推送"
+- `api/wealth_stock_subs.py:1,16,43,58,71,78,89,99` docstring + error 文字 `非岩神关注股订阅` 等 → 改"非关注股订阅"
+- **DB 字段保留**：`push_archive.actor='岩神'`、`subscription.binding_kind='stock_watch'` 这些 DB 值不动（避免 schema 改动），改的是源代码里"写入新值的常量"和"显示给用户的文案"
+
+##### `/game`
+- `templates/game.html:4` 副标题 `（水神管辖）` → 删
+- `static/js/game.js:1,170,872+` 多处 console.log `[水神·采集]` `[水神·抽卡]` → 改 `[游戏·采集]` `[游戏·抽卡]`（注释 + 日志，用户偶尔看 console 也不会迷惑）
+- 跟 wealth 一样，不动 DB 数据 key，只改源代码常量和 UI 文案
+
+##### `/feed`
+- `templates/feed.html:4` 副标题 `（风神管辖）` → 删
+- `static/js/feed.js:1` 文件注释 `风神订阅 + 今日热点 + 近期回顾...` → `订阅 + 今日热点 + 近期回顾...`
+
+##### `/plugins`
+- 已基本干净（副标题 OK）
+- `static/js/plugins.js:159` 提示 `四影 propose 阶段产出后会落到这里等你审` → `自进化 propose 阶段产出后会落到这里等你审`
+
+##### `/` (chat)
+- `static/js/chat.js:294,320` 注释 `如四影 prepare 失败` `/stop 取消四影` → 改"如生执 prepare 失败" / "/stop 取消推理流"（**注释，用户看不到，但严格按 Phase 2 字面执行**）
+
+##### 三档优先级（可推后到 Phase 4 末尾再处理）
+- 后端 `.py` logger.error/info 文本（如 `[草神·智识]`、`[岩神·关注股订阅]`、`[水神·采集]`）— 用户看 paimon.log 时会看到，但属于"开发日志"，按"web 界面除 paimon 外不出现内部命名"的字面解读其实只管 web 显示。决定：**Phase 4 改前端可见的；后端 logger 标签先记着**，全部 page 完事后如有时间再扫一遍。
+
+
+### Phase 3 — md 渲染问题全局审计 ✅（不独立 commit，输出清单驱动 Phase 4）
+- [x] chat 渲染点排查
+- [x] feed 渲染点排查
+- [x] wealth 渲染点排查（已 OK）
+- [x] game 渲染点排查（已 OK）
+- [x] knowledge 渲染点排查
+- [x] selfcheck / llm / plugins / dashboard / tasks 排查
+- [x] 输出问题清单 ↓
+
+#### Phase 3 输出 — 按 page 归类的 md 渲染问题清单（Phase 4 各 page 修）
+
+##### `/` (chat) — **严重 bug，目前消息不渲染**
+- `chat.js:249,284,307,355` 调用 `window.safeMd(...)`，但 **safeMd 整个 repo 没定义**
+- chat handler `api/main.py:32-44` **没引入 marked.min.js**
+- 结果：assistant 消息当前会触发 `TypeError: window.safeMd is not a function`
+- 修：
+  1. `api/main.py` 给 chat 的 extra_css 加 `<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>`
+  2. 在 `static/js/components.js` 加全局 `window.safeMd = function(md){...}` 包装 marked.parse + 链接 target=_blank rel=noopener + try/catch fallback `<pre>`（chat 直接复用，game/wealth 的局部 _renderMdSafe 后续 Phase 4 也可改调 window.safeMd 复用）
+
+##### `/feed`
+- feed.js 三处 `marked.parse` 用得对（已带 fallback），但 feed handler `api/feed.py:24-32` **没引入 marked.min.js** → 当前实际跑的是 `<pre>` fallback，热点 / 周报 md 不渲染
+- 修：feed handler 的 extra_css 加 `<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>`
+
+##### `/knowledge` — **严重，知识库内容不渲染**
+- `knowledge.js:88` `modalBody.textContent = it.body || '(空)'` — 记忆/知识库正文直 txt 渲染
+- `api/knowledge.py:14-30` knowledge handler **没引入 marked.min.js**
+- 修：
+  1. handler 加 marked.min.js
+  2. `knowledge.js:88` 改 `modalBody.innerHTML = window.safeMd(it.body || '')`
+
+##### `/wealth` — **已 OK**
+- 局部 `_renderMdSafe` + 已引入 marked.min.js（api/wealth.py:28）
+- Phase 4 可考虑改成调 `window.safeMd` 复用，但功能已正常
+
+##### `/game` — **已 OK**
+- 局部 `_renderMdSafe` + 已引入 marked.min.js（api/game.py:28）
+
+##### `/dashboard` / `/tasks` — 无需 md 渲染
+- dashboard：纯统计数字 + 表格 + 柱状图，无 md 内容
+- tasks：任务列表 + cron 表达式，无 md 正文
+
+##### `/selfcheck` — modalBody 是 JS 拼装的 HTML，不是 md → 不需要 marked
+- 但「Quick / Deep 历史报告正文」如果将来要支持 md 评语，可再加；当前无需
+
+##### `/llm` — profile description 当前是单行文本，不需要 marked
+
+##### `/plugins`
+- skill `description` / proposal `rationale` / `review_notes` 都是 esc() 后 txt 直出
+- 这些字段语义上偏单段说明，**当前不渲染 md 是 OK 的**（不像 chat 消息那样必然有 md）；但 `system_prompt` 是 code-block 形式（已 `<pre class="code">` 类似处理）
+- Phase 4 的 plugins 轮可视情决定是否引入轻量 md（比如 review_notes 偶尔会含项目符号）
+
 
 ### Phase 4 — 10 page × 10 轮 PDCA
-- [ ] `/` (chat) 第 1-10 轮
+- [x] `/` (chat) 第 1-10 轮 ✅ — 修 safeMd undefined / 命名净化 / 紫主色一致 / a11y / pmModal 替换 confirm
 - [ ] `/dashboard` 第 1-10 轮
 - [ ] `/tasks` 第 1-10 轮
 - [ ] `/knowledge` 第 1-10 轮

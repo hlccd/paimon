@@ -223,11 +223,39 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  /* ═════ safeMd ═════════════════════════════════════
+   * marked.parse 包装：缺 marked 时退回 escape <pre>，外链强制 target=_blank rel=noopener
+   * chat / feed / knowledge 等共用；page handler 需自行注入 marked.min.js
+   */
+  function safeMd(md) {
+    const src = md == null ? '' : String(md);
+    if (typeof window.marked === 'undefined' || !window.marked.parse) {
+      return '<pre>' + escapeHtml(src) + '</pre>';
+    }
+    let raw;
+    try {
+      raw = window.marked.parse(src);
+    } catch (e) {
+      return '<pre>' + escapeHtml(src) + '</pre>';
+    }
+    const div = document.createElement('div');
+    div.innerHTML = raw;
+    div.querySelectorAll('a[href]').forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      if (/^https?:\/\//i.test(href)) {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+    return div.innerHTML;
+  }
+
   /* 暴露到全局 */
   window.pmBtn = pmBtn;
   window.pmToast = pmToast;
   window.pmModal = pmModal;
   window.pmTab = pmTab;
+  window.safeMd = safeMd;
 
   document.addEventListener('DOMContentLoaded', () => {
     pmTab.enhanceAll();

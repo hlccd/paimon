@@ -1,36 +1,33 @@
 <div class="app-container">
-        <div class="sidebar">
+        <aside class="sidebar" aria-label="会话列表">
             <div class="sidebar-header">
                 <h2>对话列表</h2>
                 <div class="subtitle">与派蒙的历史对话</div>
             </div>
-            <button class="new-chat-btn" onclick="newSession()">+ 新建对话</button>
-            <div class="sessions-list" id="sessionsList"></div>
-        </div>
+            <button class="new-chat-btn" type="button" onclick="newSession()" aria-label="新建对话">+ 新建对话</button>
+            <div class="sessions-list" id="sessionsList" role="list"></div>
+        </aside>
 
-        <div class="chat-area">
+        <section class="chat-area" aria-label="聊天主区">
             <div class="chat-header">
                 <div class="chat-title" id="chatTitle">选择或创建一个会话</div>
-                <div class="chat-status" id="chatStatus">就绪</div>
+                <div class="chat-status" id="chatStatus" role="status" aria-live="polite">就绪</div>
             </div>
-            <div class="messages-container" id="messagesContainer">
-                <div class="message assistant">
-                    <div class="message-header">
-                        <div class="message-avatar">P</div>
-                        <span class="message-sender">Paimon</span>
-                    </div>
-                    <div class="message-content">
-                        <h3>前面的区域，以后再来探索吧！</h3>
-                        <p>嘿嘿，派蒙在这里哦~ 有什么要问的尽管说吧！</p>
-                    </div>
+            <div class="messages-container" id="messagesContainer" role="log" aria-live="polite" aria-relevant="additions">
+                <div class="chat-empty-hero" id="chatEmptyHero">
+                    <div class="chat-empty-hero__avatar" aria-hidden="true">P</div>
+                    <h2 class="chat-empty-hero__title">嘿嘿，派蒙在这里哦~</h2>
+                    <p class="chat-empty-hero__desc">有什么要问的尽管说吧。直接聊天、贴段代码、扔个文档都行。</p>
+                    <p class="chat-empty-hero__hint">回车发送，Shift + 回车换行</p>
                 </div>
             </div>
-            <div class="input-area">
+            <form class="input-area" onsubmit="event.preventDefault();sendMessage();return false">
                 <div class="input-container">
                     <textarea id="messageInput" class="message-input"
+                        aria-label="消息输入"
                         placeholder="和派蒙说点什么吧… (Shift+Enter 换行)" rows="1"></textarea>
-                    <button id="sendBtn" class="send-btn" onclick="sendMessage()">发送</button>
+                    <button id="sendBtn" class="send-btn" type="submit" aria-label="发送消息">发送</button>
                 </div>
-            </div>
-        </div>
+            </form>
+        </section>
     </div>

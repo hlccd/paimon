@@ -23,6 +23,14 @@ let currentSession = 'default';
             container.querySelectorAll('.session-pane').forEach(function(p) {
                 p.classList.toggle('active', p.dataset.sid === sid);
             });
+            updateEmptyHero();
+        }
+        function updateEmptyHero() {
+            const hero = document.getElementById('chatEmptyHero');
+            if (!hero) return;
+            const active = document.querySelector('.session-pane.active');
+            const empty = !active || active.children.length === 0;
+            hero.style.display = empty ? '' : 'none';
         }
         // 推送已迁移到顶部红点抽屉（push_archive 表 + /api/push_archive/* 路由），
         // 不再有 push 会话实体，前端 chat 不再监听 /api/push 长连接。
@@ -41,7 +49,7 @@ let currentSession = 'default';
             });
             input.addEventListener('input', () => {
                 input.style.height = 'auto';
-                input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+                input.style.height = Math.min(input.scrollHeight, 200) + 'px';
             });
         }
 
@@ -58,18 +66,27 @@ let currentSession = 'default';
                     const item = document.createElement('div');
                     item.className = 'session-item' + (sid === currentSession ? ' active' : '');
                     item.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
+                    item.setAttribute('role', 'listitem');
 
                     const info = document.createElement('div');
                     info.style.cssText = 'flex:1;min-width:0;cursor:pointer';
+                    info.setAttribute('role', 'button');
+                    info.setAttribute('tabindex', '0');
+                    info.setAttribute('aria-label', '切换到会话 ' + name);
                     info.innerHTML = '<div class="session-name"></div><div class="session-time"></div>';
                     info.querySelector('.session-name').textContent = name;
                     info.querySelector('.session-time').textContent = '最近活动';
                     info.onclick = () => switchSession(sid);
+                    info.onkeydown = (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchSession(sid); }
+                    };
 
                     item.appendChild(info);
-                    const del_btn = document.createElement('span');
+                    const del_btn = document.createElement('button');
                     del_btn.className = 'session-delete';
+                    del_btn.type = 'button';
                     del_btn.title = '删除会话';
+                    del_btn.setAttribute('aria-label', '删除会话 ' + name);
                     del_btn.textContent = '\u00d7';
                     del_btn.onclick = (e) => { e.stopPropagation(); deleteSession(sid, name); };
                     item.appendChild(del_btn);
@@ -123,10 +140,15 @@ let currentSession = 'default';
         }
 
         async function deleteSession(sessionId, name) {
-            if (!confirm('确定删除会话「' + name + '」？')) return;
+            const ok = await window.pmModal.confirm({
+                title: '删除会话',
+                message: '确定要删除「' + name + '」？此操作不可撤销。',
+                confirmText: '删除',
+                danger: true,
+            });
+            if (!ok) return;
             try {
                 await fetch('/api/sessions/' + sessionId + '/delete', { method: 'POST', headers: {'X-Confirm': 'yes'} });
-                // 清掉对应 pane（无论是否当前会话）
                 const oldPane = document.querySelector('.session-pane[data-sid="' + sessionId + '"]');
                 if (oldPane) oldPane.remove();
                 waitingSessions.delete(sessionId);
@@ -136,10 +158,11 @@ let currentSession = 'default';
                     showSessionPane('default');
                     document.getElementById('chatTitle').textContent = '新对话';
                 }
-
                 loadSessions();
+                window.pmToast.success('会话已删除');
             } catch (e) {
                 console.error('删除会话失败:', e);
+                window.pmToast.error('删除失败: ' + (e.message || '未知错误'));
             }
         }
 
@@ -291,7 +314,7 @@ let currentSession = 'default';
                                     waitingSessions.delete(reqSession);
                                     if (currentSession === reqSession) updateStatus('就绪');
                                     // 防御：若整个请求期间都没收到 message 事件（极端情况，
-                                    // 如四影 prepare 失败 + reply_text 为空，或服务端异常），
+                                    // 如生执 prepare 失败 + reply_text 为空，或服务端异常），
                                     // typing 占位气泡从未被正文替换 → 移除避免底部残留空动画。
                                     if (typingMsg && !fullResponse) {
                                         const contentEl = typingMsg.querySelector('.message-content');
@@ -317,7 +340,7 @@ let currentSession = 'default';
                     waitingSessions.delete(reqSession);
                     if (currentSession === reqSession) updateStatus('就绪');
                 }
-                // 流被服务端中断（/stop 取消四影 → SSE 直接关，没发 done 事件）
+                // 流被服务端中断（/stop 取消推理流 → SSE 直接关，没发 done 事件）
                 // → typing 占位永远转圈。done handler 的清理逻辑这里也补一份。
                 if (typingMsg && !fullResponse) {
                     const contentEl = typingMsg.querySelector('.message-content');
@@ -355,6 +378,7 @@ let currentSession = 'default';
                 + '<div class="message-content">' + (role === 'user' ? content : window.safeMd(content)) + '</div>';
 
             container.appendChild(msgDiv);
+            updateEmptyHero();
             // 仅当目标 session 是当前显示的才 scroll（否则 scroll 当前 session 的内容会让用户困惑）
             if (targetSid === currentSession) scrollToBottom();
             return msgDiv;
