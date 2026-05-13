@@ -105,8 +105,8 @@
     if (g.tasks.length > 3) preview += ' …';
     const body = g.tasks.map(renderTaskCard).join('');
     return '<div class="time-group">' +
-      '<div class="time-group-head" onclick="toggleTimeGroup(this)">' +
-      '<span class="time-group-arrow">▶</span>' +
+      '<div class="time-group-head" role="button" tabindex="0" aria-expanded="false" onclick="toggleTimeGroup(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();toggleTimeGroup(this)}">' +
+      '<span class="time-group-arrow" aria-hidden="true">▶</span>' +
       '<span class="time-group-time">' + esc(g.label) + '</span>' +
       '<span class="time-group-count">' + g.tasks.length + ' 项</span>' +
       '<span class="time-group-preview">' + esc(preview) + '</span>' +
@@ -146,8 +146,8 @@
         return g.tasks.length === 1 ? renderSingleRow(g.tasks[0], g.label) : renderTimeGroup(g);
       }).join('');
       return '<div class="archon-section">' +
-        '<div class="archon-header" onclick="toggleArchon(this)">' +
-        '<span class="archon-arrow">▼</span>' +
+        '<div class="archon-header" role="button" tabindex="0" aria-expanded="true" onclick="toggleArchon(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();toggleArchon(this)}">' +
+        '<span class="archon-arrow" aria-hidden="true">▼</span>' +
         '<span class="archon-name">' + esc(arch.name) + '</span>' +
         '<span class="archon-stat">' + totalGroups + ' 组 / ' + totalTasks + ' 项</span>' +
         '</div>' +
@@ -155,8 +155,16 @@
         '</div>';
     }).join('');
   }
-  window.toggleArchon = function (el) { el.parentElement.classList.toggle('collapsed'); };
-  window.toggleTimeGroup = function (el) { el.parentElement.classList.toggle('expanded'); };
+  window.toggleArchon = function (el) {
+    const sec = el.parentElement;
+    sec.classList.toggle('collapsed');
+    el.setAttribute('aria-expanded', String(!sec.classList.contains('collapsed')));
+  };
+  window.toggleTimeGroup = function (el) {
+    const grp = el.parentElement;
+    grp.classList.toggle('expanded');
+    el.setAttribute('aria-expanded', String(grp.classList.contains('expanded')));
+  };
 
   window.loadTasks = async function () {
     const userEl = document.getElementById('taskGrid');
@@ -174,24 +182,22 @@
       if (cs) cs.textContent = sysTasks.length ? sysTasks.length : '';
 
       if (!userTasks.length) {
-        userEl.innerHTML = '<div class="empty-state"><div class="empty-icon">🕒</div>暂无定时任务<br><br>在对话中说"每小时提醒我喝水"或使用 /schedule 指令创建</div>';
+        userEl.innerHTML = '<div class="empty-state"><span class="empty-icon" data-icon="clock"></span>暂无定时任务<br><br>在对话中说"每小时提醒我喝水"或使用 /schedule 指令创建</div>';
       } else {
         userEl.innerHTML = '<div class="task-grid">' + userTasks.map(renderTaskCard).join('') + '</div>';
       }
       if (!sysTasks.length) {
-        sysEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⚙️</div>暂无系统任务<br><br>开启订阅推送（订阅面板）或红利股追踪（理财面板）后，这里会显示由系统代管的周期任务</div>';
+        sysEl.innerHTML = '<div class="empty-state"><span class="empty-icon" data-icon="settings"></span>暂无系统任务<br><br>开启订阅推送（订阅面板）或红利股追踪（理财面板）后，这里会显示由系统的周期任务</div>';
       } else {
         sysEl.innerHTML = renderSystemGrid(sysTasks, data.archons || []);
       }
+      window.pmIcon && window.pmIcon.enhanceAll(userEl);
+      window.pmIcon && window.pmIcon.enhanceAll(sysEl);
       window._tasksLoaded = true;
     } catch (e) {
       userEl.innerHTML = '<div class="empty-state">加载失败</div>';
       if (sysEl) sysEl.innerHTML = '<div class="empty-state">加载失败</div>';
     }
-  };
-
-  window.closeModal = function () {
-    document.getElementById('taskModal').classList.remove('show');
   };
 
   document.addEventListener('DOMContentLoaded', () => {

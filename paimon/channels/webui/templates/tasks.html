@@ -1,10 +1,11 @@
 <div class="dash-page-header">
   <div>
     <h1 class="dash-page-title"><span data-icon="list-checks"></span>任务</h1>
-    <p class="dash-page-subtitle">用户定时任务 + archon 注册的系统周期任务（三月管辖）</p>
+    <p class="dash-page-subtitle">用户定时任务 + 系统周期任务</p>
   </div>
-  <div>
-    <button id="tasks-refresh" class="pm-btn pm-btn--default">
+  <div class="pm-row" style="gap: var(--pm-space-3)">
+    <span class="dash-page-hint" title="每 30 秒自动刷新当前 Tab">每 30 秒自动刷新</span>
+    <button id="tasks-refresh" class="pm-btn pm-btn--default" type="button">
       <span class="pm-btn__icon" data-icon="refresh-cw"></span>
       <span class="pm-btn__label">刷新</span>
     </button>
@@ -32,9 +33,3 @@
   </div>
 </div>
 
-<div id="taskModal" class="modal-mask" onclick="if(event.target===this)closeModal()">
-  <div class="modal-card">
-    <button class="modal-close" onclick="closeModal()">&times;</button>
-    <div id="modalBody">加载中...</div>
-  </div>
-</div>

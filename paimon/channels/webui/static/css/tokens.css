@@ -32,12 +32,16 @@
 
   --pm-success:        #16A34A;
   --pm-success-subtle: #F0FDF4;
+  --pm-success-border: #BBF7D0;
   --pm-warning:        #D97706;
   --pm-warning-subtle: #FFFBEB;
+  --pm-warning-border: #FDE68A;
   --pm-danger:         #DC2626;
   --pm-danger-subtle:  #FEF2F2;
+  --pm-danger-border:  #FECACA;
   --pm-info:           #0EA5E9;
   --pm-info-subtle:    #F0F9FF;
+  --pm-info-border:    #BAE6FD;
 
   /* ── 阴影（清冷风 — 极轻）────────────────────── */
   --pm-shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
