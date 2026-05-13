@@ -790,7 +790,7 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 - [x] `/tasks` 第 1-10 轮 ✅ — 命名净化 + 删除 dead modal + 折叠区 keyboard a11y + line-clamp + tokens.css 加 *-border + clock icon + 自动刷新 hint
 - [x] `/knowledge` 第 1-10 轮 ✅ — 命名净化 + handler 加 marked + modalBody 改 safeMd + actor=知识面板 + pill role=tab + 删除走 pmModal/pmToast + tab focus-visible
 - [x] `/llm` 第 1-10 轮 ✅ — 副标题去"神之心管辖"+ tab 去 emoji + COMPONENT_DESC / CATEGORY_DESC / DISABLED_COMPONENTS / SKILLS_NOTE 全清内部命名 + 加 purposeDisplay() 翻译 + 之前 commit 里误改的 code/log/comment 全部 revert
-- [ ] `/selfcheck` 第 1-10 轮
+- [x] `/selfcheck` 第 1-10 轮 ✅ — 副标题去"三月管辖" + alert/confirm 全改 pmModal/pmToast + #FEE2E2 改 token + tab role=tab/aria-selected/键盘可达 + ESC 关 modal + btn focus-visible
 - [ ] `/wealth` 第 1-10 轮
 - [ ] `/game` 第 1-10 轮
 - [ ] `/feed` 第 1-10 轮

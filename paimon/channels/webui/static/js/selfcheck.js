@@ -360,10 +360,16 @@
   };
 
   window.deleteRun = async function (runId) {
-    if (!confirm('确认删除 run=' + runId.substring(0, 8) + '？blob 文件一并删除。')) return;
+    const ok = await window.pmModal.confirm({
+      title: '删除 run',
+      message: '确认删除 run=' + runId.substring(0, 8) + '？blob 文件会一并删除。',
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
     const r = await fetch('/api/selfcheck/runs/' + runId, { method: 'DELETE' });
-    if (r.ok) { loadRuns(currentTab); loadLatestQuick(); }
-    else alert('删除失败');
+    if (r.ok) { loadRuns(currentTab); loadLatestQuick(); window.pmToast.success('已删除'); }
+    else window.pmToast.error('删除失败');
   };
 
   function openModal(title, bodyHtml) {
@@ -506,12 +512,20 @@
   };
 
   document.addEventListener('DOMContentLoaded', () => {
+    function activateTab(t) {
+      document.querySelectorAll('.tab').forEach((x) => {
+        x.classList.remove('active');
+        x.setAttribute('aria-selected', 'false');
+      });
+      t.classList.add('active');
+      t.setAttribute('aria-selected', 'true');
+      currentTab = t.getAttribute('data-tab');
+      loadRuns(currentTab);
+    }
     document.querySelectorAll('.tab').forEach((t) => {
-      t.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
-        t.classList.add('active');
-        currentTab = t.getAttribute('data-tab');
-        loadRuns(currentTab);
+      t.addEventListener('click', () => activateTab(t));
+      t.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activateTab(t); }
       });
     });
 
@@ -541,13 +555,13 @@
           const r = await fetch('/api/selfcheck/deep/run', { method: 'POST' });
           const data = await r.json();
           if (data.started) {
-            alert('Deep 已启动 run=' + data.run_id.substring(0, 8) + '\n后台运行中（几分钟到十几分钟），完成后面板自动刷新。');
+            window.pmToast.success('Deep 已启动 run=' + data.run_id.substring(0, 8) + '，后台跑约 5-15 分钟，完成自动刷新');
             setTimeout(() => loadRuns('deep'), 2000);
           } else {
-            alert('未启动: ' + data.reason);
+            window.pmToast.warning('未启动: ' + data.reason);
           }
         } catch (e) {
-          alert('调用失败');
+          window.pmToast.error('调用失败');
         } finally {
           this.disabled = false;
           this.textContent = '🔬 跑 Deep';
@@ -584,13 +598,15 @@
     if (btnUpgradeApply) {
       btnUpgradeApply.addEventListener('click', async function () {
         if (!_upgradeData || _upgradeData.behind <= 0) {
-          alert('当前没有可升级的内容，请先点「🔄 检查更新」');
+          window.pmToast.warning('当前没有可升级的内容，请先点「检查更新」');
           return;
         }
-        const msg = '确认拉取并重启？\n\n' +
-          '将拉取 ' + _upgradeData.behind + ' 个 commit 并重启进程。\n' +
-          '前端会暂时无响应（5-10 秒），重启后页面会自动刷新。';
-        if (!confirm(msg)) return;
+        const ok = await window.pmModal.confirm({
+          title: '拉取并重启',
+          message: '将拉取 ' + _upgradeData.behind + ' 个 commit 并重启进程。前端会暂时无响应（5-10 秒），重启后页面会自动刷新。',
+          confirmText: '拉取并重启',
+        });
+        if (!ok) return;
 
         this.disabled = true;
         this.textContent = '升级中…';
@@ -601,7 +617,7 @@
           });
           const d = await r.json();
           if (!d.ok) {
-            alert('升级失败：' + (d.error || '未知'));
+            window.pmToast.error('升级失败：' + (d.error || '未知'));
             this.disabled = false;
             this.textContent = '⬇️ 拉取并重启';
             return;
@@ -615,7 +631,7 @@
           document.getElementById('upgradeCommits').style.display = '';
           setTimeout(() => location.reload(), 10000);
         } catch (e) {
-          alert('请求失败：' + e.message);
+          window.pmToast.error('请求失败：' + e.message);
           this.disabled = false;
           this.textContent = '⬇️ 拉取并重启';
         }
@@ -625,7 +641,12 @@
     const btnRestart = document.getElementById('btnRestart');
     if (btnRestart) {
       btnRestart.addEventListener('click', async function () {
-        if (!confirm('确认重启 paimon？\n\n用当前代码重启，不拉取更新。\n前端会暂时无响应（5-10 秒），重启后页面会自动刷新。')) return;
+        const ok = await window.pmModal.confirm({
+          title: '重启 paimon',
+          message: '用当前代码重启（不拉取更新）。前端会暂时无响应（5-10 秒），重启后页面会自动刷新。',
+          confirmText: '重启',
+        });
+        if (!ok) return;
         this.disabled = true;
         this.textContent = '重启中…';
         try {
@@ -647,7 +668,7 @@
           document.getElementById('upgradeCommits').style.display = '';
           setTimeout(() => location.reload(), 10000);
         } catch (e) {
-          alert('请求失败：' + e.message);
+          window.pmToast.error('请求失败：' + e.message);
           this.disabled = false;
           this.textContent = '♻️ 重启';
         }
@@ -673,5 +694,13 @@
       loadUpgradeStatus();
       loadRollbackStatus();
     }, 300000);
+
+    // ESC 关 modal
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const m = document.getElementById('modal');
+        if (m && m.classList.contains('show')) closeModal();
+      }
+    });
   });
 })();

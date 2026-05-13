@@ -21,7 +21,7 @@ async def selfcheck_page(channel, request: web.Request) -> web.Response:
     if deep_hidden:
         deep_btn_style = ' style="display:none"'
         tab_bar_html = (
-            '<div class="tab active" data-tab="quick">Quick 历史</div>'
+            '<div class="tab active" role="tab" tabindex="0" aria-selected="true" data-tab="quick">Quick 历史</div>'
             '<div style="margin-left:auto;padding:10px 14px;color:var(--pm-text-muted);'
             'font-size:12px" title="当前模型执行不充分，等切换 Claude Opus 级模型后启用">'
             'Deep 暂缓</div>'
@@ -29,8 +29,8 @@ async def selfcheck_page(channel, request: web.Request) -> web.Response:
     else:
         deep_btn_style = ""
         tab_bar_html = (
-            '<div class="tab active" data-tab="deep">Deep 历史</div>'
-            '<div class="tab" data-tab="quick">Quick 历史</div>'
+            '<div class="tab active" role="tab" tabindex="0" aria-selected="true" data-tab="deep">Deep 历史</div>'
+            '<div class="tab" role="tab" tabindex="0" aria-selected="false" data-tab="quick">Quick 历史</div>'
         )
     return web.Response(
         text=render_warm_page(

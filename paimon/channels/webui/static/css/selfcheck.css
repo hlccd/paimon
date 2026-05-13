@@ -20,6 +20,7 @@
   transition: background var(--pm-transition), border-color var(--pm-transition), color var(--pm-transition);
 }
 .btn:hover { background: var(--pm-bg-hover); border-color: var(--pm-border-strong); }
+.btn:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-primary {
   background: var(--pm-primary);
@@ -62,6 +63,7 @@
   transition: color var(--pm-transition);
 }
 .tab:hover { color: var(--pm-text-primary); }
+.tab:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: -2px; border-radius: var(--pm-radius-sm); }
 .tab.active { color: var(--pm-primary); }
 .tab.active::after {
   content: "";
@@ -306,7 +308,7 @@ table.runs td.actions { text-align: right; }
   align-items: flex-start;
   gap: var(--pm-space-3);
 }
-.rollback-warning.needs-manual { background: #FEE2E2; }
+.rollback-warning.needs-manual { background: var(--pm-danger-subtle); }
 .rollback-warning .rb-content { flex: 1; }
 .rollback-warning .rb-title {
   font-weight: var(--pm-weight-semi);
