@@ -5,10 +5,13 @@
 /* ════════════════════════════════════════════════════
  * 浅色（默认）—— 暖米白底 + sky 天蓝主色 + stone 暖灰文
  * 命中条件：(1) 没设 data-theme 或 (2) data-theme="light"
+ *
+ * 注：token 只定义在 :root / html[data-theme=*] 上，**不能再加 .dash-warm**
+ * —— 否则 body.dash-warm 的 token 定义会覆盖 html[data-theme="dark"] 的 dark token，
+ *    切深色失效（CSS 继承时 body 比 html 更靠近实际元素，body 的 var 重定义优先）
  * ════════════════════════════════════════════════════ */
 :root,
-html[data-theme="light"],
-.dash-warm {
+html[data-theme="light"] {
   --pm-bg-page:    #FAF7F2;
   --pm-bg-card:    #FFFFFF;
   --pm-bg-input:   #FFFFFF;
