@@ -101,6 +101,8 @@ async def knowledge_memory_remember_api(channel, request: web.Request) -> web.Re
     try:
         data = await request.json()
         content = (data.get("content") or "").strip()
+        # webui form 可显式指定分类（user/feedback/project/reference），跳过 LLM 自动分类
+        mem_type_override = (data.get("mem_type") or "").strip() or None
         if not content:
             return web.json_response({"ok": False, "error": "内容不能为空"}, status=400)
         if len(content) > MAX_REMEMBER_CHARS:
@@ -121,7 +123,11 @@ async def knowledge_memory_remember_api(channel, request: web.Request) -> web.Re
         if not irminsul or not model:
             return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
 
-        out = await remember_with_reconcile(content, irminsul, model, source="草神面板·手动", actor="草神面板")
+        out = await remember_with_reconcile(
+            content, irminsul, model,
+            source="草神面板·手动", actor="草神面板",
+            mem_type_override=mem_type_override,
+        )
         if not out.ok:
             return web.json_response({"ok": False, "error": out.error or "写入失败"}, status=500)
         return web.json_response({

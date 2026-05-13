@@ -61,6 +61,7 @@ async def dashboard(channel, request: web.Request) -> web.Response:
             active="dashboard",
             extra_css='<link rel="stylesheet" href="/static/css/dashboard.css">',
             extra_js='<script src="/static/js/dashboard.js"></script>',
+            body_class="dashboard-page",
         ),
         content_type="text/html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},

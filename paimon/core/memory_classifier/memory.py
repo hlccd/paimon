@@ -296,17 +296,29 @@ class RememberOutcome:
 
 async def remember_with_reconcile(
     content: str, irminsul, model, *, source: str, actor: str,
+    mem_type_override: str | None = None,
 ) -> RememberOutcome:
     """记忆录入高阶入口：分类 → reconcile → 按 action 落库。
+
+    mem_type_override：webui form 里用户显式选了分类（user/feedback/project/reference）就走它，
+    跳过 LLM 分类只跑 LLM 起标题。/remember 命令不传，仍走 LLM 分类。
 
     失败路径（保证面板/CLI 不崩）：
     - 分类 LLM 失败 → 用兜底类型 (user/default/前30字)
     - reconcile LLM 失败 → 降级 action='new' 写入
     - 写入异常 → RememberOutcome(ok=False, error=...)
     """
-    mem_type, title, subject = await classify_memory(content, model)
-    if mem_type is None:
-        mem_type, subject, title = "user", "default", default_title(content)
+    if mem_type_override in ("user", "feedback", "project", "reference"):
+        # 用户显式指定分类：仍调 LLM 取 title/subject 但忽略其判的 type
+        _, title, subject = await classify_memory(content, model)
+        mem_type = mem_type_override
+        if title is None:
+            title = default_title(content)
+            subject = "default"
+    else:
+        mem_type, title, subject = await classify_memory(content, model)
+        if mem_type is None:
+            mem_type, subject, title = "user", "default", default_title(content)
     subject = sanitize_subject(subject)
 
     # 查同 type 已有记忆（候选）

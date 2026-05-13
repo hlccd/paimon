@@ -3,7 +3,7 @@
  * Page 自己的特定样式（柱状图、表格变体等）单独写到 <page>.css */
 
 .dash-warm {
-  /* ── 温馨柔和 token override（暖米白底 + violet 紫 + stone 暖灰 + 暖阴影）── */
+  /* ── 暖米白底 + sky 天蓝主色 + stone 暖灰文 + 暖阴影 ── */
   --pm-bg-page:    #FAF7F2;
   --pm-bg-card:    #FFFFFF;
   --pm-bg-input:   #FFFFFF;
@@ -14,19 +14,19 @@
 
   --pm-border:        #E7E2DA;
   --pm-border-strong: #C7C0B5;
-  --pm-border-focus:  #7C3AED;
+  --pm-border-focus:  #0EA5E9;
 
   --pm-text-primary:    #1C1917;
   --pm-text-secondary:  #57534E;
   --pm-text-muted:      #A8A29E;
   --pm-text-on-primary: #FFFFFF;
-  --pm-text-link:       #7C3AED;
+  --pm-text-link:       #38BDF8;  /* sky-400 — 浅天蓝，鼠标 hover 显下划线辅助识别 */
 
-  --pm-primary:         #7C3AED;
-  --pm-primary-hover:   #6D28D9;
-  --pm-primary-active:  #5B21B6;
-  --pm-primary-subtle:  #F5F3FF;
-  --pm-primary-border:  #DDD6FE;
+  --pm-primary:         #0EA5E9;  /* sky-500 天蓝 */
+  --pm-primary-hover:   #0284C7;  /* sky-600 */
+  --pm-primary-active:  #0369A1;  /* sky-700 */
+  --pm-primary-subtle:  #F0F9FF;  /* sky-50 */
+  --pm-primary-border:  #BAE6FD;  /* sky-200 */
 
   --pm-info:           #0891B2;
   --pm-info-subtle:    #ECFEFF;

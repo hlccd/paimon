@@ -406,7 +406,10 @@
                 var p0p1El = document.getElementById('statP0P1');
                 p0p1El.textContent = (p0 + p1) > 0 ? (p0 + '/' + p1) : '0';
                 p0p1El.style.color = p0 > 0 ? 'var(--pm-danger)' : (p1 > 0 ? 'var(--pm-warning)' : 'var(--pm-text-muted)');
-                document.getElementById('statCronStatus').textContent=d.cron_enabled?'已启用':'未启用';
+                var stEl = document.getElementById('statCronStatus');
+                stEl.textContent = d.cron_enabled ? '已启用' : '未启用';
+                stEl.classList.add('status-text');
+                if (!d.cron_enabled) stEl.style.color = 'var(--pm-text-muted)';
             }catch(e){}
         }
 
@@ -801,6 +804,7 @@
                         + '</tr>';
                 }).join('');
                 el.innerHTML = ''
+                    + '<div class="uw-table-wrap">'
                     + '<table class="stock-table uw-table">'
                     + '<thead><tr>'
                     + '<th class="c-c">代码</th><th class="c-c">名称</th>'
@@ -810,7 +814,8 @@
                     + '<th class="c-c">备注</th><th class="c-c">阈值</th>'
                     + '<th class="c-c">操作</th>'
                     + '</tr></thead>'
-                    + '<tbody>' + rows + '</tbody></table>';
+                    + '<tbody>' + rows + '</tbody></table>'
+                    + '</div>';
                 // 异步拉关注股订阅 + 推送数据，hydrate 资讯行（同水神模式）
                 if(typeof loadStockSubs === 'function') loadStockSubs();
             }catch(e){

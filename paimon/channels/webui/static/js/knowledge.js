@@ -5,6 +5,11 @@
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+  // source 显示去后端写入的内部命名前缀（DB 字段保持不动，只 web 译）
+  function srcDisplay(s) {
+    if (!s) return '-';
+    return String(s).replace(/^(草神面板|草神|岩神面板|岩神|风神面板|风神|水神面板|水神|火神|雷神|冰神|晨星|天使)·?/, '') || '-';
+  }
   function fmtTime(ts) {
     if (!ts || ts <= 0) return '-';
     const d = new Date(ts * 1000);
@@ -66,7 +71,7 @@
         (tags ? '<div style="margin-top:6px">' + tags + '</div>' : '') + '</td>' +
         '<td class="mono">' + esc(it.subject || 'default') + '</td>' +
         '<td class="mono">' + fmtTime(it.updated_at) + '</td>' +
-        '<td class="desc">' + esc(it.source || '-') + '</td>' +
+        '<td class="desc" title="' + esc(it.source || '-') + '">' + esc(srcDisplay(it.source)) + '</td>' +
         '<td>' +
         '<button class="btn-view" data-action="view" data-id="' + esc(it.id) + '">查看</button>' +
         '<button class="btn-revoke" data-action="delete" data-id="' + esc(it.id) + '">删除</button>' +
@@ -95,7 +100,7 @@
     document.getElementById('modalMeta').innerHTML =
       '类型: <span class="mono">' + esc(it.mem_type) + '</span> · ' +
       '主题: <span class="mono">' + esc(it.subject) + '</span><br>' +
-      '来源: ' + esc(it.source || '-') + '<br>' +
+      '来源: <span title="' + esc(it.source || '-') + '">' + esc(srcDisplay(it.source)) + '</span><br>' +
       '标签: ' + ((it.tags || []).map(esc).join(', ') || '-') + '<br>' +
       '创建: ' + fmtTime(it.created_at) + ' · 更新: ' + fmtTime(it.updated_at) + '<br>' +
       'ID: <span class="mono">' + esc(it.id) + '</span>';
@@ -277,11 +282,25 @@
 
   window.openMemCreate = function () {
     _currentForm = { type: 'memory_remember' };
+    const cur = _currentMemType || 'user';
+    const opt = (v, label) =>
+      '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + label + '</option>';
     document.getElementById('formBody').innerHTML =
       '<div class="form-field">' +
-      '<label>说一句你想让我记住的事</label>' +
+      '<label>分类</label>' +
+      '<select id="fMemType">' +
+        opt('user', '画像与偏好') +
+        opt('feedback', '行为规范') +
+        opt('project', '项目事实') +
+        opt('reference', '外部资源') +
+        '<option value="">— 自动（让 LLM 判）—</option>' +
+      '</select>' +
+      '<div class="hint">默认按当前 tab。选「自动」走 LLM 分类（可能不准）。</div>' +
+      '</div>' +
+      '<div class="form-field">' +
+      '<label>内容</label>' +
       '<textarea id="fContent" placeholder="例：我主要用 Python / 不要给总结 / 项目 DB 是 PostgreSQL"></textarea>' +
-      '<div class="hint">会自动判类型和标题；跟已有冲突时自动合并</div>' +
+      '<div class="hint">标题自动生成；跟已有冲突时自动合并</div>' +
       '</div>';
     _showFormModal('新建记忆');
     setTimeout(() => document.getElementById('fContent').focus(), 50);
@@ -350,10 +369,13 @@
       if (f.type === 'memory_remember') {
         const content = document.getElementById('fContent').value.trim();
         if (!content) { _showFormError('内容不能为空'); return; }
+        const memTypeSel = document.getElementById('fMemType');
+        const memType = memTypeSel ? memTypeSel.value : '';
+        const body = memType ? { content, mem_type: memType } : { content };
         const r = await fetch('/api/knowledge/memory/remember', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify(body),
         });
         const d = await r.json();
         if (!d.ok) { _showFormError('保存失败: ' + (d.error || '未知错误')); return; }

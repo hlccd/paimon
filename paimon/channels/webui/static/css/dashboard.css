@@ -1,5 +1,24 @@
 /* dashboard 专属样式（柱状图 + 控制条），通用部分走 components.css 和 warm.css */
 
+/* dashboard 整页拉宽到 1500px（在大屏放得下，小屏自动 fit viewport） */
+body.dashboard-page .dash-content { max-width: 1500px; }
+body.dashboard-page .dash-chart-cols { gap: 6px; padding: 0 4px; }
+body.dashboard-page .dash-chart-bar { max-width: 110px; }
+/* 14 天 / 30 小时密集列，label 旋转 -30 度避免截断，两端对齐左下 */
+body.dashboard-page .dash-chart-labels {
+  height: 36px;
+  align-items: flex-start;
+  padding-top: 8px;
+}
+body.dashboard-page .dash-chart-lbl {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  transform: rotate(-30deg);
+  transform-origin: top center;
+}
+
 /* 让 stat-card 数字更紧凑 + hint 行高标准 */
 .pm-stat-card__value { letter-spacing: -0.01em; }
 .pm-stat-card__hint { line-height: var(--pm-line-normal); }
