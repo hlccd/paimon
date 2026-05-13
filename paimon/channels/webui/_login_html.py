@@ -1,7 +1,8 @@
-"""登录页 HTML — 主类 _get_login_html 抽离至独立 module，不嵌业务逻辑。
+"""登录页 HTML — 跟主 web 同主题（浅 sky 蓝 / 深 slate 黑），不依赖 dash-warm layout。
 
-风格跟主 web 一致（暖米白底 + sky 天蓝主色 + stone 暖灰文），不依赖 dash-warm
-layout（不需要 sidebar 等大架构），所以 token 直接 inline。
+- 早期 inline script 在 head 顶设 `<html data-theme>`，避免 FOWT
+- 双主题 CSS 用 `html[data-theme="dark"]` 覆盖浅色 token
+- 跟 paimon-theme localStorage / prefers-color-scheme 联动（跟主 web 一致）
 """
 from __future__ import annotations
 
@@ -13,9 +14,18 @@ def get_login_html() -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Paimon</title>
+<script>
+    (function () {
+        try {
+            var saved = localStorage.getItem('paimon-theme');
+            var sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.dataset.theme = saved || sys;
+        } catch (e) { document.documentElement.dataset.theme = 'light'; }
+    })();
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%230EA5E9'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E">
 <style>
-    :root {
+    :root, html[data-theme="light"] {
         --pm-bg-page:    #FAF7F2;
         --pm-bg-card:    #FFFFFF;
         --pm-bg-input:   #FFFFFF;
@@ -29,6 +39,21 @@ def get_login_html() -> str:
         --pm-primary-border: #BAE6FD;
         --pm-danger:         #DC2626;
         --pm-shadow-lg: 0 4px 12px 0 rgba(120, 80, 50, 0.08), 0 2px 4px 0 rgba(120, 80, 50, 0.04);
+    }
+    html[data-theme="dark"] {
+        --pm-bg-page:    #0F172A;
+        --pm-bg-card:    #1E293B;
+        --pm-bg-input:   #0F172A;
+        --pm-border:     #334155;
+        --pm-text-primary:   #F1F5F9;
+        --pm-text-secondary: #CBD5E1;
+        --pm-text-muted:     #94A3B8;
+        --pm-primary:        #38BDF8;
+        --pm-primary-hover:  #0EA5E9;
+        --pm-primary-subtle: #0C4A6E;
+        --pm-primary-border: #0369A1;
+        --pm-danger:         #F87171;
+        --pm-shadow-lg: 0 4px 12px 0 rgba(0, 0, 0, 0.50), 0 2px 4px 0 rgba(0, 0, 0, 0.30);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {

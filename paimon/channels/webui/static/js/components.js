@@ -250,14 +250,72 @@
     return div.innerHTML;
   }
 
+  /* ═════ pmTheme ═════════════════════════════════════
+   * 主题切换：写 html[data-theme] + 持久化 localStorage
+   *
+   * 默认行为（首次进 paimon、没手动切过）：
+   *   跟随 OS prefers-color-scheme（_warm_layout.html 顶部 inline script 已早期应用）
+   * 用户手动 toggle 后：
+   *   localStorage 记 'paimon-theme' = 'light' | 'dark'，覆盖 OS 偏好
+   *
+   * 用法：
+   *   pmTheme.get()    → 'light' | 'dark'
+   *   pmTheme.set('dark')
+   *   pmTheme.toggle()
+   *   pmTheme.onChange(fn)  → 切换时回调（用于 sidebar 按钮 icon 同步等）
+   */
+  const _themeListeners = [];
+  const pmTheme = {
+    STORAGE_KEY: 'paimon-theme',
+    get() {
+      return document.documentElement.dataset.theme || 'light';
+    },
+    set(t) {
+      if (t !== 'light' && t !== 'dark') return;
+      document.documentElement.dataset.theme = t;
+      try { localStorage.setItem(this.STORAGE_KEY, t); } catch (e) {}
+      _themeListeners.forEach((fn) => { try { fn(t); } catch (e) {} });
+    },
+    toggle() {
+      this.set(this.get() === 'light' ? 'dark' : 'light');
+    },
+    onChange(fn) { if (typeof fn === 'function') _themeListeners.push(fn); },
+  };
+
   /* 暴露到全局 */
   window.pmBtn = pmBtn;
   window.pmToast = pmToast;
   window.pmModal = pmModal;
   window.pmTab = pmTab;
+  window.pmTheme = pmTheme;
   window.safeMd = safeMd;
+
+  /* OS 主题变化时跟随（仅当用户没手动切过 paimon 主题）*/
+  if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e) => {
+      try {
+        if (localStorage.getItem(pmTheme.STORAGE_KEY)) return; // 已手切，不跟随
+        document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
+        _themeListeners.forEach((fn) => { try { fn(pmTheme.get()); } catch (e) {} });
+      } catch (e) {}
+    };
+    if (mq.addEventListener) mq.addEventListener('change', handler);
+    else if (mq.addListener) mq.addListener(handler);
+  }
 
   document.addEventListener('DOMContentLoaded', () => {
     pmTab.enhanceAll();
+    // 主题切换按钮 hook
+    const themeBtn = document.getElementById('dashThemeToggle');
+    const themeLabel = document.getElementById('dashThemeLabel');
+    function syncLabel() {
+      if (themeLabel) themeLabel.textContent = pmTheme.get() === 'dark' ? '浅色' : '深色';
+    }
+    if (themeBtn) {
+      syncLabel();
+      themeBtn.addEventListener('click', () => pmTheme.toggle());
+      pmTheme.onChange(syncLabel);
+    }
   });
 })();

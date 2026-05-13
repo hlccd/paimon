@@ -1,9 +1,14 @@
-/* warm.css — 温馨柔和风公共布局 + token override
- * 给所有用 _warm_layout.html 的 page 共享：sidebar / 主内容容器 / 暖系 token override
+/* warm.css — paimon WebUI 配色 + 公共布局
+ * 主题切换：html[data-theme="light|dark"] 控制全套 token，body class .dash-warm 仍带做 layout hook
  * Page 自己的特定样式（柱状图、表格变体等）单独写到 <page>.css */
 
+/* ════════════════════════════════════════════════════
+ * 浅色（默认）—— 暖米白底 + sky 天蓝主色 + stone 暖灰文
+ * 命中条件：(1) 没设 data-theme 或 (2) data-theme="light"
+ * ════════════════════════════════════════════════════ */
+:root,
+html[data-theme="light"],
 .dash-warm {
-  /* ── 暖米白底 + sky 天蓝主色 + stone 暖灰文 + 暖阴影 ── */
   --pm-bg-page:    #FAF7F2;
   --pm-bg-card:    #FFFFFF;
   --pm-bg-input:   #FFFFFF;
@@ -31,6 +36,17 @@
   --pm-info:           #0891B2;
   --pm-info-subtle:    #ECFEFF;
 
+  --pm-success:        #16A34A;
+  --pm-success-subtle: #F0FDF4;
+  --pm-success-border: #BBF7D0;
+  --pm-warning:        #D97706;
+  --pm-warning-subtle: #FFFBEB;
+  --pm-warning-border: #FDE68A;
+  --pm-danger:         #DC2626;
+  --pm-danger-subtle:  #FEF2F2;
+  --pm-danger-border:  #FECACA;
+
+  /* 暖系阴影 — 棕底色，浅色界面里看着柔 */
   --pm-shadow-sm: 0 1px 2px 0 rgba(120, 80, 50, 0.05);
   --pm-shadow-md: 0 2px 4px 0 rgba(120, 80, 50, 0.06), 0 1px 2px 0 rgba(120, 80, 50, 0.04);
   --pm-shadow-lg: 0 4px 12px 0 rgba(120, 80, 50, 0.08), 0 2px 4px 0 rgba(120, 80, 50, 0.04);
@@ -41,6 +57,55 @@
   --pm-radius-md: 8px;
   --pm-radius-lg: 12px;
   --pm-radius-xl: 16px;
+}
+
+/* ════════════════════════════════════════════════════
+ * 深色 —— slate-900 冷黑底 + sky-400 主色（在深底上更亮）
+ * 命中条件：data-theme="dark"
+ * ════════════════════════════════════════════════════ */
+html[data-theme="dark"] {
+  --pm-bg-page:    #0F172A;  /* slate-900 */
+  --pm-bg-card:    #1E293B;  /* slate-800 卡片层比页底亮一档 */
+  --pm-bg-input:   #0F172A;  /* 输入框跟页面同底，凹陷感 */
+  --pm-bg-hover:   #334155;  /* slate-700 hover */
+  --pm-bg-active:  #475569;  /* slate-600 active */
+  --pm-bg-subtle:  #1E293B;  /* 跟卡片同 */
+  --pm-bg-overlay: rgba(0, 0, 0, 0.6);
+
+  --pm-border:        #334155;  /* slate-700 */
+  --pm-border-strong: #475569;
+  --pm-border-focus:  #38BDF8;
+
+  --pm-text-primary:    #F1F5F9;  /* slate-100 */
+  --pm-text-secondary:  #CBD5E1;  /* slate-300 */
+  --pm-text-muted:      #94A3B8;  /* slate-400 */
+  --pm-text-on-primary: #0F172A;  /* sky 亮底上的文用深底 */
+  --pm-text-link:       #7DD3FC;  /* sky-300 — 深底上更显眼 */
+
+  --pm-primary:         #38BDF8;  /* sky-400 — 深底上不刺眼且显眼 */
+  --pm-primary-hover:   #0EA5E9;
+  --pm-primary-active:  #0284C7;
+  --pm-primary-subtle:  #0C4A6E;  /* sky-900 暗淡底 */
+  --pm-primary-border:  #0369A1;  /* sky-700 */
+
+  --pm-info:           #22D3EE;
+  --pm-info-subtle:    #164E63;
+
+  --pm-success:        #4ADE80;
+  --pm-success-subtle: #14532D;
+  --pm-success-border: #166534;
+  --pm-warning:        #FBBF24;
+  --pm-warning-subtle: #451A03;
+  --pm-warning-border: #78350F;
+  --pm-danger:         #F87171;
+  --pm-danger-subtle:  #450A0A;
+  --pm-danger-border:  #7F1D1D;
+
+  /* 黑阴影 — 深底里只有真黑能看见 */
+  --pm-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.30);
+  --pm-shadow-md: 0 2px 4px 0 rgba(0, 0, 0, 0.40), 0 1px 2px 0 rgba(0, 0, 0, 0.30);
+  --pm-shadow-lg: 0 4px 12px 0 rgba(0, 0, 0, 0.50), 0 2px 4px 0 rgba(0, 0, 0, 0.30);
+  --pm-shadow-xl: 0 12px 32px 0 rgba(0, 0, 0, 0.60), 0 4px 8px 0 rgba(0, 0, 0, 0.40);
 }
 
 /* ═══ App / Sidebar / Main 布局 ═════════════════════ */
@@ -158,6 +223,32 @@
 }
 .dash-bell [data-icon] svg { width: 18px; height: 18px; }
 .dash-bell:hover { background: var(--pm-bg-hover); color: var(--pm-text-primary); }
+
+/* 主题切换按钮 — 在通知下方，跟 dash-bell 同风格 */
+.dash-theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-3);
+  padding: var(--pm-space-2) var(--pm-space-3);
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: var(--pm-radius-md);
+  color: var(--pm-text-secondary);
+  font-family: inherit;
+  font-size: var(--pm-font-sm);
+  font-weight: var(--pm-weight-medium);
+  cursor: pointer;
+  text-align: left;
+  margin-top: 4px;
+  transition: background var(--pm-transition), color var(--pm-transition);
+}
+.dash-theme-toggle [data-icon] svg { width: 18px; height: 18px; }
+.dash-theme-toggle:hover { background: var(--pm-bg-hover); color: var(--pm-text-primary); }
+.dash-theme-toggle:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+/* 当前主题显示对侧 icon（light 模式显 moon 提示"点了变 dark"，dark 模式显 sun） */
+html[data-theme="light"] .dash-theme-icon--light { display: none; }
+html[data-theme="dark"] .dash-theme-icon--dark { display: none; }
 
 /* ═══ 主内容区 ═══════════════════════════════════ */
 .dash-main {

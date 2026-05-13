@@ -13,10 +13,10 @@ body { min-height: 100vh; }
     }
     .btn:hover { border-color: var(--pm-primary-hover); color: var(--pm-primary); }
     .btn-primary {
-        background: linear-gradient(135deg, var(--pm-primary), var(--pm-primary-active));
-        color: #000; border: none; font-weight: 600;
+        background: var(--pm-primary);
+        color: #fff; border: none; font-weight: 600;
     }
-    .btn-primary:hover { opacity: .9; color: #000; }
+    .btn-primary:hover { background: var(--pm-primary-hover); }
 
     /* profile 卡片列表 */
     .profile-list { display: flex; flex-direction: column; gap: 12px; }

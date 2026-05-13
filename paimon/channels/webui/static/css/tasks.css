@@ -160,7 +160,7 @@
 .task-source-chip.unknown {
   background: var(--pm-danger-subtle);
   color: var(--pm-danger);
-  border-color: #FECACA;
+  border-color: var(--pm-danger-border);
 }
 .task-source-hint {
   margin-top: var(--pm-space-3);
