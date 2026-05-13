@@ -21,6 +21,7 @@
   transition: color var(--pm-transition);
 }
 .tab-btn:hover { color: var(--pm-text-primary); }
+.tab-btn:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: -2px; border-radius: var(--pm-radius-sm); }
 .tab-btn.active { color: var(--pm-primary); }
 .tab-btn.active::after {
   content: "";
@@ -73,6 +74,7 @@
   transition: color var(--pm-transition), background var(--pm-transition), border-color var(--pm-transition);
 }
 .pill:hover { color: var(--pm-text-primary); border-color: var(--pm-border-strong); }
+.pill:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
 .pill.active {
   background: var(--pm-primary-subtle);
   color: var(--pm-primary);

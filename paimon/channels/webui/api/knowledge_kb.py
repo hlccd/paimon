@@ -1,4 +1,4 @@
-"""草神知识面板 - 知识库段（kb list/read/write/hygiene）。"""
+"""知识面板 - 知识库段（kb list/read/write/hygiene）。"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -101,7 +101,7 @@ async def knowledge_kb_remember_api(channel, request: web.Request) -> web.Respon
         if not irminsul or not model:
             return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
 
-        out = await remember_knowledge_with_reconcile(content, irminsul, model, actor="草神面板")
+        out = await remember_knowledge_with_reconcile(content, irminsul, model, actor="知识面板")
         if not out.ok:
             return web.json_response({"ok": False, "error": out.error or "写入失败"}, status=500)
         return web.json_response({
@@ -154,7 +154,7 @@ async def knowledge_kb_write_api(channel, request: web.Request) -> web.Response:
         if not irminsul:
             return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
 
-        await irminsul.knowledge_write(category, topic, body, actor="草神面板")
+        await irminsul.knowledge_write(category, topic, body, actor="知识面板")
         return web.json_response({"ok": True})
     except Exception as e:
         logger.error("[草神·世界树] 写入知识异常: {}", e)
@@ -182,7 +182,7 @@ async def knowledge_kb_delete_api(channel, request: web.Request) -> web.Response
         irminsul = channel.state.irminsul
         if not irminsul:
             return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
-        ok = await irminsul.knowledge_delete(category, topic, actor="草神面板")
+        ok = await irminsul.knowledge_delete(category, topic, actor="知识面板")
         return web.json_response({"ok": ok})
     except Exception as e:
         logger.error("[草神·知识库] 删除异常: {}", e)

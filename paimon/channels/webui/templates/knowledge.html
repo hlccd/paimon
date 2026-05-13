@@ -1,7 +1,7 @@
 <div class="dash-page-header">
   <div>
     <h1 class="dash-page-title"><span data-icon="database"></span>世界树</h1>
-    <p class="dash-page-subtitle">跨会话记忆 + 结构化知识库（草神管辖）</p>
+    <p class="dash-page-subtitle">跨会话记忆 + 结构化知识库</p>
   </div>
   <div>
     <button id="kn-refresh" class="pm-btn pm-btn--default">
@@ -22,11 +22,11 @@
 
 <div id="memory" class="tab-panel active">
   <div class="pills-row">
-    <div class="pills">
-      <div class="pill active" data-mem="user" onclick="switchMemType('user',this)">画像与偏好</div>
-      <div class="pill" data-mem="feedback" onclick="switchMemType('feedback',this)">行为规范</div>
-      <div class="pill" data-mem="project" onclick="switchMemType('project',this)">项目事实</div>
-      <div class="pill" data-mem="reference" onclick="switchMemType('reference',this)">外部资源</div>
+    <div class="pills" role="tablist" aria-label="记忆类型">
+      <div class="pill active" role="tab" tabindex="0" aria-selected="true" data-mem="user" onclick="switchMemType('user',this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchMemType('user',this)}">画像与偏好</div>
+      <div class="pill" role="tab" tabindex="0" aria-selected="false" data-mem="feedback" onclick="switchMemType('feedback',this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchMemType('feedback',this)}">行为规范</div>
+      <div class="pill" role="tab" tabindex="0" aria-selected="false" data-mem="project" onclick="switchMemType('project',this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchMemType('project',this)}">项目事实</div>
+      <div class="pill" role="tab" tabindex="0" aria-selected="false" data-mem="reference" onclick="switchMemType('reference',this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchMemType('reference',this)}">外部资源</div>
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn-add" onclick="triggerHygiene()" id="btnHygiene" title="LLM 扫全部记忆，批量合并/去重。周一凌晨自动跑。">🧹 整理</button>

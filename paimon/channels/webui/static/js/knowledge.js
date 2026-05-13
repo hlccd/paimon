@@ -28,8 +28,14 @@
 
   window.switchMemType = function (mem_type, el) {
     _currentMemType = mem_type;
-    document.querySelectorAll('.pill[data-mem]').forEach((p) => p.classList.remove('active'));
-    if (el) el.classList.add('active');
+    document.querySelectorAll('.pill[data-mem]').forEach((p) => {
+      p.classList.remove('active');
+      p.setAttribute('aria-selected', 'false');
+    });
+    if (el) {
+      el.classList.add('active');
+      el.setAttribute('aria-selected', 'true');
+    }
     loadMem(mem_type);
   };
 
@@ -85,7 +91,7 @@
     document.getElementById('modalEditBtn').style.display = 'none';
     _modalEditContext = null;
     document.getElementById('modalTitle').textContent = it.title;
-    document.getElementById('modalBody').textContent = it.body || '(空)';
+    document.getElementById('modalBody').innerHTML = window.safeMd(it.body || '(空)');
     document.getElementById('modalMeta').innerHTML =
       '类型: <span class="mono">' + esc(it.mem_type) + '</span> · ' +
       '主题: <span class="mono">' + esc(it.subject) + '</span><br>' +
@@ -99,7 +105,13 @@
   window.delMem = async function (id) {
     const it = _memCache[_currentMemType] && _memCache[_currentMemType][id];
     const title = it ? it.title : id;
-    if (!confirm('确定删除记忆「' + title + '」?\n此操作不可恢复，此记忆也将不再注入对话上下文。')) return;
+    const ok = await window.pmModal.confirm({
+      title: '删除记忆',
+      message: '确定要删除「' + title + '」？此操作不可恢复，且此记忆将不再注入对话上下文。',
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const r = await fetch('/api/knowledge/memory/delete', {
         method: 'POST',
@@ -107,9 +119,9 @@
         body: JSON.stringify({ id }),
       });
       const d = await r.json();
-      if (d.ok) loadMem(_currentMemType);
-      else alert('删除失败: ' + (d.error || '未知错误'));
-    } catch (e) { alert('删除失败: ' + e.message); }
+      if (d.ok) { loadMem(_currentMemType); window.pmToast.success('记忆已删除'); }
+      else window.pmToast.error('删除失败: ' + (d.error || '未知错误'));
+    } catch (e) { window.pmToast.error('删除失败: ' + e.message); }
   };
 
   async function loadMem(type) {
@@ -176,7 +188,7 @@
           const deleted = rep.deleted || 0;
           if (merged || deleted) {
             flashToast('整理完成：合并 ' + merged + '、删除 ' + deleted,
-                       '详情见「📨 推送」收件箱的「草神」条目', 'success');
+                       '详情见「📨 推送」收件箱的「记忆整理」条目', 'success');
           } else {
             flashToast('整理完成：记忆已经很干净了', '', 'success');
           }
@@ -225,7 +237,7 @@
           const deleted = rep.deleted || 0;
           if (merged || deleted) {
             flashToast('整理完成：合并 ' + merged + '、删除 ' + deleted,
-                       '详情见「📨 推送」收件箱的「草神」条目', 'success');
+                       '详情见「📨 推送」收件箱的「记忆整理」条目', 'success');
           } else {
             flashToast('整理完成：知识库已经很干净了', '', 'success');
           }
@@ -428,7 +440,7 @@
       const cc = document.getElementById('countKb');
       if (cc) cc.textContent = items.length ? items.length : '';
       if (!items.length) {
-        el.innerHTML = '<div class="empty-state">知识库为空。<br><br>让草神调 <code>knowledge</code> 工具写入，或在对话里说"帮我把 X 记到知识库 Y 分类下"</div>';
+        el.innerHTML = '<div class="empty-state">知识库为空。<br><br>调 <code>knowledge</code> 工具写入，或在对话里说"帮我把 X 记到知识库 Y 分类下"</div>';
         window._kbLoaded = true;
         return;
       }
@@ -466,7 +478,13 @@
   }
 
   window.delKb = async function (cat, topic) {
-    if (!confirm('确定删除知识「' + cat + ' / ' + topic + '」?\n此操作不可恢复。')) return;
+    const ok = await window.pmModal.confirm({
+      title: '删除知识',
+      message: '确定要删除「' + cat + ' / ' + topic + '」？此操作不可恢复。',
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const r = await fetch('/api/knowledge/kb/delete', {
         method: 'POST',
@@ -499,7 +517,7 @@
         document.getElementById('modalBody').textContent = '读取失败: ' + d.error;
         return;
       }
-      document.getElementById('modalBody').textContent = d.body || '(空)';
+      document.getElementById('modalBody').innerHTML = window.safeMd(d.body || '(空)');
       if (_modalEditContext) _modalEditContext.body = d.body || '';
     } catch (e) {
       document.getElementById('modalBody').textContent = '读取失败: ' + e.message;

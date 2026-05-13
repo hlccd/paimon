@@ -768,7 +768,7 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 - [x] `/` (chat) 第 1-10 轮 ✅ — 修 safeMd undefined / 命名净化 / 紫主色一致 / a11y / pmModal 替换 confirm
 - [x] `/dashboard` 第 1-10 轮 ✅ — 命名净化 + bar 加宽 + 控制条段控件化 + cost bar amber + tip 增强 + 表格列宽 + a11y
 - [x] `/tasks` 第 1-10 轮 ✅ — 命名净化 + 删除 dead modal + 折叠区 keyboard a11y + line-clamp + tokens.css 加 *-border + clock icon + 自动刷新 hint
-- [ ] `/knowledge` 第 1-10 轮
+- [x] `/knowledge` 第 1-10 轮 ✅ — 命名净化 + handler 加 marked + modalBody 改 safeMd + actor=知识面板 + pill role=tab + 删除走 pmModal/pmToast + tab focus-visible
 - [ ] `/llm` 第 1-10 轮
 - [ ] `/selfcheck` 第 1-10 轮
 - [ ] `/wealth` 第 1-10 轮

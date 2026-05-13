@@ -1,4 +1,4 @@
-"""草神知识面板 - 记忆段（记忆 list/remember/delete/hygiene）。"""
+"""知识面板 - 记忆段（记忆 list/remember/delete/hygiene）。"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -24,7 +24,10 @@ async def knowledge_page(channel, request: web.Request) -> web.Response:
             title="世界树",
             content_template="knowledge",
             active="knowledge",
-            extra_css='<link rel="stylesheet" href="/static/css/knowledge.css">',
+            extra_css=(
+                '<link rel="stylesheet" href="/static/css/knowledge.css">\n'
+                '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>'
+            ),
             extra_js='<script src="/static/js/knowledge.js"></script>',
         ),
         content_type="text/html",
@@ -118,7 +121,7 @@ async def knowledge_memory_remember_api(channel, request: web.Request) -> web.Re
         if not irminsul or not model:
             return web.json_response({"ok": False, "error": "世界树 / 模型未就绪"}, status=500)
 
-        out = await remember_with_reconcile(content, irminsul, model, source="草神面板·手动", actor="草神面板")
+        out = await remember_with_reconcile(content, irminsul, model, source="知识面板·手动", actor="知识面板")
         if not out.ok:
             return web.json_response({"ok": False, "error": out.error or "写入失败"}, status=500)
         return web.json_response({
@@ -157,7 +160,7 @@ async def knowledge_memory_delete_api(channel, request: web.Request) -> web.Resp
         if not irminsul:
             return web.json_response({"ok": False, "error": "世界树未就绪"}, status=500)
 
-        ok = await irminsul.memory_delete(mem_id, actor="草神面板")
+        ok = await irminsul.memory_delete(mem_id, actor="知识面板")
         return web.json_response({"ok": ok})
     except Exception as e:
         logger.error("[草神·世界树] 删除记忆异常: {}", e)
