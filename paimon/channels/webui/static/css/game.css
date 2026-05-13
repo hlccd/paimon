@@ -604,7 +604,7 @@ body { min-height: 100vh; }
     .fr-search-bar { display: flex; gap: 6px; margin-bottom: 6px; }
     .fr-search-input {
         flex: 1; min-width: 0; padding: 5px 9px;
-        background: var(--paimon-bg-deep); color: var(--pm-text-primary);
+        background: var(--pm-bg-subtle); color: var(--pm-text-primary);
         border: 1px solid var(--pm-border); border-radius: 5px;
         font-size: 12px;
     }
