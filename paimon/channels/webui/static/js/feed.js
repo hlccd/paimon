@@ -146,7 +146,7 @@
             }catch(e){
                 _hotspotRunning = false;
                 btn.disabled=false; btn.textContent='▶ 立即跑';
-                alert('请求失败: '+e);
+                window.pmToast.error('请求失败: '+e);
             }
         };
 
@@ -313,7 +313,7 @@
         window.createSub=async function(){
             var q=document.getElementById('formQuery').value.trim();
             var c=buildCronExpr();
-            if(!q){alert('请填关键词');return;}
+            if(!q){window.pmToast.warning('请填关键词');return;}
             try{
                 var r=await fetch('/api/feed/subs',{
                     method:'POST',headers:{'Content-Type':'application/json'},
@@ -325,10 +325,11 @@
                     var customEl=document.getElementById('formCron');
                     if(customEl) customEl.value='';
                     refreshAll();
+                    window.pmToast.success('订阅已创建');
                 }else{
-                    alert('创建失败: '+(d.error||'unknown'));
+                    window.pmToast.error('创建失败: '+(d.error||'unknown'));
                 }
-            }catch(e){alert('请求失败: '+e);}
+            }catch(e){window.pmToast.error('请求失败: '+e);}
         };
 
         window.toggleSub=async function(id,enable){
@@ -338,15 +339,22 @@
                     body:JSON.stringify({enabled:enable})
                 });
                 refreshAll();
-            }catch(e){alert('失败: '+e);}
+            }catch(e){window.pmToast.error('失败: '+e);}
         };
 
         window.delSub=async function(id){
-            if(!confirm('确认删除订阅？最近一份调研结果也会一起清掉。'))return;
+            var ok = await window.pmModal.confirm({
+                title: '删除订阅',
+                message: '确认删除订阅？最近一份调研结果也会一起清掉。',
+                confirmText: '删除',
+                danger: true,
+            });
+            if(!ok) return;
             try{
                 await fetch('/api/feed/subs/'+encodeURIComponent(id),{method:'DELETE'});
                 refreshAll();
-            }catch(e){alert('失败: '+e);}
+                window.pmToast.success('订阅已删除');
+            }catch(e){window.pmToast.error('失败: '+e);}
         };
 
         window.runSub=async function(id){
@@ -354,11 +362,10 @@
                 var r=await fetch('/api/feed/subs/'+encodeURIComponent(id)+'/run',{method:'POST'});
                 var d=await r.json();
                 if(d.ok){
-                    // 卡片切「采集中」角标 + 按钮禁用；loadSubs 检测 running 会自动轮询
                     loadSubs();
                 }
-                else alert('触发失败: '+(d.error||'unknown'));
-            }catch(e){alert('失败: '+e);}
+                else window.pmToast.error('触发失败: '+(d.error||'unknown'));
+            }catch(e){window.pmToast.error('失败: '+e);}
         };
 
 
@@ -479,7 +486,7 @@
             }catch(e){
                 _weeklyRunning = false;
                 btn.disabled=false; btn.textContent='▶ 立即跑';
-                alert('请求失败: '+e);
+                window.pmToast.error('请求失败: '+e);
             }
         };
         window.addEventListener('hashchange', _scrollToSubFromHash);
@@ -651,12 +658,12 @@
                     var data = await res.json();
                     if(!data.ok){
                         if(btn){ btn.disabled = false; btn.textContent = '提交验证码'; }
-                        alert('提交失败：' + (data.error || '未知'));
+                        window.pmToast.error('提交失败：' + (data.error || '未知'));
                     }
                     // 成功后状态会切到 sms_submitting，由 pollStatus 接管 UI
                 } catch(e){
                     if(btn){ btn.disabled = false; btn.textContent = '提交验证码'; }
-                    alert('提交失败：' + e.message);
+                    window.pmToast.error('提交失败：' + e.message);
                 }
             };
             _qrPollTimer = setInterval(pollStatus, 2000);

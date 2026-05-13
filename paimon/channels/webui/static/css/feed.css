@@ -36,10 +36,12 @@ body { min-height: 100vh; }
     }
     .form-field input:focus, .form-field select:focus { outline: none; border-color: var(--pm-primary); }
     .btn-primary {
-        padding: 9px 20px; background: linear-gradient(135deg, var(--pm-primary), var(--pm-primary-active));
-        color: #000; border: none; border-radius: 6px; cursor: pointer;
+        padding: 9px 20px; background: var(--pm-primary);
+        color: #fff; border: none; border-radius: var(--pm-radius-md); cursor: pointer;
         font-size: 14px; font-weight: 600;
     }
+    .btn-primary:hover { background: var(--pm-primary-hover); }
+    .btn-primary:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
     .form-hint { font-size: 12px; color: var(--pm-text-muted); margin-top: 8px; }
 
     .sub-list { display: flex; flex-direction: column; gap: 12px; }
@@ -150,8 +152,8 @@ body { min-height: 100vh; }
     .site-row .site-action button:hover { background:var(--pm-primary); color:var(--pm-bg-page); }
 
     /* 登录扫码 modal */
-    .qr-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.65); display:flex; align-items:center; justify-content:center; z-index:9999; }
-    .qr-modal-box { background:var(--pm-bg-card); border:1px solid var(--pm-border); border-radius:12px; min-width:340px; max-width:520px; padding:0; box-shadow:0 8px 32px rgba(0,0,0,.5); }
+    .qr-modal-backdrop { position:fixed; inset:0; background:var(--pm-bg-overlay); display:flex; align-items:center; justify-content:center; z-index:9999; }
+    .qr-modal-box { background:var(--pm-bg-card); border:1px solid var(--pm-border); border-radius:var(--pm-radius-lg); min-width:340px; max-width:520px; padding:0; box-shadow:var(--pm-shadow-xl); }
     .qr-modal-header { padding:14px 18px; border-bottom:1px solid var(--pm-border); display:flex; justify-content:space-between; align-items:center; font-weight:600; color:var(--pm-text-primary); }
     .qr-modal-close { background:none; border:0; font-size:22px; line-height:1; color:var(--pm-text-secondary); cursor:pointer; }
     .qr-modal-close:hover { color:var(--pm-text-primary); }

@@ -1,18 +1,18 @@
         <div class="dash-page-header">
   <div>
     <h1 class="dash-page-title"><span data-icon="bell"></span>订阅</h1>
-    <p class="dash-page-subtitle">topic UGC 多源调研 + 每日热点 + 近期回顾（风神管辖）</p>
+    <p class="dash-page-subtitle">topic UGC 多源调研 + 每日热点 + 近期回顾</p>
   </div>
   <div>
     <button class="refresh-btn" onclick="refreshAll()">刷新</button>
   </div>
 </div>
 
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('hotspot',this)">📰 今日热点</button>
-            <button class="tab-btn" onclick="switchTab('weekly',this)">📅 近期回顾</button>
-            <button class="tab-btn" onclick="switchTab('subs',this)">🔔 订阅管理</button>
-            <button class="tab-btn" onclick="switchTab('login',this)">🔑 站点登录</button>
+        <div class="tabs" role="tablist">
+            <button class="tab-btn active" type="button" role="tab" aria-selected="true" onclick="switchTab('hotspot',this)">今日热点</button>
+            <button class="tab-btn" type="button" role="tab" aria-selected="false" onclick="switchTab('weekly',this)">近期回顾</button>
+            <button class="tab-btn" type="button" role="tab" aria-selected="false" onclick="switchTab('subs',this)">订阅管理</button>
+            <button class="tab-btn" type="button" role="tab" aria-selected="false" onclick="switchTab('login',this)">站点登录</button>
         </div>
 
         <!-- Tab 1: 今日热点 -->

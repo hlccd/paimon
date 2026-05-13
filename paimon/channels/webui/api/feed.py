@@ -26,7 +26,10 @@ async def feed_page(channel, request: web.Request) -> web.Response:
             title="订阅",
             content_template="feed",
             active="feed",
-            extra_css='<link rel="stylesheet" href="/static/css/feed.css">',
+            extra_css=(
+                '<link rel="stylesheet" href="/static/css/feed.css">\n'
+                '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>'
+            ),
             extra_js='<script src="/static/js/feed.js"></script>',
         ),
         content_type="text/html",
