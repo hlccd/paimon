@@ -167,7 +167,7 @@
                 if(runBar){
                     if(running){
                         var progressText = _formatScanProgress(progress);
-                        runBar.innerHTML = '<span class="dot"></span><span>岩神·' + progressText + '</span>';
+                        runBar.innerHTML = '<span class="dot"></span><span>理财·' + progressText + '</span>';
                         runBar.className = 'digest-running-bar';
                         runBar.style.display = '';
                     }else{
@@ -298,7 +298,7 @@
                     return (rec.source||'').indexOf('stock_watch:') < 0;
                 });
                 if(!records.length){
-                    listEl.innerHTML='<div class="push-empty">暂无岩神推送'+(_zhongliDigestSearch?'（搜索无结果）':'')+'</div>';
+                    listEl.innerHTML='<div class="push-empty">暂无推送'+(_zhongliDigestSearch?'（搜索无结果）':'')+'</div>';
                     return;
                 }
                 listEl.innerHTML=records.map(function(rec){
@@ -449,7 +449,7 @@
         window.addToWatchlist = async function(btn){
             if(btn.classList.contains('added')) return;
             var code = btn.dataset.code;
-            if(!code){ alert('股票代码缺失'); return; }
+            if(!code){ window.pmToast.error('股票代码缺失'); return; }
             btn.disabled = true;
             var old = btn.textContent;
             btn.textContent = '...';
@@ -459,21 +459,18 @@
                     body: JSON.stringify({code: code, note: '', alert_pct: 3.0}),
                 });
                 var d = await r.json();
-                // 严格对齐 uwAdd：所有 not-ok 都报 alert（不再 409 静默处理）
                 if(!d.ok){
-                    alert('添加失败: ' + (d.error || 'unknown'));
+                    window.pmToast.error('添加失败: ' + (d.error || 'unknown'));
                     btn.disabled = false; btn.textContent = old;
                     return;
                 }
-                // 成功路径与 uwAdd 完全等价：await loadUserWatchlist + _uwPollAfterAdd
                 _userWatchCodes.add(_normCode(code));
                 await loadUserWatchlist();
-                // 推荐 + 排名表里同股按钮也要刷成"已关注"（用户当前可能在另一 tab）
                 if(typeof loadRecommended === 'function') loadRecommended();
                 if(typeof loadRanking === 'function') loadRanking();
                 _uwPollAfterAdd();
             }catch(e){
-                alert('请求失败: ' + e);
+                window.pmToast.error('请求失败: ' + e);
                 btn.disabled = false; btn.textContent = old;
             }
         };
@@ -654,7 +651,14 @@
             var btnMap={rescore:'btnRescore', daily:'btnDaily', full:'btnFull'};
             var btn=document.getElementById(btnMap[mode]);
             if(!btn)return;
-            if(mode==='full' && !confirm('全市场扫描耗时 15-20 分钟，确认启动？'))return;
+            if(mode==='full'){
+                var ok = await window.pmModal.confirm({
+                    title: '全市场扫描',
+                    message: '扫描全市场约 5500 只股票，耗时 15-20 分钟，确认启动？',
+                    confirmText: '启动',
+                });
+                if(!ok)return;
+            }
             btn.disabled=true;
             var oldText=btn.textContent;
             btn.textContent='已触发...';
@@ -673,11 +677,11 @@
                     // 2. 轮询「公告 created_at 比 _scanStartTs 新」→ 恢复按钮 + 刷数据
                     _pollScanComplete(btn, oldText);
                 } else {
-                    alert('触发失败: '+(d.error||'unknown'));
+                    window.pmToast.error('触发失败: '+(d.error||'unknown'));
                     btn.disabled=false; btn.textContent=oldText;
                 }
             }catch(e){
-                alert('触发失败: '+e);
+                window.pmToast.error('触发失败: '+e);
                 btn.disabled=false; btn.textContent=oldText;
             }
         };
@@ -826,27 +830,32 @@
             var code = document.getElementById('uwCodeInput').value.trim();
             var note = document.getElementById('uwNoteInput').value.trim();
             var alertPct = parseFloat(document.getElementById('uwAlertPctInput').value) || 3.0;
-            if(!code){ alert('请输入股票代码'); return; }
+            if(!code){ window.pmToast.error('请输入股票代码'); return; }
             try{
                 var r = await fetch('/api/wealth/user_watch/add', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({code: code, note: note, alert_pct: alertPct}),
                 });
                 var d = await r.json();
-                if(!d.ok){ alert('添加失败: ' + (d.error || 'unknown')); return; }
+                if(!d.ok){ window.pmToast.error('添加失败: ' + (d.error || 'unknown')); return; }
                 document.getElementById('uwCodeInput').value = '';
                 document.getElementById('uwNoteInput').value = '';
                 await loadUserWatchlist();
-                // 推荐 + 排名同股按钮跟着刷"已关注"
                 if(typeof loadRecommended === 'function') loadRecommended();
                 if(typeof loadRanking === 'function') loadRanking();
                 _uwPollAfterAdd();
-            }catch(e){ alert('请求失败: ' + e); }
+            }catch(e){ window.pmToast.error('请求失败: ' + e); }
         };
 
         window.uwRemove = async function(btn){
             var code = btn.dataset.code;
-            if(!confirm('确定删除 ' + code + ' 的关注吗？（价格历史也会清掉）')) return;
+            var ok = await window.pmModal.confirm({
+                title: '删除关注',
+                message: '确定删除 ' + code + ' 的关注？（价格历史也会一并清掉）',
+                confirmText: '删除',
+                danger: true,
+            });
+            if(!ok) return;
             try{
                 var r = await fetch('/api/wealth/user_watch/remove', {
                     method: 'POST',
@@ -854,12 +863,12 @@
                     body: JSON.stringify({code: code}),
                 });
                 var d = await r.json();
-                if(!d.ok){ alert('删除失败'); return; }
+                if(!d.ok){ window.pmToast.error('删除失败'); return; }
                 await loadUserWatchlist();
                 // 推荐 + 排名同股按钮跟着回到"+ 关注"
                 if(typeof loadRecommended === 'function') loadRecommended();
                 if(typeof loadRanking === 'function') loadRanking();
-            }catch(e){ alert('请求失败: ' + e); }
+            }catch(e){ window.pmToast.error('请求失败: ' + e); }
         };
 
         window.uwEdit = async function(btn){
@@ -880,18 +889,23 @@
                     }),
                 });
                 var d = await r.json();
-                if(!d.ok){ alert('更新失败'); return; }
+                if(!d.ok){ window.pmToast.error('更新失败'); return; }
                 await loadUserWatchlist();
-            }catch(e){ alert('请求失败: ' + e); }
+            }catch(e){ window.pmToast.error('请求失败: ' + e); }
         };
 
         window.uwRefreshAll = async function(){
-            if(!confirm('立即抓取所有关注股最新数据？（可能要 10~60s）')) return;
+            var ok = await window.pmModal.confirm({
+                title: '立即抓取最新数据',
+                message: '抓取所有关注股的最新数据，可能要 10~60s。',
+                confirmText: '抓取',
+            });
+            if(!ok) return;
             try{
                 var r = await fetch('/api/wealth/user_watch/refresh', {method: 'POST'});
                 var d = await r.json();
-                if(!d.ok){ alert('触发失败'); return; }
-            }catch(e){ alert('请求失败: ' + e); return; }
+                if(!d.ok){ window.pmToast.error('触发失败'); return; }
+            }catch(e){ window.pmToast.error('请求失败: ' + e); return; }
             // 抓取耗时不确定（每只股 baostock 几秒），多档轮询
             _uwPollAfterAdd();
         };
@@ -1166,13 +1180,13 @@
                 });
                 var d = await r.json();
                 if(!d.ok){
-                    alert('切换失败: ' + (d.error || 'unknown'));
+                    window.pmToast.error('切换失败: ' + (d.error || 'unknown'));
                     checkbox.checked = !enabled;
                 } else {
                     loadStockSubs();
                 }
             } catch(e){
-                alert('请求失败: ' + e.message);
+                window.pmToast.error('请求失败: ' + e.message);
                 checkbox.checked = !enabled;
             }
         };

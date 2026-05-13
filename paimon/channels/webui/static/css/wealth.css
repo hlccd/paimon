@@ -18,9 +18,11 @@ body { min-height: 100vh; }
     }
     .btn-scan:hover { border-color: var(--pm-primary-hover); color: var(--pm-primary); }
     .btn-scan.primary {
-        background: linear-gradient(135deg, var(--pm-primary), var(--pm-primary-active));
-        color: #000; border: none; font-weight: 600;
+        background: var(--pm-primary);
+        color: #fff; border: none; font-weight: 600;
     }
+    .btn-scan.primary:hover { background: var(--pm-primary-hover); }
+    .btn-scan:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
     .btn-scan:disabled { opacity: .4; cursor: not-allowed; }
 
     .stats-row {
@@ -146,7 +148,7 @@ body { min-height: 100vh; }
     /* Modal */
     .modal-backdrop {
         position: fixed; top:0; left:0; width:100%; height:100%;
-        background: rgba(0,0,0,0.6); z-index: 100; display: none;
+        background: var(--pm-bg-overlay); z-index: 100; display: none;
         align-items: center; justify-content: center; padding: 20px;
     }
     .modal-backdrop.show { display: flex; }
@@ -195,12 +197,12 @@ body { min-height: 100vh; }
     .empty-state { text-align: center; padding: 60px 20px; color: var(--pm-text-muted); font-size: 14px; }
     .loading { display: inline-block; padding: 2px 10px; color: var(--pm-text-muted); font-size: 12px; }
 
-    /* 未读岩神 digest banner */
+    /* 未读 digest banner */
     .unread-banner {
         display: none;
-        background: linear-gradient(90deg, rgba(212,175,55,.12), rgba(8,145,178,.04));
-        border: 1px solid var(--pm-primary-hover);
-        border-radius: 8px;
+        background: var(--pm-primary-subtle);
+        border: 1px solid var(--pm-primary-border);
+        border-radius: var(--pm-radius-md);
         padding: 10px 16px;
         margin-bottom: 16px;
         font-size: 13px;
@@ -212,7 +214,7 @@ body { min-height: 100vh; }
         transition: background 0.15s;
     }
     .unread-banner.show { display: flex; }
-    .unread-banner:hover { background: linear-gradient(90deg, rgba(212,175,55,.2), rgba(8,145,178,.06)); }
+    .unread-banner:hover { background: var(--pm-primary-border); }
     .unread-banner b { color: var(--pm-primary); font-weight: 700; }
     .unread-banner .ub-action { color: var(--pm-primary); font-size: 12px; flex-shrink: 0; }
 
@@ -237,9 +239,11 @@ body { min-height: 100vh; }
     }
     .uw-btn:hover { border-color: var(--pm-primary-hover); color: var(--pm-primary); }
     .uw-btn.primary {
-        background: linear-gradient(135deg, var(--pm-primary), var(--pm-primary-active));
-        color: #000; border: none; font-weight: 600;
+        background: var(--pm-primary);
+        color: #fff; border: none; font-weight: 600;
     }
+    .uw-btn.primary:hover { background: var(--pm-primary-hover); }
+    .uw-btn:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
     .uw-btn.danger:hover { color: var(--pm-danger); border-color: var(--pm-danger); }
 
     /* 关注股表不绑行点击，覆盖 .stock-table 的 pointer 避免"可点击"误导 */
@@ -292,7 +296,7 @@ body { min-height: 100vh; }
     .uw-pctbar .marker {
         position: absolute; top: -3px; width: 2px; height: 16px;
         background: var(--pm-text-primary); border-radius: 1px; opacity: 1;
-        box-shadow: 0 0 2px rgba(0,0,0,.6);
+        box-shadow: 0 0 2px rgba(120, 80, 50, 0.4);
     }
     .uw-pct-label { font-size: 11px; color: var(--pm-text-muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
     .uw-pct-label.low  { color: var(--pm-success); }
