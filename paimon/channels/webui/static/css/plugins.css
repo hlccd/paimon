@@ -60,7 +60,7 @@ body { min-height: 100vh; }
     .tab-badge {
         display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 6px;
         border-radius: 9px; font-size: 11px; line-height: 18px; text-align: center;
-        background: var(--pm-warning); color: #1a1a1a; font-weight: 600;
+        background: var(--pm-warning); color: #fff; font-weight: 600;
     }
     .tab-badge.zero { background: var(--pm-bg-subtle); color: var(--pm-text-muted); }
 
@@ -71,7 +71,8 @@ body { min-height: 100vh; }
         background: transparent; color: var(--pm-text-muted); cursor: pointer; font-size: 12px;
     }
     .sub-tab:hover { border-color: var(--pm-primary-hover); color: var(--pm-text-secondary); }
-    .sub-tab.active { background: var(--pm-primary); color: #1a1a1a; border-color: var(--pm-primary); }
+    .sub-tab.active { background: var(--pm-primary); color: #fff; border-color: var(--pm-primary); }
+    .sub-tab:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
 
     /* 提案 card */
     .prop-card {
@@ -98,17 +99,17 @@ body { min-height: 100vh; }
         display: flex; gap: 8px;
     }
 
-    .badge-kind-new { background: rgba(8,145,178,.12); color: var(--pm-info); }
-    .badge-kind-improve { background: rgba(168,85,247,.15); color: #c084fc; }
+    .badge-kind-new { background: var(--pm-info-subtle); color: var(--pm-info); }
+    .badge-kind-improve { background: var(--pm-primary-subtle); color: var(--pm-primary); }
 
-    .badge-status-pending { background: rgba(124,58,237,.15); color: var(--pm-warning); }
-    .badge-status-approved { background: rgba(16,185,129,.15); color: var(--pm-success); }
-    .badge-status-rejected { background: rgba(115,115,115,.15); color: var(--pm-text-muted); }
-    .badge-status-applied { background: rgba(8,145,178,.18); color: var(--pm-info); }
+    .badge-status-pending { background: var(--pm-warning-subtle); color: var(--pm-warning); }
+    .badge-status-approved { background: var(--pm-success-subtle); color: var(--pm-success); }
+    .badge-status-rejected { background: var(--pm-bg-subtle); color: var(--pm-text-muted); }
+    .badge-status-applied { background: var(--pm-info-subtle); color: var(--pm-info); }
 
-    .badge-verdict-pass { background: rgba(16,185,129,.12); color: var(--pm-success); }
-    .badge-verdict-revise { background: rgba(124,58,237,.15); color: var(--pm-warning); }
-    .badge-verdict-reject { background: rgba(239,68,68,.15); color: var(--pm-danger); }
+    .badge-verdict-pass { background: var(--pm-success-subtle); color: var(--pm-success); }
+    .badge-verdict-revise { background: var(--pm-warning-subtle); color: var(--pm-warning); }
+    .badge-verdict-reject { background: var(--pm-danger-subtle); color: var(--pm-danger); }
     .badge-verdict-empty { background: var(--pm-bg-subtle); color: var(--pm-text-muted); }
 
     /* 默认展开（提案信息密度高，折叠会埋掉关键信息）；点 head 可折叠 */
@@ -163,7 +164,7 @@ body { min-height: 100vh; }
 
     /* 提建议改写 modal —— 风格对齐 /knowledge 的 form modal */
     .modal-backdrop {
-        display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000;
+        display: none; position: fixed; inset: 0; background: var(--pm-bg-overlay); z-index: 1000;
         align-items: center; justify-content: center;
     }
     .modal-backdrop.active { display: flex; }

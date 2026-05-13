@@ -88,7 +88,13 @@
         }
 
         window.revoke = async function(subject_type, subject_id){
-            if(!confirm('撤销 '+subject_type+'/'+subject_id+' 的永久授权？\n下次调用时会重新询问。')) return;
+            var ok = await window.pmModal.confirm({
+                title: '撤销永久授权',
+                message: '撤销 '+subject_type+'/'+subject_id+' 的永久授权？下次调用时会重新询问。',
+                confirmText: '撤销',
+                danger: true,
+            });
+            if(!ok) return;
             try {
                 var resp = await fetch('/api/plugins/authz/revoke', {
                     method: 'POST',
@@ -99,11 +105,12 @@
                 if(data.ok){
                     loadAuthz();
                     loadSkills();
+                    window.pmToast.success('已撤销');
                 } else {
-                    alert('撤销失败: ' + (data.error || '未知错误'));
+                    window.pmToast.error('撤销失败: ' + (data.error || '未知错误'));
                 }
             } catch(e){
-                alert('撤销失败: ' + e.message);
+                window.pmToast.error('撤销失败: ' + e.message);
             }
         };
 
@@ -146,17 +153,17 @@
             return '<span class="badge badge-status-'+esc(status)+'">'+label+'</span>';
         }
         function badgeVerdict(v){
-            if(v === 'pass') return '<span class="badge badge-verdict-pass">死执·通过</span>';
-            if(v === 'needs_revise') return '<span class="badge badge-verdict-revise">死执·要修</span>';
-            if(v === 'reject') return '<span class="badge badge-verdict-reject">死执·拒</span>';
-            return '<span class="badge badge-verdict-empty">死执·待审</span>';
+            if(v === 'pass') return '<span class="badge badge-verdict-pass">审查·通过</span>';
+            if(v === 'needs_revise') return '<span class="badge badge-verdict-revise">审查·要修</span>';
+            if(v === 'reject') return '<span class="badge badge-verdict-reject">审查·拒</span>';
+            return '<span class="badge badge-verdict-empty">审查·待审</span>';
         }
 
         function renderProposals(list, status){
             var el = document.getElementById('proposalsEl');
             if(!list || list.length === 0){
                 var msg = {
-                    pending: '当前没有待审的 skill 提案<br><span class="desc">四影 propose 阶段产出后会落到这里等你审</span>',
+                    pending: '当前没有待审的 skill 提案<br><span class="desc">自进化 propose 阶段产出后会落到这里等你审</span>',
                     approved: '没有已同意待落盘的提案',
                     applied: '尚无落盘的自进化 skill',
                     rejected: '没有被拒提案'
@@ -183,10 +190,10 @@
                     actionBtns += '<button class="btn-approve" onclick="event.stopPropagation();approveProp(\''+esc(p.id)+'\')">同意</button>';
                 } else if(p.status === 'pending') {
                     var reason = isRevising
-                        ? '正在生执重写中，等重写完才能 approve'
+                        ? '正在重写中，等重写完才能 approve'
                         : (p.review_verdict === 'needs_revise'
-                            ? '死执质量审建议修订；需要先重新产新版'
-                            : '死执质量审已直拒');
+                            ? '审查建议修订；需要先重新产新版'
+                            : '审查已直拒');
                     actionBtns += '<button class="btn-approve" disabled title="'+esc(reason)+'">同意</button>';
                 }
                 if(p.status === 'pending'){
@@ -211,7 +218,7 @@
                     : '';
 
                 var reviewNotes = p.review_notes
-                    ? '<div class="prop-section"><div class="prop-section-label">死执评语</div><div class="prop-section-content">'+esc(p.review_notes)+'</div></div>'
+                    ? '<div class="prop-section"><div class="prop-section-label">审查评语</div><div class="prop-section-content">'+esc(p.review_notes)+'</div></div>'
                     : '';
                 var decisionNotes = p.decision_notes
                     ? '<div class="prop-section"><div class="prop-section-label">用户决策理由</div><div class="prop-section-content">'+esc(p.decision_notes)+'</div></div>'
@@ -225,7 +232,7 @@
 
                 var revisingBanner = isRevising
                     ? '<div class="revising-banner"><span class="pulse"></span>'
-                      + '生执正在按建议重写 → 死执重审中，完成立即解锁'
+                      + '正在按建议重写 → 审查中，完成立即解锁'
                       + '</div>'
                     : '';
 
@@ -342,12 +349,17 @@
         }
 
         window.approveProp = async function(propId){
-            if(!confirm('同意此提案？同意后空执会落盘到 skills/ 并注册。')) return;
+            var ok = await window.pmModal.confirm({
+                title: '同意提案',
+                message: '同意此提案？同意后会立即落盘到 skills/ 并注册。',
+                confirmText: '同意',
+            });
+            if(!ok) return;
             try {
                 var r = await fetch('/api/plugins/proposals/'+propId+'/approve', {method:'POST'});
                 var d = await r.json();
-                if(d.ok){ loadProposals(); } else { alert('同意失败: ' + (d.error || '未知')); }
-            } catch(e){ alert('同意失败: ' + e.message); }
+                if(d.ok){ loadProposals(); window.pmToast.success('已同意'); } else { window.pmToast.error('同意失败: ' + (d.error || '未知')); }
+            } catch(e){ window.pmToast.error('同意失败: ' + e.message); }
         };
 
         window.rejectProp = async function(propId){
@@ -360,8 +372,8 @@
                     body: JSON.stringify({notes: notes}),
                 });
                 var d = await r.json();
-                if(d.ok){ loadProposals(); } else { alert('拒绝失败: ' + (d.error || '未知')); }
-            } catch(e){ alert('拒绝失败: ' + e.message); }
+                if(d.ok){ loadProposals(); window.pmToast.success('已拒绝'); } else { window.pmToast.error('拒绝失败: ' + (d.error || '未知')); }
+            } catch(e){ window.pmToast.error('拒绝失败: ' + e.message); }
         };
 
         var _reviseTargetProp = null;
@@ -425,12 +437,18 @@
         };
 
         window.deleteProp = async function(propId){
-            if(!confirm('彻底删除此提案？仅 rejected 提案可删。')) return;
+            var ok = await window.pmModal.confirm({
+                title: '彻底删除提案',
+                message: '彻底删除此提案？仅 rejected 提案可删。',
+                confirmText: '删除',
+                danger: true,
+            });
+            if(!ok) return;
             try {
                 var r = await fetch('/api/plugins/proposals/'+propId+'/delete', {method:'POST'});
                 var d = await r.json();
-                if(d.ok){ loadProposals(); } else { alert('删除失败: ' + (d.error || '未知')); }
-            } catch(e){ alert('删除失败: ' + e.message); }
+                if(d.ok){ loadProposals(); window.pmToast.success('已删除'); } else { window.pmToast.error('删除失败: ' + (d.error || '未知')); }
+            } catch(e){ window.pmToast.error('删除失败: ' + e.message); }
         };
 
         window.refreshAll = function(){

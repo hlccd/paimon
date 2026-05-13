@@ -794,7 +794,7 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 - [x] `/wealth` 第 1-10 轮 ✅ — 副标题去"岩神管辖"+ 大标题去"📨 岩神 · 理财日报"+ 进度条/空状态文 "岩神" → "理财" + alert/confirm 全改 pmModal/pmToast + linear-gradient 主按钮改纯紫 + rgba(0,0,0,.6) 改 token / 暖系 + btn focus-visible
 - [x] `/game` 第 1-10 轮 ✅ — 副标题去"水神管辖" + alert/confirm 全改 pmModal/pmToast + btn primary 去 linear-gradient + 所有 rgba(0,0,0,*) 背景改 token / ac-resin-fill 三档语义色 / r5/r4 char-row 去渐变 + btn focus-visible
 - [x] `/feed` 第 1-10 轮 ✅ — 副标题去"风神管辖" + handler 加 marked.min.js（修复 hotspot/weekly md 不渲染）+ alert/confirm 全改 pmModal/pmToast + 4 个 tab 去 emoji + role=tab/aria-selected + btn-primary 去 linear-gradient + qr-modal 遮罩用 token
-- [ ] `/plugins` 第 1-10 轮
+- [x] `/plugins` 第 1-10 轮 ✅ — pending 引导文 / verdict badge / 修订状态文 / modal 提示文 全去"四影/死执/生执"内部命名 → "审查/重写"功能描述 + alert/confirm 全改 pmModal/pmToast + tab role=tab/aria-selected + sub-tab 主色 #1a1a1a 改 #fff + tab-badge 黄底改白字 + 全部 rgba 半透明 badge 改 *-subtle token + modal-backdrop 用 var(--pm-bg-overlay)
 
 ### Phase 5 — rebase
 - [ ] `git branch backup-pre-rebase`

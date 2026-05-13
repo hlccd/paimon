@@ -8,10 +8,10 @@
   </div>
 </div>
 
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('skills',this)">Skill 生态</button>
-            <button class="tab-btn" onclick="switchTab('authz',this)">永久授权</button>
-            <button class="tab-btn" onclick="switchTab('proposals',this)">
+        <div class="tabs" role="tablist">
+            <button class="tab-btn active" type="button" role="tab" aria-selected="true" onclick="switchTab('skills',this)">Skill 生态</button>
+            <button class="tab-btn" type="button" role="tab" aria-selected="false" onclick="switchTab('authz',this)">永久授权</button>
+            <button class="tab-btn" type="button" role="tab" aria-selected="false" onclick="switchTab('proposals',this)">
                 自进化提案<span id="propBadge" class="tab-badge zero">0</span>
             </button>
         </div>
@@ -52,8 +52,8 @@
                 <div class="form-tips">
                     <span class="tip-label">提交后会发生什么：</span>
                     <ul>
-                        <li>生执根据你的建议重写完整草案（in-place 覆盖 system_prompt / triggers / 工具列表）</li>
-                        <li>死执自动重审一道，verdict 刷新</li>
+                        <li>根据你的建议重写完整草案（in-place 覆盖 system_prompt / triggers / 工具列表）</li>
+                        <li>自动重审一道，verdict 刷新</li>
                         <li>revision_count +1，原建议留痕显示在卡片上</li>
                     </ul>
                 </div>
