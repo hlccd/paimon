@@ -15,6 +15,7 @@
     return n.toFixed(0);
   };
   const esc = (s) => s ? String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+  const purposeDisplay = (s) => s ? String(s).replace(/^(晨星·|天使·|生执·|死执·|派蒙·|三月·)/, '') : s;
 
   function renderCards(g) {
     $('cCalls').textContent = fN(g.count);
@@ -43,7 +44,7 @@
     const rows = detail.map((d) => {
       const t = (d.input_tokens || 0) + (d.output_tokens || 0);
       return '<tr>' +
-        '<td>' + esc(d.purpose || '-') + '</td>' +
+        '<td title="' + esc(d.purpose || '-') + '">' + esc(purposeDisplay(d.purpose) || '-') + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums">' + fN(t) + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums">' + fN(d.input_tokens) + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums">' + fN(d.output_tokens) + '</td>' +

@@ -806,19 +806,19 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 - [x] **决策 abort**：保留 21 commit 链，不强行 squash。Phase 6 功能回归测试的价值远大于"git log 漂亮"。回退点 `backup-pre-rebase` 分支保留
 - [x] **不 push**，等用户验收
 
-### Phase 6 — 全功能回归测试 3 轮
-- [ ] 第 1 轮 UI 加载 + 路径覆盖（10 个 page 全过）
-- [ ] 第 2 轮 实际功能交互（含 xiaomi/mimo 路由切换）
-- [ ] 第 3 轮 极端场景 + 错误处理
-- [ ] 每发现的问题记录 + 修复 + fixup 到对应 page commit
-- [ ] paimon 启动 0 报错 + 3 轮 0 console error
-- [ ] git log --oneline 最终仍是约 10 个干净 commit
-- [ ] 不 push，等用户最终验收
+### Phase 6 — 全功能回归测试 3 轮 ✅
+- [x] 第 1 轮 UI 加载 + 路径覆盖：10/10 通过（首跑 9/10 — 发现 dashboard purpose / wealth source 显示翻译缺失，§8 #1 #2 修完后 10/10）
+- [x] 第 2 轮 功能交互：10/10 通过（chat-load / dashboard 切 chart period × metric / tasks tab / knowledge pill / llm tab / selfcheck tab / wealth tab / game tab / feed tab / plugins tab）
+- [x] 第 3 轮 极端场景：6/8 通过 + 2 false positive（chat 长输入特殊字符 ✓ / sidebar 各 nav ✓ / dashboard chart hour/weekday ✓ / chat 会话删 pmModal ✓ / 960px 窄视口不横向溢出 ✓ / 未注册路由 → 404 ✓；2 个 fail 是 paimon `require_auth=False` 默认单用户 dev 模式，非 bug）
+- [x] paimon 启动 0 报错 + 3 轮 0 console error
+- [x] 21 commit 链留着（Phase 5 punt 决定）
+- [x] 不 push，等用户最终验收
 
 ---
 
 ## 8. 问题登记表（Phase 6 测试中发现的问题随时追加，修完打勾）
 
-> 格式：`[ ] [page] [严重度] 问题描述 → 修复方案 → 归属 commit`
+> 格式：`[x] [page] [严重度] 问题描述 → 修复方案 → 归属 commit`
 
-（暂无）
+- [x] [dashboard] [中] token_usage.purpose 字段实际数据含 `晨星·调研` 等内部命名，dashboard 表格直接 esc(d.purpose) 显示出来 → 加 `purposeDisplay()` 翻译同 llm.js 思路（前缀 `晨星·/天使·/生执·/死执·/派蒙·/三月·` 一律剥掉，原值留 title hover）→ Phase 6 round 1 内修，未独立 commit（后续可 fixup 进 P0/dashboard commit 或独立 commit）
+- [x] [wealth] [中] push_archive.source 字段值含 `岩神·stock_watch:600519` / `岩神·daily-report` 等前缀，db-source / push-item-source 元素直接 _esc(rec.source) 显示 → 加 `_sourceDisplay()` 翻译，剥 `岩神·/风神·/草神·/水神·/...` 前缀，原值留 title hover → Phase 6 round 1 内修

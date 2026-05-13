@@ -25,6 +25,7 @@
 
         // ===== 岩神推送公告区 + 历史折叠区 =====
         function _esc(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+        function _sourceDisplay(s){return s ? String(s).replace(/^(岩神·|风神·|草神·|水神·|火神·|雷神·|冰神·|晨星·|天使·)/, '') : s;}
         function _fmtTime(ts){
             if(!ts||ts<=0)return '-';
             var d=new Date(ts*1000);
@@ -229,7 +230,7 @@
                             + '<div class="db-head">'
                             + '<div class="db-head-left">'
                             + dot
-                            + '<span class="db-source">' + _esc(rec.source) + '</span>'
+                            + '<span class="db-source" title="' + _esc(rec.source) + '">' + _esc(_sourceDisplay(rec.source)) + '</span>'
                             + runningChip
                             + '<span class="db-time" title="同日多次扫描会刷新此时间">最后更新 ' + _fmtTime(rec.created_at) + '</span>'
                             + '</div>'
@@ -306,7 +307,7 @@
                     var preview = (rec.message_md||'').slice(0,200);
                     return '<div class="push-item '+(unread?'unread':'')+'" data-id="'+_esc(rec.id)+'" onclick="window.toggleZhongliDigest(this)">'
                         + '<div class="push-item-head">'
-                        + '<span class="push-item-source">'+_esc(rec.source)+'</span>'
+                        + '<span class="push-item-source" title="'+_esc(rec.source)+'">'+_esc(_sourceDisplay(rec.source))+'</span>'
                         + '<span class="push-item-time">'+_fmtTime(rec.created_at)+'</span>'
                         + '</div>'
                         + '<div class="push-item-preview">'+_esc(preview)+'</div>'
