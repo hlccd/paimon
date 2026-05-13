@@ -856,7 +856,7 @@
                 });
                 var d = await r.json();
                 btn.textContent = d.ok ? '✓' : '✗';
-                if(!d.ok && d.msg) alert('签到失败: '+d.msg);
+                if(!d.ok && d.msg) window.pmToast.error('签到失败: '+d.msg);
                 setTimeout(function(){ btn.textContent = old; btn.disabled = false; loadOverview(); }, 1200);
             }catch(e){
                 btn.textContent='✗'; setTimeout(function(){btn.textContent=old;btn.disabled=false;},2000);
@@ -878,7 +878,7 @@
                 });
                 var d = await r.json();
                 if(!d.ok){
-                    alert('采集启动失败: '+(d.msg||''));
+                    window.pmToast.error('采集启动失败: '+(d.msg||''));
                     btn.textContent = old; btn.disabled = false;
                     return;
                 }
@@ -906,7 +906,7 @@
                             }
                         }else if(sd.state === 'failed'){
                             btn.textContent = '✗ 失败';
-                            alert('采集失败: '+(sd.error||''));
+                            window.pmToast.error('采集失败: '+(sd.error||''));
                         }
                         setTimeout(function(){btn.textContent=old;btn.disabled=false;}, 3000);
                     }catch(e){
@@ -924,13 +924,20 @@
 
         window.gameUnbind = async function(btn){
             var game = btn.dataset.game, uid = btn.dataset.uid;
-            if(!confirm('解绑 '+uid+' ？便笺/战报/抽卡记录都会清')) return;
+            var ok = await window.pmModal.confirm({
+                title: '解绑账号',
+                message: '解绑 '+uid+' ？便笺 / 战报 / 抽卡记录都会清掉。',
+                confirmText: '解绑',
+                danger: true,
+            });
+            if(!ok) return;
             await fetch('/api/game/unbind', {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({game, uid}),
             });
             delete _openState[game+'::'+uid];
             loadOverview();
+            window.pmToast.success('已解绑');
         };
 
         window.gameRefreshAll = async function(){
@@ -1012,12 +1019,12 @@
                                 window.gameImportGachaUrl(game, uid);
                             }else if(isAuthKeyErr){
                                 // GS/ZZZ 失败更可能是账号未真实绑定 → 一键解绑重绑
-                                var ok = confirm(
-                                    game.toUpperCase()+' 抽卡同步全部失败：\n' + lines +
-                                    '\n\n这通常意味着该 '+uid+' 账号在米游社侧未成功绑定。\n\n' +
-                                    '是否立即解绑此账号并重新扫码？\n' +
-                                    '（解绑会清掉该账号的便笺/战报/抽卡缓存）'
-                                );
+                                var ok = await window.pmModal.confirm({
+                                    title: game.toUpperCase()+' 抽卡同步全部失败',
+                                    message: lines + '\n\n这通常意味着该 '+uid+' 账号在米游社侧未成功绑定。是否立即解绑此账号并重新扫码？（解绑会清掉该账号的便笺/战报/抽卡缓存）',
+                                    confirmText: '解绑并重扫',
+                                    danger: true,
+                                });
                                 if(ok){
                                     try{
                                         await fetch('/api/game/unbind', {
@@ -1027,12 +1034,12 @@
                                         if(typeof loadOverview === 'function') loadOverview();
                                         if(typeof openQrModal === 'function') openQrModal();
                                     }catch(unbindErr){
-                                        alert('解绑失败: '+unbindErr+'\n请手动展开账号详情 → 点右下角"解绑"');
+                                        window.pmToast.error('解绑失败: '+unbindErr+'，请手动展开账号详情 → 点右下角"解绑"');
                                     }
                                 }
                             }else{
                                 var prefix = allFail ? game.toUpperCase()+' 同步全部失败：\n' : game.toUpperCase()+' 部分池子失败：\n';
-                                alert(prefix + lines);
+                                window.pmToast.warning(prefix + lines, {duration: 6000});
                             }
                         }
                     }else if(s.state === 'failed'){
@@ -1040,7 +1047,7 @@
                         console.error('[水神·抽卡] '+k+' FAILED', s.error);
                         if(statusEl){ statusEl.className = 'gacha-sync-status failed'; statusEl.textContent = '✗ ' + (s.error||''); }
                         if(btn){ btn.disabled = false; btn.textContent = '同步抽卡'; }
-                        alert('同步失败: '+(s.error||''));
+                        window.pmToast.error('同步失败: '+(s.error||''));
                     }else{
                         _stopGachaPoll(k);
                         if(btn){ btn.disabled = false; btn.textContent = '同步抽卡'; }
@@ -1067,14 +1074,14 @@
                 var d = await r.json();
                 console.log('[水神·抽卡] /sync 响应', d);
                 if(!d.ok){
-                    alert('启动失败: '+(d.msg||''));
+                    window.pmToast.error('启动失败: '+(d.msg||''));
                     btn.disabled = false; btn.textContent = old;
                     return;
                 }
                 _pollGachaSync(game, uid, btn);
             }catch(e){
                 console.error('[水神·抽卡] /sync 异常', e);
-                alert('请求异常: '+e);
+                window.pmToast.error('请求异常: '+e);
                 btn.disabled = false; btn.textContent = old;
             }
         };
@@ -1128,7 +1135,7 @@
                 }, 2000);
             }catch(e){
                 console.error('[水神·抽卡] 复制 PowerShell 命令失败', e);
-                alert('复制失败，请手动选中复制：'+e);
+                window.pmToast.error('复制失败，请手动选中复制：'+e);
             }
         };
 
@@ -1149,7 +1156,7 @@
         window.submitUrlImport = async function(){
             if(!_urlImportCtx) return;
             var url = document.getElementById('urlImportInput').value.trim();
-            if(!url){ alert('请粘贴 URL'); return; }
+            if(!url){ window.pmToast.warning('请粘贴 URL'); return; }
             var ctx = _urlImportCtx;
             console.log('[水神·抽卡] URL 导入提交', ctx.game, ctx.uid, 'url_len=', url.length);
             try{
@@ -1160,14 +1167,14 @@
                 var d = await r.json();
                 console.log('[水神·抽卡] /import_url 响应', d);
                 if(!d.ok){
-                    alert('启动失败: '+(d.msg||''));
+                    window.pmToast.error('启动失败: '+(d.msg||''));
                     return;
                 }
                 closeUrlImportModal();
                 _pollGachaSync(ctx.game, ctx.uid, null);
             }catch(e){
                 console.error('[水神·抽卡] /import_url 异常', e);
-                alert('请求异常: '+e);
+                window.pmToast.error('请求异常: '+e);
             }
         };
         window.startQrLogin = async function(){

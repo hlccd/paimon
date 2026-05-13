@@ -792,7 +792,7 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 - [x] `/llm` 第 1-10 轮 ✅ — 副标题去"神之心管辖"+ tab 去 emoji + COMPONENT_DESC / CATEGORY_DESC / DISABLED_COMPONENTS / SKILLS_NOTE 全清内部命名 + 加 purposeDisplay() 翻译 + 之前 commit 里误改的 code/log/comment 全部 revert
 - [x] `/selfcheck` 第 1-10 轮 ✅ — 副标题去"三月管辖" + alert/confirm 全改 pmModal/pmToast + #FEE2E2 改 token + tab role=tab/aria-selected/键盘可达 + ESC 关 modal + btn focus-visible
 - [x] `/wealth` 第 1-10 轮 ✅ — 副标题去"岩神管辖"+ 大标题去"📨 岩神 · 理财日报"+ 进度条/空状态文 "岩神" → "理财" + alert/confirm 全改 pmModal/pmToast + linear-gradient 主按钮改纯紫 + rgba(0,0,0,.6) 改 token / 暖系 + btn focus-visible
-- [ ] `/game` 第 1-10 轮
+- [x] `/game` 第 1-10 轮 ✅ — 副标题去"水神管辖" + alert/confirm 全改 pmModal/pmToast + btn primary 去 linear-gradient + 所有 rgba(0,0,0,*) 背景改 token / ac-resin-fill 三档语义色 / r5/r4 char-row 去渐变 + btn focus-visible
 - [ ] `/feed` 第 1-10 轮
 - [ ] `/plugins` 第 1-10 轮
 
