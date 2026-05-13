@@ -1,4 +1,4 @@
-"""任务面板 API — /tasks 页面 + 调度任务列表（用户定时任务 + 系统 cron）。"""
+"""任务面板 API — /tasks 页面 + 三月调度任务列表（用户定时任务 + 系统 cron）。"""
 from __future__ import annotations
 
 import time as _time
@@ -32,7 +32,7 @@ async def tasks_page(channel: "WebUIChannel", request: web.Request) -> web.Respo
 
 
 async def tasks_api(channel: "WebUIChannel", request: web.Request) -> web.Response:
-    """列所有调度任务，注入 task_type 元信息让前端按业务分组 + 跳转管理面板。"""
+    """列三月所有调度任务，注入 task_type 元信息让前端按神分组+跳转管理面板。"""
     if channel.require_auth:
         token = request.cookies.get("paimon_token")
         if not token or token not in channel.valid_tokens:

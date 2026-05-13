@@ -1,16 +1,16 @@
         <div class="dash-page-header">
   <div>
     <h1 class="dash-page-title"><span data-icon="cpu"></span>模型</h1>
-    <p class="dash-page-subtitle">LLM Profile 管理 + 调用点路由配置（神之心管辖）</p>
+    <p class="dash-page-subtitle">LLM Profile 管理 + 调用点路由配置</p>
   </div>
   <div class="header-actions">
     <button class="btn" onclick="refreshActiveTab()">刷新</button>
   </div>
 </div>
 
-        <div class="tabs">
-            <button class="tab-btn active" data-tab="profiles" onclick="switchTab('profiles', this)">📋 模型管理</button>
-            <button class="tab-btn" data-tab="routes" onclick="switchTab('routes', this)">🗺️ 路由配置</button>
+        <div class="tabs" role="tablist">
+            <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="profiles" onclick="switchTab('profiles', this)">模型管理</button>
+            <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="routes" onclick="switchTab('routes', this)">路由配置</button>
         </div>
 
         <div id="profiles" class="tab-panel active">

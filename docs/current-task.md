@@ -708,8 +708,28 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 ##### `/` (chat)
 - `static/js/chat.js:294,320` 注释 `如四影 prepare 失败` `/stop 取消四影` → 改"如生执 prepare 失败" / "/stop 取消推理流"（**注释，用户看不到，但严格按 Phase 2 字面执行**）
 
-##### 三档优先级（可推后到 Phase 4 末尾再处理）
-- 后端 `.py` logger.error/info 文本（如 `[草神·智识]`、`[岩神·关注股订阅]`、`[水神·采集]`）— 用户看 paimon.log 时会看到，但属于"开发日志"，按"web 界面除 paimon 外不出现内部命名"的字面解读其实只管 web 显示。决定：**Phase 4 改前端可见的；后端 logger 标签先记着**，全部 page 完事后如有时间再扫一遍。
+##### 政策（2026-05-13 校准）：**只改 web 展示，code / log / comment 全部保留**
+
+用户对此明确：
+> 我只是不希望在 web 上展示，不是要让日志/代码/注释里也不展示
+
+所以以下 **不改**（保留原命名以便对着架构找代码）：
+- 后端 `.py` 文件的 docstring（如 `"""草神知识面板 - 记忆段..."""`）
+- 后端 logger.info/warning 标签（如 `[神之心·路由]`、`[岩神·关注股订阅]`、`[水神·采集]`）
+- 代码注释里的"四影/晨星/三月/七神"
+- 代码常量 `actor="草神面板"`、`source="草神面板·手动"`、`purpose="晨星·拆议题"`、`purpose=f"天使·{cat_label}"` 等 → DB 写入键值不动
+- `model_router.py` `KNOWN_CALLSITES` 元组里的 `("agents", "晨星·拆议题")` 等 — 这是路由 key 源头，必须跟代码 purpose 字符串一致
+
+**只改 web 渲染层**：
+- `templates/*.html` 副标题 / 标题等 user-visible 文本
+- `static/js/*.js` 渲染到 innerHTML / textContent / toast / placeholder / alert 的字符串
+- 必要时给 web 加 display 翻译（如 llm.js 加 `purposeDisplay()` 把 `晨星·拆议题` 显示为 `拆议题`，DB key 仍用原值）
+
+**已 revert 回原命名的代码**（前几个 commit 里改了，这次 llm round 一并 revert）：
+- `paimon/foundation/model_router.py` — docstring + KNOWN_CALLSITES purposes + 段注释 + logger label 全部 revert 到 `神之心·` / `晨星·*` / `天使·*` / `七神·archon` / `四影·...` 原始命名
+- `paimon/morningstar/_scout.py / council.py / morningstar.py / prompts.py` — purpose 字符串 revert 到 `晨星·拆议题/调研/召集/调度/综合` + `f"天使·{cat_label}"`
+- `paimon/channels/webui/api/knowledge.py / knowledge_kb.py / tasks.py` — docstring + actor + source 字面量 revert 到 `草神面板` / `三月调度任务`
+- `paimon/channels/webui/static/js/chat.js` — 注释 `如四影 prepare` / `/stop 取消四影` revert 到原文
 
 
 ### Phase 3 — md 渲染问题全局审计 ✅（不独立 commit，输出清单驱动 Phase 4）
@@ -769,7 +789,7 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 - [x] `/dashboard` 第 1-10 轮 ✅ — 命名净化 + bar 加宽 + 控制条段控件化 + cost bar amber + tip 增强 + 表格列宽 + a11y
 - [x] `/tasks` 第 1-10 轮 ✅ — 命名净化 + 删除 dead modal + 折叠区 keyboard a11y + line-clamp + tokens.css 加 *-border + clock icon + 自动刷新 hint
 - [x] `/knowledge` 第 1-10 轮 ✅ — 命名净化 + handler 加 marked + modalBody 改 safeMd + actor=知识面板 + pill role=tab + 删除走 pmModal/pmToast + tab focus-visible
-- [ ] `/llm` 第 1-10 轮
+- [x] `/llm` 第 1-10 轮 ✅ — 副标题去"神之心管辖"+ tab 去 emoji + COMPONENT_DESC / CATEGORY_DESC / DISABLED_COMPONENTS / SKILLS_NOTE 全清内部命名 + 加 purposeDisplay() 翻译 + 之前 commit 里误改的 code/log/comment 全部 revert
 - [ ] `/selfcheck` 第 1-10 轮
 - [ ] `/wealth` 第 1-10 轮
 - [ ] `/game` 第 1-10 轮

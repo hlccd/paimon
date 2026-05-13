@@ -307,40 +307,40 @@
         // ============ 路由配置 Tab ============
         // component → 中文显示名（KNOWN_CALLSITES 见 paimon/foundation/model_router.py）
         var COMPONENT_DESC = {
-            // 派蒙 · 主对话入口 / 控制
-            'chat': '💬 chat · 闲聊',
-            'paimon': '✨ paimon · 意图分类',
-            'title': '🏷 title · 标题生成',
-            '派蒙': '🎭 派蒙 · 上下文压缩',
-            '派蒙·响铃': '⏰ 派蒙·响铃 · 定时任务到点',
-            '派蒙·安全审': '🛡 派蒙·安全审 · 入口 / skill 审查',
-            // 世界树 · 记忆 / 知识
-            'remember': '📝 remember · 记忆分类',
-            'reconcile': '🔄 reconcile · 记忆冲突检测 / JSON 修复',
-            'hygiene': '🧹 hygiene · 记忆批量整理',
-            'kb_remember': '📚 kb_remember · 知识分类',
-            'kb_hygiene': '📚 kb_hygiene · 知识批量整理',
-            // 三月 · 自检
-            '三月·自检': '🩺 三月·自检 · code-health',
-            // 四影 · 自进化提案管线
-            '生执·propose_skill': '🎼 生执·propose · 凝练 skill 草案',
-            '生执·revise_proposal': '🎼 生执·revise · 重写 skill 草案',
-            '死执·review_proposal': '💀 死执·review · 审 skill 提案',
-            '自进化触发': '🌌 自进化触发 · 浅判 should_propose',
-            '空执': '🌀 空执 · skill 落盘装载',
-            // 七神（按七神保留铁律全列，未接入的 disabled）
-            '风神': '🌬 风神 · 订阅 / 事件聚合',
-            '草神': '🌿 草神 · L1 经验提取（智慧·文书）',
-            '岩神': '⛰ 岩神 · 契约·财富（红利股扫描）',
-            '水神': '💧 水神 · 米哈游游戏服务',
-            '火神': '🔥 火神 · 战争·冲锋',
-            '雷神': '⚡ 雷神 · 永恒·造物',
-            '冰神': '❄ 冰神 · 反抗·联合',
-            // 晨星·协同天使
-            'agents': '🌟 agents · 晨星 + 协同天使',
+            // 入口对话 / 控制
+            'chat': 'chat · 闲聊',
+            'paimon': 'paimon · 意图分类',
+            'title': 'title · 标题生成',
+            '派蒙': 'paimon · 上下文压缩',
+            '派蒙·响铃': '响铃 · 定时任务到点',
+            '派蒙·安全审': '安全审 · 入口 / skill 审查',
+            // 记忆 / 知识库
+            'remember': 'remember · 记忆分类',
+            'reconcile': 'reconcile · 记忆冲突检测 / JSON 修复',
+            'hygiene': 'hygiene · 记忆批量整理',
+            'kb_remember': 'kb_remember · 知识分类',
+            'kb_hygiene': 'kb_hygiene · 知识批量整理',
+            // 系统自检
+            '三月·自检': '自检 · code-health',
+            // 自进化提案管线
+            '生执·propose_skill': '草案生成 · propose · 凝练 skill 草案',
+            '生执·revise_proposal': '草案改写 · revise · 重写 skill 草案',
+            '死执·review_proposal': '提案审查 · review · 审 skill 提案',
+            '自进化触发': '自进化触发 · 浅判 should_propose',
+            '空执': 'skill 落盘装载',
+            // 业务面板后台（按命名空间保留全列，未接入的 disabled）
+            '风神': '订阅 · 多源事件聚合',
+            '草神': 'L1 经验提取 · 智慧·文书',
+            '岩神': '财富 · 红利股扫描',
+            '水神': '米哈游游戏服务',
+            '火神': '战争·冲锋（namespace 壳）',
+            '雷神': '永恒·造物（namespace 壳）',
+            '冰神': '反抗·联合（namespace 壳）',
+            // 多视角讨论
+            'agents': 'agents · 多视角讨论',
             // 音视频（暂未接入 router）
-            'video_process': '🎥 video_process · 视频分析',
-            'audio_process': '🎙 audio_process · 音频分析',
+            'video_process': 'video_process · 视频分析',
+            'audio_process': 'audio_process · 音频分析',
         };
 
         // 大类划分（顶层渲染按 CATEGORY_ORDER）
@@ -374,23 +374,23 @@
             'video_process': '当前直连 mimo_key，未接入 router（后续支持）',
             'audio_process': '当前直连 mimo_key，未接入 router（后续支持）',
             '空执': 'skill 落盘装载，无独立 LLM 调用',
-            '岩神': 'dividend-tracker skill 走 I/O，archon 本体不调 LLM',
-            '水神': '米哈游游戏服务在 furina_game 子包，I/O 类不调 LLM',
+            '岩神': '红利股追踪走 I/O，命名空间本体不调 LLM',
+            '水神': '米哈游游戏服务在子包内，I/O 类不调 LLM',
             '火神': 'namespace 永久壳（新职能待挂）',
             '雷神': 'namespace 永久壳（新职能待挂）',
-            '冰神': 'namespace 永久壳（skill 域职能已交空执）',
+            '冰神': 'namespace 永久壳（skill 域职能已交装载层）',
         };
 
-        // 段名按 docs/aimon.md 的"派蒙 / 3 出口 / 七神 / 支撑层"分层对齐
+        // 段名按"做什么的事"分组（不暴露内部命名空间）
         var CATEGORY_DESC = {
-            paimon:   '🎭 派蒙 · 守门 / 路由 / 出口 / 全程安全闸',
-            skills:   '🧩 出口·skill · 单步任务直调（空执管理的被调用资源，非天使体系）',
-            agents:   '🌌 出口·/agents · 晨星 + 协同天使多视角讨论',
-            shades:   '🌑 出口·/evolve · 四影自进化提案管线',
-            archons:  '🌟 七神 · archon 业务接口（按七神保留铁律全列，未调 LLM 的不可配）',
-            march:    '⏰ 三月女神 · 调度 / 自检 / 响铃',
-            irminsul: '📝 草神·memory/知识库 LLM 调用域（写入分类 + cron 整理）',
-            audiovis: '🎬 音视频处理（独立 tool，未接入 router）',
+            paimon:   '入口意图分类 · 路由 · 上下文压缩 · 安全闸',
+            skills:   '工具调用 · skill 单步任务直调',
+            agents:   '多视角讨论（agents）',
+            shades:   '自进化提案管线（提案生成 · 审查 · 落盘）',
+            archons:  '业务面板后台（订阅 · 财富 · 游戏 · 记忆等命名空间，未调 LLM 的不可配）',
+            march:    '任务调度 · 自检 · 响铃',
+            irminsul: '记忆 / 知识库 LLM 调用（写入分类 + cron 整理）',
+            audiovis: '音视频处理（独立 tool，未接入 router）',
             other:    '其他',
         };
         // 顶层渲染顺序：派蒙 → 3 个出口 → 七神业务 → 支撑层
@@ -402,8 +402,8 @@
         // skills 段总是渲染（即便 skill 列表为空也显示空态）
         var EMPTY_PLACEHOLDERS = {};
 
-        // skills 段头部说明：明确 skill 是"被管理的被调用资源"，不是天使
-        var SKILLS_NOTE = 'ℹ skill 是被空执管理的可调用资源（不是天使多 agent 体系）；每个 skill 名 = 一个路由 component';
+        // skills 段头部说明：明确 skill 是"被调用资源"，不是 agent
+        var SKILLS_NOTE = 'ℹ skill 是单步任务工具（不是 agent 体系）；每个 skill 名 = 一个路由 component';
 
         function profileNameById(id){
             var p = currentProfiles.find(function(x){return x.id === id;});
@@ -434,6 +434,12 @@
                  + srcTag + ' <span class="hit-time">· '+esc(ago)+'</span>';
         }
 
+        // purpose 显示翻译：去掉"晨星·"/"天使·"等内部前缀，路由 key 仍用原值
+        function purposeDisplay(purpose){
+            if(!purpose) return purpose;
+            return String(purpose).replace(/^(晨星·|天使·|生执·|死执·|派蒙·|三月·)/, '');
+        }
+
         function renderPurposeRow(component, purpose, routes, hits, componentRouteId, defaultId){
             var key = component + ':' + purpose;
             var purposeRouteId = routes[key] || '';
@@ -451,7 +457,7 @@
                 : '';
 
             return '<div class="purpose-row">'
-                + '<span class="purpose-name">'+esc(purpose)+'</span>'
+                + '<span class="purpose-name" title="'+esc(purpose)+'">'+esc(purposeDisplay(purpose))+'</span>'
                 + tag
                 + '<select class="route-select" data-key="'+esc(key)+'" onchange="savePurposeRoute(this)">'
                 +   profileOptionsHTML(purposeRouteId, true, inheritLabel)

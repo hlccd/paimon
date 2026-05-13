@@ -314,7 +314,7 @@ let currentSession = 'default';
                                     waitingSessions.delete(reqSession);
                                     if (currentSession === reqSession) updateStatus('就绪');
                                     // 防御：若整个请求期间都没收到 message 事件（极端情况，
-                                    // 如生执 prepare 失败 + reply_text 为空，或服务端异常），
+                                    // 如四影 prepare 失败 + reply_text 为空，或服务端异常），
                                     // typing 占位气泡从未被正文替换 → 移除避免底部残留空动画。
                                     if (typingMsg && !fullResponse) {
                                         const contentEl = typingMsg.querySelector('.message-content');
@@ -340,7 +340,7 @@ let currentSession = 'default';
                     waitingSessions.delete(reqSession);
                     if (currentSession === reqSession) updateStatus('就绪');
                 }
-                // 流被服务端中断（/stop 取消推理流 → SSE 直接关，没发 done 事件）
+                // 流被服务端中断（/stop 取消四影 → SSE 直接关，没发 done 事件）
                 // → typing 占位永远转圈。done handler 的清理逻辑这里也补一份。
                 if (typingMsg && !fullResponse) {
                     const contentEl = typingMsg.querySelector('.message-content');
