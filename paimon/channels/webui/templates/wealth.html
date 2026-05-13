@@ -38,43 +38,25 @@
             <button class="tab-btn" onclick="switchTab('changes',this)">变化事件</button>
         </div>
 
-        <!-- 资讯 tab：双栏 = 左 理财日报 / 右 关注股资讯 -->
+        <!-- 资讯 tab：双栏 = 左 理财日报（评分现状 + 变化）/ 右 关注股 topic 调研 -->
         <div id="digest" class="tab-panel active dt-twin">
-            <div class="ds-tools-row">
-                <div class="ds-tools">
-                    <button onclick="window.zhongliDayShift(-1)" title="前一天">←</button>
-                    <input type="date" id="zhongliDateInput" onchange="window.zhongliDateChange()" />
-                    <button onclick="window.zhongliDayShift(1)" title="后一天">→</button>
-                    <button onclick="window.zhongliJumpToday()" title="跳到今天">今天</button>
-                </div>
-                <span id="zhongliBulletinHint" class="ds-hint"></span>
-            </div>
             <div class="dt-body">
                 <div class="dt-col dt-col-bulletins">
                     <div class="dt-col-scroll">
-                        <div id="zhongliRunningBar" style="display:none"></div>
-                        <div id="zhongliErrorBar" style="display:none"></div>
                         <div id="zhongliBulletins">
                             <div class="digest-bulletins-empty">加载中...</div>
-                        </div>
-                        <div class="digest-history-toggle">
-                            <button onclick="window.toggleZhongliHistory()" id="zhongliHistoryToggleBtn">
-                                🔍 搜索历史 ↓
-                            </button>
-                        </div>
-                        <div id="zhongliHistoryWrap" style="display:none;margin-top:12px">
-                            <input id="zhongliDigestSearch" placeholder="搜索历史内容（Enter 应用）"
-                                style="width:100%;padding:6px 10px;background:var(--pm-bg-page);border:1px solid var(--pm-border);border-radius:4px;color:var(--pm-text-primary);font-size:12px;margin-bottom:10px" />
-                            <div id="zhongliDigestList" class="digest-list">
-                                <div class="push-empty">加载中...</div>
-                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="dt-col dt-col-news">
                     <div class="news-col-head">
                         <span class="ncl-title">📰 关注股资讯</span>
-                        <span id="newsPanelHint" class="ncl-hint">加载中</span>
+                        <span id="newsPanelHint" class="ncl-hint">多源 UGC</span>
+                    </div>
+                    <!-- 手动查：输入公司名实时调 topic skill（30-120s）-->
+                    <div class="news-search-bar">
+                        <input class="news-search-input" id="newsTopicInput" placeholder="输入公司名查询资讯（如：贵州茅台）" maxlength="40" />
+                        <button class="news-search-btn" id="newsTopicBtn" onclick="newsTopicSearch()">查询</button>
                     </div>
                     <div class="dt-col-scroll">
                         <div id="newsPanelList"><div class="news-section-empty">加载中…</div></div>

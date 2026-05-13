@@ -121,25 +121,23 @@ _STOCK_SUB_CRON = "30 7 * * *"
 
 
 def _stock_query_for(stock_code: str, stock_name: str) -> str:
-    """构造资讯搜索 query：'{name} {code} 公告 资讯'。"""
+    """构造资讯搜索 query：股票名优先，无名时退回代码。
+
+    topic skill 走 bili/xhs UGC，关键词只用股票名最干净（带'公告 资讯'反而稀释）。
+    实际采集时 collector 会再次从 user_watch_get 取最新名字（订阅创建后改名也跟得上）。
+    """
     name = (stock_name or "").strip()
     code = (stock_code or "").strip()
-    parts = []
-    if name:
-        parts.append(name)
-    if code:
-        parts.append(code)
-    parts.append("公告 资讯")
-    return " ".join(parts).strip()
+    return name or code
 
 
 def register_subscription_types() -> None:
     """注册岩神名下的订阅类型。bootstrap 启动时调一次。
 
     `stock_watch`：用户在 /wealth 关注股票时由 ensure_stock_subscriptions 自动建；
-    取消关注时由 clear_stock_subscriptions 清。collector 复用 venti.run_web_search_collect。
+    取消关注时由 clear_stock_subscriptions 清。collector 走 topic UGC（_stock_topic）。
     """
-    from paimon.archons.venti import run_web_search_collect
+    from paimon.archons.zhongli._zhongli._stock_topic import run_stock_topic_collect
     from paimon.foundation import subscription_types
 
     async def _desc(sub, irminsul) -> str:
@@ -158,7 +156,7 @@ def register_subscription_types() -> None:
         display_label="岩神·关注股资讯",
         archon="zhongli",
         manager_panel="/wealth",
-        collector=run_web_search_collect,
+        collector=run_stock_topic_collect,
         description_builder=_desc,
     ))
 
@@ -166,9 +164,9 @@ def register_subscription_types() -> None:
 async def ensure_stock_subscriptions(
     irminsul, march, *, stock_code: str, stock_name: str,
     chat_id: str, channel_name: str,
-) -> None:
+) -> str:
     """关注股票时调用：ensure 资讯订阅 + 挂 stock_watch_collect ScheduledTask。
-    幂等：已存在仅更新 query/cron，不重建。
+    幂等：已存在仅更新 query/cron，不重建。返回 sub.id 给上层用（如立即触发首次采集）。
 
     迁移逻辑：检测旧 task_type 不为 stock_watch_collect 时自动删除重建（防御性）。
     """
@@ -217,6 +215,7 @@ async def ensure_stock_subscriptions(
             "[岩神·关注股订阅] ensure 命中已有订阅 stock={} sub={} (幂等)",
             stock_code, sub.id,
         )
+    return sub.id
 
 
 async def clear_stock_subscriptions(

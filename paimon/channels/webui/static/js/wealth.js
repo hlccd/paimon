@@ -35,33 +35,6 @@
             var mi=d.getMinutes().toString().padStart(2,'0');
             return mm+'-'+dd+' '+hh+':'+mi;
         }
-        var _zhongliDigestSearch = '';
-        var _zhongliHistoryShown = false;
-
-        function _todayStr(){
-            var d = new Date();
-            return d.getFullYear() + '-'
-                + String(d.getMonth()+1).padStart(2,'0') + '-'
-                + String(d.getDate()).padStart(2,'0');
-        }
-        function _dayBounds(dateStr){
-            var p = (dateStr||'').split('-');
-            if(p.length !== 3) return null;
-            var since = new Date(+p[0], +p[1]-1, +p[2], 0, 0, 0).getTime() / 1000;
-            return { since: since, until: since + 86400 };
-        }
-        function _shiftDate(dateStr, delta){
-            var p = (dateStr||_todayStr()).split('-');
-            var d = new Date(+p[0], +p[1]-1, +p[2], 0, 0, 0);
-            d.setDate(d.getDate() + delta);
-            return d.getFullYear() + '-'
-                + String(d.getMonth()+1).padStart(2,'0') + '-'
-                + String(d.getDate()).padStart(2,'0');
-        }
-        function _currentDate(){
-            var inp = document.getElementById('zhongliDateInput');
-            return (inp && inp.value) || _todayStr();
-        }
         // 把 /api/wealth/running 返回的 progress dict 拼成中文文案。
         // progress 字段：stage/cur/total/mode + 各 stage 特有（valid/passed/success 等）
         function _formatScanProgress(p){
@@ -96,138 +69,46 @@
         }
 
         var _zhongliBulletinsPollTimer = null;
-        // 自动 fallback 跳到的日期（今天 0 条时自动找最近一篇所在日 → 跨周末也能找到）；
-        // 仅用于在 hint 显示「（最近一次）」标识。用户主动 ←/→/今天 切到别的日后自然不再匹配，
-        // 不需手动重置。
-        var _zhongliFallbackTo = null;
-        // 已被用户点关的 error.ts 集合（避免再次轮询又弹）
-        var _zhongliDismissedErrors = {};
-        window.dismissZhongliError = function(ts){
-            _zhongliDismissedErrors[ts] = 1;
-            var bar = document.getElementById('zhongliErrorBar');
-            if(bar){ bar.style.display = 'none'; bar.innerHTML = ''; }
-        };
         async function loadZhongliBulletins(){
-            // 公告区：渲染当前选中日期的所有日报（对齐风神 sentiment 形态）
+            // 取最新一份理财日报（不再按日期过滤；feed/game 都已不分日期）
             var el = document.getElementById('zhongliBulletins');
-            var runBar = document.getElementById('zhongliRunningBar');
             if(!el) return;
-            var dateStr = _currentDate();
-            var b = _dayBounds(dateStr);
-            if(!b){
-                el.innerHTML = '<div class="digest-bulletins-empty">日期格式错误</div>';
-                return;
-            }
-            var isToday = dateStr === _todayStr();
             try{
-                var qs = 'actor=' + encodeURIComponent('岩神')
-                    + '&since=' + b.since + '&until=' + b.until + '&limit=50';
-                // 并行拉公告 + 采集 running 状态（只在查看今天时有意义）
-                var reqs = [fetch('/api/push_archive/list?' + qs).then(function(r){return r.json();})];
-                if(isToday){
-                    reqs.push(fetch('/api/wealth/running').then(function(r){return r.json();}).catch(function(){return {running:false};}));
-                }
+                // 并行拉最新 push + 采集 running 状态
+                var reqs = [
+                    fetch('/api/push_archive/list?actor=' + encodeURIComponent('岩神') + '&limit=10').then(function(r){return r.json();}),
+                    fetch('/api/wealth/running').then(function(r){return r.json();}).catch(function(){return {running:false};}),
+                ];
                 var results = await Promise.all(reqs);
                 var d = results[0];
                 var runResp = results[1] || {running: false};
-                // 过滤掉关注股资讯推送（source 含 'stock_watch:'）—— 这些归右栏 newsPanel，不进左栏理财日报
+                // 过滤掉关注股资讯推送（source 含 'stock_watch:'）—— 这些归右栏，不进左栏
                 var records = (d.records || []).filter(function(r){
                     return (r.source || '').indexOf('stock_watch:') < 0;
                 });
                 var running = !!runResp.running;
                 var progress = runResp.progress || null;
-                var lastError = runResp.last_error || null;
 
-                // 方案 A · fallback：今天 0 条且没在采集 → 自动跳到最近一篇所在日
-                // （岩神 cron 仅工作日 19:00，周六/周一上午看会跨多天；用 limit 拿最近一条
-                //  实际 created_at 决定，不需要手动算跨几天）
-                if(isToday && !records.length && !running){
-                    try{
-                        var r2 = await fetch('/api/push_archive/list?actor='
-                            + encodeURIComponent('岩神') + '&limit=10');
-                        var d2 = await r2.json();
-                        var fallbackRec = (d2.records || []).find(function(r){
-                            return (r.source || '').indexOf('stock_watch:') < 0;
-                        });
-                        if(fallbackRec){
-                            var dt = new Date(fallbackRec.created_at * 1000);
-                            var fbDate = dt.getFullYear() + '-'
-                                + String(dt.getMonth()+1).padStart(2,'0') + '-'
-                                + String(dt.getDate()).padStart(2,'0');
-                            if(fbDate !== dateStr){
-                                var inpFb = document.getElementById('zhongliDateInput');
-                                if(inpFb) inpFb.value = fbDate;
-                                _zhongliFallbackTo = fbDate;
-                                return loadZhongliBulletins();
-                            }
-                        }
-                    }catch(e){ /* fallback 失败不影响主流程 */ }
-                }
-
-                // 顶部采集状态条
-                if(runBar){
-                    if(running){
-                        var progressText = _formatScanProgress(progress);
-                        runBar.innerHTML = '<span class="dot"></span><span>理财·' + progressText + '</span>';
-                        runBar.className = 'digest-running-bar';
-                        runBar.style.display = '';
-                    }else{
-                        runBar.style.display = 'none';
-                        runBar.innerHTML = '';
-                    }
-                }
-
-                // 错误横幅（10 分钟内，未被用户关闭过）
-                var errBar = document.getElementById('zhongliErrorBar');
-                if(errBar){
-                    var shouldShow = lastError && !_zhongliDismissedErrors[lastError.ts];
-                    if(shouldShow){
-                        var ageStr = lastError.age_seconds < 60
-                            ? lastError.age_seconds + ' 秒前'
-                            : Math.floor(lastError.age_seconds / 60) + ' 分钟前';
-                        errBar.innerHTML =
-                            '<span class="err-msg">❌ <strong>' + _esc(lastError.mode) + '</strong> 扫描失败（'
-                            + ageStr + '）：' + _esc(lastError.message) + '</span>'
-                            + '<button class="err-close" title="关闭" onclick="window.dismissZhongliError('
-                            + lastError.ts + ')">✕</button>';
-                        errBar.className = 'digest-error-bar';
-                        errBar.style.display = '';
-                    }else{
-                        errBar.style.display = 'none';
-                        errBar.innerHTML = '';
-                    }
-                }
-
-                var hint = document.getElementById('zhongliBulletinHint');
                 if(!records.length){
-                    var tip;
-                    if(running){
-                        tip = '采集中，请稍候…<br><small>完成后这里会自动展开当日日报</small>';
-                    }else{
-                        tip = isToday
-                            ? '今天还没有日报<br><small>启用定时后会在 19:00 / 月初 21:00 自动生成（见顶部 stat 卡"定时任务"状态），也可随时点顶部"日更/全扫描"按钮手动触发</small>'
-                            : '该日无日报<br><small>用 ← / → 切换其它日期</small>';
-                    }
+                    var tip = running
+                        ? ('采集中：' + _formatScanProgress(progress) + '<br><small>完成后这里会自动展开</small>')
+                        : '还没有理财日报<br><small>顶部点「日更 / 全扫描」手动触发，或等定时任务（每天 19:00）</small>';
                     el.innerHTML = '<div class="digest-bulletins-empty">' + tip + '</div>';
-                    if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'');
                 }else{
-                    var dateLabel = isToday ? '（今天）'
-                        : (dateStr === _zhongliFallbackTo ? '（最近一次）' : '');
-                    if(hint) hint.textContent = '· ' + dateStr + dateLabel
-                        + ' · ' + records.length + ' 篇';
-                    el.innerHTML = records.map(function(rec){
-                        var runningChip = (running && isToday)
-                            ? '<span class="db-running">采集中</span>' : '';
-                        return '<div class="digest-bulletin" data-id="' + _esc(rec.id) + '">'
-                            + '<div class="db-head">'
-                            + '<div class="db-head-left">'
-                            + '<span class="db-time" title="同日多次扫描会刷新此时间">最后更新 ' + _fmtTime(rec.created_at) + '</span>'
-                            + runningChip
-                            + '</div>'
-                            + '</div>'
-                            + '<div class="db-body markdown-body">' + (window.safeMd ? window.safeMd(_normalizeMd(rec.message_md) || '') : _esc(rec.message_md || '')) + '</div>'
-                            + '</div>';
-                    }).join('');
+                    // 取最新一条
+                    var rec = records[0];
+                    var runningChip = running
+                        ? '<span class="db-running">' + _esc(_formatScanProgress(progress)) + '</span>'
+                        : '';
+                    el.innerHTML = '<div class="digest-bulletin" data-id="' + _esc(rec.id) + '">'
+                        + '<div class="db-head">'
+                        + '<div class="db-head-left">'
+                        + '<span class="db-time">最后更新 ' + _fmtTime(rec.created_at) + '</span>'
+                        + runningChip
+                        + '</div>'
+                        + '</div>'
+                        + '<div class="db-body markdown-body">' + (window.safeMd ? window.safeMd(_normalizeMd(rec.message_md) || '') : _esc(rec.message_md || '')) + '</div>'
+                        + '</div>';
                 }
 
                 // running 时 2s 后自动再刷（采集完成时自然出现日报）
@@ -239,79 +120,64 @@
                 el.innerHTML = '<div class="digest-bulletins-empty">加载失败: ' + _esc(String(e)) + '</div>';
             }
         }
-        // 日期切换：同时刷新左公告 + 右资讯（两面板共享同一日窗口）
-        function _reloadDayPanels(){
-            loadZhongliBulletins();
-            if(typeof loadStockSubs === 'function') loadStockSubs();
-        }
-        window.zhongliDayShift = function(delta){
-            var inp = document.getElementById('zhongliDateInput');
-            if(!inp) return;
-            inp.value = _shiftDate(inp.value || _todayStr(), delta);
-            _reloadDayPanels();
-        };
-        window.zhongliDateChange = function(){
-            _reloadDayPanels();
-        };
-        window.zhongliJumpToday = function(){
-            var inp = document.getElementById('zhongliDateInput');
-            if(!inp) return;
-            inp.value = _todayStr();
-            _reloadDayPanels();
-        };
-        window.toggleZhongliHistory = function(){
-            _zhongliHistoryShown = !_zhongliHistoryShown;
-            document.getElementById('zhongliHistoryWrap').style.display = _zhongliHistoryShown ? 'block' : 'none';
-            document.getElementById('zhongliHistoryToggleBtn').textContent =
-                _zhongliHistoryShown ? '收起历史 ↑' : '📜 查看更多历史 ↓';
-            if(_zhongliHistoryShown) loadZhongliDigests();
-        };
-
-        async function loadZhongliDigests(){
-            var listEl=document.getElementById('zhongliDigestList');
-            if(!listEl)return;
-            listEl.innerHTML='<div class="push-empty">加载中...</div>';
-            try{
-                var qs='actor='+encodeURIComponent('岩神')+'&limit=100';
-                if(_zhongliDigestSearch) qs+='&q='+encodeURIComponent(_zhongliDigestSearch);
-                var r=await fetch('/api/push_archive/list?'+qs);
-                var d=await r.json();
-                // 历史搜索区只显示理财日报，剔除关注股资讯（归右栏 newsPanel）
-                var records=(d.records||[]).filter(function(rec){
-                    return (rec.source||'').indexOf('stock_watch:') < 0;
-                });
-                if(!records.length){
-                    listEl.innerHTML='<div class="push-empty">暂无推送'+(_zhongliDigestSearch?'（搜索无结果）':'')+'</div>';
-                    return;
-                }
-                listEl.innerHTML=records.map(function(rec){
-                    var preview = (rec.message_md||'').slice(0,200);
-                    return '<div class="push-item" data-id="'+_esc(rec.id)+'" onclick="window.toggleZhongliDigest(this)">'
-                        + '<div class="push-item-head">'
-                        + '<span class="push-item-time">'+_fmtTime(rec.created_at)+'</span>'
-                        + '</div>'
-                        + '<div class="push-item-preview">'+_esc(preview)+'</div>'
-                        + '<div class="push-item-body markdown-body">'+(window.safeMd?window.safeMd(_normalizeMd(rec.message_md)||''):_esc(rec.message_md||''))+'</div>'
-                        + '</div>';
-                }).join('');
-            }catch(e){
-                listEl.innerHTML='<div class="push-empty">加载失败: '+_esc(String(e))+'</div>';
-            }
-        }
-        window.toggleZhongliDigest = function(el){
-            var wasExpanded = el.classList.contains('expanded');
-            document.querySelectorAll('#zhongliDigestList .push-item.expanded').forEach(function(x){
-                if(x!==el) x.classList.remove('expanded');
-            });
-            if(wasExpanded){ el.classList.remove('expanded'); return; }
-            el.classList.add('expanded');
-        };
         document.addEventListener('keydown', function(e){
-            if(e.key==='Enter' && document.activeElement && document.activeElement.id==='zhongliDigestSearch'){
-                _zhongliDigestSearch = document.activeElement.value.trim();
-                loadZhongliDigests();
+            if(e.key==='Enter' && document.activeElement && document.activeElement.id==='newsTopicInput'){
+                e.preventDefault();
+                window.newsTopicSearch();
             }
         });
+
+        // 手动查 topic：直接调 API（subprocess 30~120s），把 markdown 渲到右栏
+        window.newsTopicSearch = async function(){
+            var inp = document.getElementById('newsTopicInput');
+            var btn = document.getElementById('newsTopicBtn');
+            var listEl = document.getElementById('newsPanelList');
+            var hintEl = document.getElementById('newsPanelHint');
+            if(!inp || !btn || !listEl) return;
+            var q = (inp.value || '').trim();
+            if(!q){ if(window.pmToast) window.pmToast.error('输入公司名'); return; }
+            btn.disabled = true;
+            var oldText = btn.textContent;
+            btn.textContent = '查询中…';
+            if(hintEl) hintEl.textContent = '采集中（30~120s）…';
+            listEl.innerHTML = '<div class="news-section-empty">'
+                + '查询中（' + _esc(q) + '）<br><small>30~120s · bili / xhs UGC 30 天</small>'
+                + '</div>';
+            try{
+                var r = await fetch('/api/wealth/news/topic_search', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({query: q}),
+                });
+                var d = await r.json();
+                if(d.error){
+                    listEl.innerHTML = '<div class="news-section-empty">查询失败：' + _esc(d.error) + '</div>';
+                    if(hintEl) hintEl.textContent = '查询失败';
+                    return;
+                }
+                var md = d.markdown || '';
+                if(!md){
+                    listEl.innerHTML = '<div class="news-section-empty">查询返回空（可能近 30 天 UGC 太少）</div>';
+                    if(hintEl) hintEl.textContent = '多源 UGC · 0 条';
+                    return;
+                }
+                var body = window.safeMd ? window.safeMd(_normalizeMd(md)) : _esc(md);
+                listEl.innerHTML = '<div class="news-card">'
+                    +   '<div class="nc-head">'
+                    +     '<span class="nc-stock">' + _esc(q) + '</span>'
+                    +     '<span class="nc-time">' + (d.duration_s || 0) + 's</span>'
+                    +   '</div>'
+                    +   '<div class="nc-body md-body">' + body + '</div>'
+                    + '</div>';
+                if(hintEl) hintEl.textContent = '多源 UGC · ' + (d.duration_s || 0) + 's';
+            }catch(e){
+                listEl.innerHTML = '<div class="news-section-empty">请求失败：' + _esc(String(e)) + '</div>';
+                if(hintEl) hintEl.textContent = '请求失败';
+            }finally{
+                btn.disabled = false;
+                btn.textContent = oldText;
+            }
+        };
         window.addEventListener('load', function(){
             if(location.hash === '#digest'){
                 setTimeout(function(){
@@ -653,8 +519,6 @@
         };
 
         window.onload=function(){
-            var inp = document.getElementById('zhongliDateInput');
-            if(inp && !inp.value) inp.value = _todayStr();
             refreshAll();
             // 全局拦截外部链接（http/https）→ 新标签页打开（兜底所有不走 _renderMdSafe 的入口）
             document.body.addEventListener('click', function(e){
@@ -710,6 +574,12 @@
         window.loadUserWatchlist = async function(){
             var el = document.getElementById('uwListEl');
             if(!el) return;
+            // 重渲染前记录哪些 stock 已展开资讯行 → 渲染后恢复（避免轮询打断用户查看）
+            var _openCodes = {};
+            el.querySelectorAll('.uw-news-row.open').forEach(function(row){
+                var c = row.getAttribute('data-news-row-for');
+                if(c) _openCodes[c] = 1;
+            });
             try{
                 var r = await fetch('/api/wealth/user_watch');
                 var d = await r.json();
@@ -778,6 +648,11 @@
                     + '</tr></thead>'
                     + '<tbody>' + rows + '</tbody></table>'
                     + '</div>';
+                // 恢复重渲染前用户已展开的资讯行（避免轮询自动收起）
+                Object.keys(_openCodes).forEach(function(c){
+                    var row = el.querySelector('.uw-news-row[data-news-row-for="' + c + '"]');
+                    if(row) row.classList.add('open');
+                });
                 // 异步拉关注股订阅 + 推送数据，hydrate 资讯行（同水神模式）
                 if(typeof loadStockSubs === 'function') loadStockSubs();
             }catch(e){
@@ -785,13 +660,21 @@
             }
         };
 
-        // 首次 add 后后端异步拉 5 年历史 + 股票名，10~60s 不等。
-        // 先立即刷一次（显示 "待扫描"占位），再分档轮询直到拿到数据（避免用户手动刷）。
+        // 首次 add 后后端并行跑：
+        //   ① collect_user_watchlist：拉 3 年历史 + stock_name，~5~30s
+        //   ② run_stock_topic_collect：拉 bili/xhs UGC，~30~120s
+        // 轮询既刷"我的关注"行（拿到价格/名字）也刷资讯 panel（拿到 topic 推送），
+        // 直到 90s 都没新东西就停（避免无限轮询）。
         var _uwPollTimers = [];
         function _uwPollAfterAdd(){
             _uwPollTimers.forEach(clearTimeout);
-            _uwPollTimers = [10, 25, 45, 75].map(function(s){
-                return setTimeout(loadUserWatchlist, s * 1000);
+            // 前 30s 较密（拿股票名）；30s 后稀疏（等 topic 完成）
+            var delays = [3, 6, 10, 18, 30, 45, 60, 90, 130];
+            _uwPollTimers = delays.map(function(s){
+                return setTimeout(function(){
+                    loadUserWatchlist();
+                    if(typeof loadStockSubs === 'function') loadStockSubs();
+                }, s * 1000);
             });
         }
         window.uwAdd = async function(){
@@ -908,10 +791,8 @@
             } catch(e){ console.error('stock-subs fetch failed', e); _stockSubsCache = []; }
 
             try {
-                // 按当前日期拉取（与公告区同一日窗口；日期切换时同时刷新左右两边）
-                var dateStr = _currentDate();
-                var b = _dayBounds(dateStr) || {};                var qs = 'actor=' + encodeURIComponent('岩神') + '&limit=200';
-                if(b.since != null) qs += '&since=' + b.since + '&until=' + b.until;
+                // 不再按日期过滤；后端按 created_at desc 返回最新 200 条，按 stock_code 分桶
+                var qs = 'actor=' + encodeURIComponent('岩神') + '&limit=200';
                 var rp = await fetch('/api/push_archive/list?' + qs);
                 var dp = await rp.json();
                 var records = dp.records || [];
@@ -940,13 +821,11 @@
         };
 
         // 渲染右栏「关注股资讯」面板（与左侧公告独立的兄弟面板，单列卡片堆叠）
-        // _stockPushesCache 已按当前日期窗口拉取，这里只做平铺 + 倒序渲染
+        // _stockPushesCache 已是最新 200 条 stock_watch 推送，这里只做平铺 + 倒序渲染
         function _renderStockNewsPanel(){
             var listEl = document.getElementById('newsPanelList');
             var hintEl = document.getElementById('newsPanelHint');
             if(!listEl) return;
-            var dateStr = _currentDate();
-            var isToday = dateStr === _todayStr();
             var all = [];
             Object.keys(_stockPushesCache || {}).forEach(function(code){
                 (_stockPushesCache[code] || []).forEach(function(p){
@@ -957,13 +836,11 @@
                 return (b.push.created_at || 0) - (a.push.created_at || 0);
             });
             if(hintEl){
-                hintEl.textContent = '· ' + dateStr + (isToday?'（今天）':'')
-                    + ' · ' + (all.length ? all.length + ' 条' : '无');
+                hintEl.textContent = '多源 UGC · '
+                    + (all.length ? all.length + ' 条' : '无');
             }
             if(!all.length){
-                var tip = isToday
-                    ? '今天关注股暂无资讯推送<br><small>每天 7:30 自动拉取；也可在「我的关注」行点 📰 资讯 手动采集</small>'
-                    : '该日无资讯推送<br><small>用 ← / → 切换其它日期</small>';
+                var tip = '关注股暂无资讯推送<br><small>添加关注股后自动采集；也可在上面输入公司名手动查询</small>';
                 listEl.innerHTML = '<div class="news-section-empty">' + tip + '</div>';
                 return;
             }
@@ -993,16 +870,8 @@
             for(var j=0; j<panels.length; j++){
                 _renderStockPushesPanel(panels[j], panels[j].getAttribute('data-stock-code'));
             }
-            // 同步数据行的"📰 资讯"按钮：有推送时高亮
-            var btns = document.querySelectorAll('.uw-news-toggle-btn');
-            for(var b=0; b<btns.length; b++){
-                var code = btns[b].getAttribute('data-stock-code');
-                var pushes = _stockPushesCache[code] || [];
-                btns[b].classList.toggle('has-news', pushes.length > 0);
-                btns[b].textContent = pushes.length
-                    ? '📰 ' + pushes.length + ' 条'
-                    : '📰 资讯';
-            }
+            // 数据行"📰 资讯"按钮永远固定文本/样式 —— 点击只展开下方资讯，
+            // 不改本行布局（条数变化不应触发列宽重排）
         }
 
         function _renderStockNewsLine(row, code){

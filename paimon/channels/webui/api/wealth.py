@@ -251,6 +251,49 @@ async def wealth_scan_scope_api(channel, request: web.Request) -> web.Response:
     })
 
 
+async def wealth_news_topic_search_api(channel, request: web.Request) -> web.Response:
+    """手动 topic 查询：实时跑 topic skill subprocess 拉 UGC，返回 markdown。
+
+    body: {"query": "贵州茅台"}  → 直接给 skills/topic/scripts/research.py
+    同步等待 30~120s（subprocess 调 bili+xhs 30 天 UGC）。
+    与定时采集结果落 push_archive 不同，这条不入库（前端实时展示）。
+    """
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid JSON"}, status=400)
+    query = (data.get("query") or "").strip()[:60]
+    if not query:
+        return web.json_response({"error": "query 必填"}, status=400)
+
+    import time as _time
+    from paimon.archons.zhongli._zhongli._stock_topic import _run_topic_subprocess
+
+    logger.info("[岩神·手动 topic] 开始 query={!r}", query)
+    t0 = _time.time()
+    try:
+        markdown, _stderr = await _run_topic_subprocess(query)
+    except Exception as e:
+        logger.error("[岩神·手动 topic] 失败 query={!r} err={}", query, e)
+        return web.json_response({"error": str(e)[:300]}, status=500)
+    duration_s = int(_time.time() - t0)
+    markdown = (markdown or "").strip()
+    # 截掉「## 各源采集情况」段（同 stock_topic 落库前的清洗）
+    idx = markdown.find("## 各源采集情况")
+    display_md = markdown[:idx].rstrip() + "\n" if idx >= 0 else markdown
+    logger.info(
+        "[岩神·手动 topic] 完成 query={!r} duration={}s len={}",
+        query, duration_s, len(display_md),
+    )
+    return web.json_response({
+        "markdown": display_md,
+        "query": query,
+        "duration_s": duration_s,
+    })
+
+
 def _snap_to_dict(s) -> dict:
     """ScoreSnapshot → JSON 可序列化 dict。"""
     return {
@@ -277,7 +320,7 @@ def _snap_to_dict(s) -> dict:
 
 
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
-    """注册 wealth 面板的 9 个路由。"""
+    """注册 wealth 面板的 10 个路由。"""
     app.router.add_get("/wealth", lambda r, ch=channel: wealth_page(ch, r))
     app.router.add_get("/api/wealth/stats", lambda r, ch=channel: wealth_stats_api(ch, r))
     app.router.add_get("/api/wealth/recommended", lambda r, ch=channel: wealth_recommended_api(ch, r))
@@ -287,3 +330,4 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_post("/api/wealth/trigger", lambda r, ch=channel: wealth_trigger_api(ch, r))
     app.router.add_get("/api/wealth/running", lambda r, ch=channel: wealth_running_api(ch, r))
     app.router.add_get("/api/wealth/scan_scope", lambda r, ch=channel: wealth_scan_scope_api(ch, r))
+    app.router.add_post("/api/wealth/news/topic_search", lambda r, ch=channel: wealth_news_topic_search_api(ch, r))

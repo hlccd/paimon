@@ -60,7 +60,7 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("风神", "每日热点"),
     ("风神", "近期回顾"),
     ("草神", "L1 记忆提取"),
-    ("岩神", "关注股日报"),         # stock_watch 订阅走 run_web_search_collect → _compose_digest
+    ("岩神", "业务接入·不调 LLM"),  # stock_watch 改走 topic subprocess（不再调 LLM 综合）
     ("水神", "业务接入·不调 LLM"),  # 米哈游游戏 + topic_research 都不打"水神"标签
     ("火神", "namespace 壳"),       # 新职能待挂
     ("雷神", "namespace 壳"),       # 新职能待挂

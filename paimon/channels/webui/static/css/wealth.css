@@ -147,6 +147,31 @@ body { min-height: 100vh; }
         padding: 16px 0; text-align: center;
     }
 
+    /* 手动查 topic 输入框 + 按钮（位于 news-col-head 与 news-list 之间） */
+    .news-search-bar {
+        display: flex; gap: 6px; margin-bottom: 10px;
+        flex-shrink: 0;
+    }
+    .news-search-input {
+        flex: 1; min-width: 0;
+        padding: 6px 10px; font-size: 12px;
+        background: var(--pm-bg-input); color: var(--pm-text-primary);
+        border: 1px solid var(--pm-border); border-radius: var(--pm-radius-sm);
+        outline: none; transition: border-color .15s;
+    }
+    .news-search-input:focus { border-color: var(--pm-primary); }
+    .news-search-btn {
+        padding: 6px 12px; font-size: 12px; font-weight: 500;
+        background: var(--pm-primary); color: var(--pm-text-on-primary);
+        border: 1px solid var(--pm-primary); border-radius: var(--pm-radius-sm);
+        cursor: pointer; transition: background .15s, border-color .15s;
+        white-space: nowrap;
+    }
+    .news-search-btn:hover:not(:disabled) {
+        background: var(--pm-primary-hover); border-color: var(--pm-primary-hover);
+    }
+    .news-search-btn:disabled { opacity: .55; cursor: not-allowed; }
+
     .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--pm-border); }
     .tab-btn {
         padding: 10px 20px; background: transparent; border: none; color: var(--pm-text-muted);
@@ -328,13 +353,14 @@ body { min-height: 100vh; }
     .uw-btn:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
     .uw-btn.danger:hover { color: var(--pm-danger); border-color: var(--pm-danger); }
 
-    /* 关注股表外框：白底卡 + 暖系阴影，让表整体浮起，不再裸贴页底 */
+    /* 关注股表外框：白底卡 + 暖系阴影，让表整体浮起，不再裸贴页底
+       overflow-x:auto 允许横滚 —— 10 列内容宽度可能超容器，宁可滚也不裁 */
     .uw-table-wrap {
         background: var(--pm-bg-card);
         border: 1px solid var(--pm-border);
         border-radius: var(--pm-radius-lg);
         box-shadow: var(--pm-shadow-sm);
-        overflow: hidden;
+        overflow-x: auto;
         margin-top: 12px;
     }
     /* 关注股表不绑行点击，覆盖 .stock-table 的 pointer 避免"可点击"误导 */
@@ -545,17 +571,30 @@ body { min-height: 100vh; }
     }
     .news-push-body strong { color: var(--pm-text-primary); font-weight: 600; }    .news-push-body hr { border: none; border-top: 1px dashed var(--pm-border); margin: 10px 0; }
 
-    /* 数据行的"📰 资讯"按钮：跟 .uw-btn 同大小（操作列 3 按钮视觉一致）*/
+    /* 数据行的"📰 资讯"按钮：跟 .uw-btn 同大小（操作列 3 按钮视觉一致）；
+       永远固定文本"📰 资讯"，不随有无推送变化 —— 点击只展开下方资讯，
+       不改这一行的列宽 / 按钮换行 */
     .uw-news-toggle-btn {
         padding: 6px 14px; font-size: 13px;
         background: var(--pm-bg-subtle); color: var(--pm-text-secondary);
         border: 1px solid var(--pm-border); border-radius: 6px;
         cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+        white-space: nowrap;
     }
     .uw-news-toggle-btn:hover { border-color: var(--pm-primary-hover); color: var(--pm-primary); }
-    .uw-news-toggle-btn.has-news {
-        background: var(--pm-primary-subtle);
-        border-color: var(--pm-primary-hover);
-        color: var(--pm-primary);
-        font-weight: 500;
+
+    /* 操作列：3 按钮（资讯 / 编辑 / 删除）锁单行不换行；
+       sticky 钉在容器右侧 —— 即使表格横滚，操作列永远固定可见 */
+    .uw-data-row > td:last-child,
+    .uw-table thead th:last-child {
+        white-space: nowrap;
+        position: sticky;
+        right: 0;
+        background: var(--pm-bg-card);  /* 不透明背景遮住滚到下方的列 */
+        box-shadow: -4px 0 6px -4px rgba(0, 0, 0, 0.08);  /* 左阴影标识"上面还有内容" */
+        z-index: 1;
+    }
+    .uw-data-row > td:last-child .uw-btn,
+    .uw-data-row > td:last-child .uw-news-toggle-btn {
+        margin: 0 2px;
     }

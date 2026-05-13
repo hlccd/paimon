@@ -33,7 +33,7 @@ class _CollectMixin:
 
         - 'topic_research' → 风神 topic UGC 调研（run_topic_research_collect）
         - 'mihoyo_game' → 水神（run_furina_news_collect）
-        - 'stock_watch' → 岩神（run_web_search_collect）
+        - 'stock_watch' → 岩神（run_stock_topic_collect）
         - 其他 archon 注册的 binding_kind → 各自 collector
 
         feed_collect ScheduledTask 由 bootstrap._on_march_ring 触发，所有 binding_kind

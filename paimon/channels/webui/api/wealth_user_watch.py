@@ -68,13 +68,44 @@ async def wealth_user_watch_add_api(channel, request: web.Request) -> web.Respon
             label=f"zhongli·关注股·补抓·{code}",
         )
 
-    # ensure 关注股资讯订阅 + task（异步，不阻塞 add 响应）
+    # ensure 关注股资讯订阅 + task；ensure 后立即触发一次 topic 采集
+    # （不等 cron；用户加的瞬间就开始拉舆情，~30~120s 后右栏自动出现）
+    # 注意：与 collect_user_watchlist 并行跑，需等 stock_name 落库后再发 topic，
+    # 否则 query 只剩 6 位代码，bili/xhs UGC 命中率几乎为 0。
     from paimon.archons.zhongli.zhongli import ensure_stock_subscriptions
-    bg(ensure_stock_subscriptions(
-        irminsul, channel.state.march,
-        stock_code=code, stock_name="",  # 后续 collect_user_watchlist 补 stock_name 后下次 ensure 会更新 query
-        chat_id=PUSH_CHAT_ID, channel_name=channel.name,
-    ), label=f"zhongli·股票订阅·ensure·{code}")
+    import asyncio as _asyncio
+
+    async def _ensure_then_kick():
+        try:
+            sub_id = await ensure_stock_subscriptions(
+                irminsul, channel.state.march,
+                stock_code=code, stock_name="",
+                chat_id=PUSH_CHAT_ID, channel_name=channel.name,
+            )
+        except Exception as e:
+            logger.exception("[岩神·关注股订阅] ensure 失败 code={}: {}", code, e)
+            return
+        if not sub_id or not channel.state.venti:
+            return
+        # 最长等 60s 让 collect_user_watchlist 把 stock_name 落库（baostock 拉历史时拿名）
+        for _ in range(30):
+            entry = await irminsul.user_watch_get(code)
+            if entry and (entry.stock_name or "").strip():
+                break
+            await _asyncio.sleep(2)
+        try:
+            await channel.state.venti.collect_subscription(
+                sub_id,
+                irminsul=irminsul,
+                model=channel.state.model,
+                march=channel.state.march,
+            )
+        except Exception as e:
+            logger.exception(
+                "[岩神·关注股订阅] 首次采集失败 code={} sub={}: {}", code, sub_id, e,
+            )
+
+    bg(_ensure_then_kick(), label=f"zhongli·股票订阅·首次采集·{code}")
 
     return web.json_response({"ok": True, "code": code})
 
