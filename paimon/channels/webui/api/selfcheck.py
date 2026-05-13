@@ -1,6 +1,7 @@
 """三月自检面板 API — Quick 探针 + Deep 历史 runs + report/findings 详情。"""
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from aiohttp import web
@@ -225,27 +226,31 @@ async def upgrade_check_api(channel, request: web.Request) -> web.Response:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     from paimon.__main__ import _run_git
+    # _run_git 是 subprocess.run 同步阻塞，git fetch 走网络可能几十秒；
+    # 直接 await 会卡 aiohttp event loop（整 server 全卡），扔线程跑
+    _git = lambda args: asyncio.to_thread(_run_git, args)
+
     # fetch（30s timeout）
-    rc, _, err = _run_git(["fetch", "origin"])
+    rc, _, err = await _git(["fetch", "origin"])
     if rc != 0:
         return web.json_response(
             {"ok": False, "error": f"git fetch 失败: {err.strip()[:200]}"}, status=500,
         )
 
     # 当前 HEAD
-    rc, head_out, _ = _run_git(["rev-parse", "HEAD"])
+    rc, head_out, _ = await _git(["rev-parse", "HEAD"])
     if rc != 0:
         return web.json_response({"ok": False, "error": "git rev-parse HEAD 失败"}, status=500)
-    head_short_rc, head_short, _ = _run_git(["rev-parse", "--short", "HEAD"])
-    head_subject_rc, head_subject_out, _ = _run_git(["log", "-1", "--pretty=%s"])
+    head_short_rc, head_short, _ = await _git(["rev-parse", "--short", "HEAD"])
+    head_subject_rc, head_subject_out, _ = await _git(["log", "-1", "--pretty=%s"])
     head_subject = head_subject_out.strip() if head_subject_rc == 0 else ""
 
     # 落后 commit 数
-    rc, count_out, _ = _run_git(["rev-list", "--count", "HEAD..origin/main"])
+    rc, count_out, _ = await _git(["rev-list", "--count", "HEAD..origin/main"])
     behind = int(count_out.strip() or 0) if rc == 0 else 0
 
     # 落后的 commit list（最多 20 条）
-    rc, log_out, _ = _run_git([
+    rc, log_out, _ = await _git([
         "log", "--max-count=20", "--pretty=format:%h|%s|%cr",
         "HEAD..origin/main",
     ])
@@ -290,11 +295,14 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
             {"ok": False, "error": "已有升级任务进行中，请勿重复触发"}, status=409,
         )
 
+    # 跟 upgrade_check 同：_run_git 是 sync subprocess，扔线程跑不卡 event loop
+    _git = lambda args: asyncio.to_thread(_run_git, args)
+
     async with _upgrade_lock:
         # #A1 自挑刺：dirty tree 检查 — 工作区有未提交修改时拉取会失败 / 冲突 / 数据丢失
         # `-uno` 排除 untracked 文件（如 paimon.log / .env / 用户自己的临时文件）；
         # 只关心 modified / staged / 冲突文件——这些才会真挡 git pull。
-        rc, dirty_out, _ = _run_git(["status", "--porcelain", "-uno"])
+        rc, dirty_out, _ = await _git(["status", "--porcelain", "-uno"])
         if rc == 0 and dirty_out.strip():
             return web.json_response({
                 "ok": False,
@@ -304,12 +312,12 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
             }, status=400)
 
         # 再次 fetch + 看是否真的落后（防 stale check）
-        rc, _, err = _run_git(["fetch", "origin"])
+        rc, _, err = await _git(["fetch", "origin"])
         if rc != 0:
             return web.json_response(
                 {"ok": False, "error": f"git fetch 失败: {err.strip()[:200]}"}, status=500,
             )
-        rc, behind_out, _ = _run_git(["rev-list", "--count", "HEAD..origin/main"])
+        rc, behind_out, _ = await _git(["rev-list", "--count", "HEAD..origin/main"])
         behind = int(behind_out.strip() or 0) if rc == 0 else 0
         if behind == 0:
             return web.json_response({"ok": False, "error": "已是最新版本，无需升级"}, status=400)
@@ -318,7 +326,7 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
         # 关键：paimon 主流程 60s 后才写 last_good_commit，但升级路径必须在 pull 之前写——
         # 否则 pull 到 broken commit、watchdog 累 3 次回退时，last_good 可能还是更早或不存在
         from paimon.config import config as _cfg
-        rc, head_before, _ = _run_git(["rev-parse", "HEAD"])
+        rc, head_before, _ = await _git(["rev-parse", "HEAD"])
         if rc == 0 and head_before.strip():
             try:
                 target = _cfg.paimon_home / "last_good_commit"
@@ -332,11 +340,13 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
         import subprocess as _sp, sys as _sys
         from paimon.__main__ import _project_root_for_git
         root = _project_root_for_git()
-        try:
-            check_proc = _sp.run(
+        def _compileall():
+            return _sp.run(
                 [_sys.executable, "-m", "compileall", "-q", str(root / "paimon")],
                 capture_output=True, text=True, timeout=60,
             )
+        try:
+            check_proc = await asyncio.to_thread(_compileall)
             if check_proc.returncode != 0:
                 return web.json_response({
                     "ok": False,
@@ -347,7 +357,7 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
             logger.warning("[升级] 语法预检异常（跳过）: {}", e)
 
         # git pull
-        rc, pull_out, pull_err = _run_git(["pull", "--ff-only", "origin", "main"])
+        rc, pull_out, pull_err = await _git(["pull", "--ff-only", "origin", "main"])
         if rc != 0:
             return web.json_response({
                 "ok": False,
@@ -356,13 +366,10 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
 
         # pull 后再 syntax check 一遍
         try:
-            check_proc = _sp.run(
-                [_sys.executable, "-m", "compileall", "-q", str(root / "paimon")],
-                capture_output=True, text=True, timeout=60,
-            )
+            check_proc = await asyncio.to_thread(_compileall)
             if check_proc.returncode != 0:
                 # 拉到 broken commit！立即 git reset --hard 回退
-                _run_git(["reset", "--hard", "HEAD@{1}"])
+                await _git(["reset", "--hard", "HEAD@{1}"])
                 return web.json_response({
                     "ok": False,
                     "error": "拉取的代码语法预检失败，已自动 git reset 回退："
@@ -372,12 +379,12 @@ async def upgrade_trigger_api(channel, request: web.Request) -> web.Response:
             logger.warning("[升级] pull 后语法预检异常（继续重启）: {}", e)
 
         # 检查 pyproject.toml 是否变（提示用户 watchdog 内 pip install）
-        rc, dep_diff, _ = _run_git([
+        rc, dep_diff, _ = await _git([
             "diff", "HEAD@{1}..HEAD", "--name-only", "--", "pyproject.toml",
         ])
         deps_changed = bool(rc == 0 and dep_diff.strip())
 
-        rc, new_head_short, _ = _run_git(["rev-parse", "--short", "HEAD"])
+        rc, new_head_short, _ = await _git(["rev-parse", "--short", "HEAD"])
 
         logger.info(
             "[升级] git pull 完成 → 新 HEAD={}，0.5s 后退出码 100 让 watchdog 拉起",

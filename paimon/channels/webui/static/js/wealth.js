@@ -17,15 +17,15 @@
             btn.classList.add('active');
         };
 
-        // 顶部红点跳转到本面板时滚动到公告区（公告区已上移到顶部，等价于到顶）
-        window.openZhongliDigests=function(){
-            var sec=document.getElementById('digest');
-            if(sec) sec.scrollIntoView({behavior:'smooth', block:'start'});
-        };
-
-        // ===== 岩神推送公告区 + 历史折叠区 =====
+        // ===== 推送公告区 + 历史折叠区 =====
         function _esc(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
         function _sourceDisplay(s){return s ? String(s).replace(/^(岩神·|风神·|草神·|水神·|火神·|雷神·|冰神·|晨星·|天使·)/, '') : s;}
+        // 历史 push 记录里 backend 老版本写入的 md 内容含"岩神·理财日报"等前缀，
+        // 渲染前 strip 掉同样不暴露内部命名（新写入 _digest.py 已改，但旧记录还在）
+        function _normalizeMd(md){
+            if(!md) return md;
+            return String(md).replace(/(^|\n)(\s*#+\s*[^\n]*?)(岩神·|风神·|草神·|水神·|火神·|雷神·|冰神·|晨星·|天使·)/g, '$1$2');
+        }
         function _fmtTime(ts){
             if(!ts||ts<=0)return '-';
             var d=new Date(ts*1000);
@@ -211,32 +211,21 @@
                     el.innerHTML = '<div class="digest-bulletins-empty">' + tip + '</div>';
                     if(hint) hint.textContent = '· ' + dateStr + (isToday?'（今天）':'');
                 }else{
-                    var unreadCount = records.filter(function(r){ return r.read_at == null; }).length;
                     var dateLabel = isToday ? '（今天）'
                         : (dateStr === _zhongliFallbackTo ? '（最近一次）' : '');
                     if(hint) hint.textContent = '· ' + dateStr + dateLabel
-                        + ' · ' + records.length + ' 篇'
-                        + (unreadCount > 0 ? ('，' + unreadCount + ' 未读') : '');
+                        + ' · ' + records.length + ' 篇';
                     el.innerHTML = records.map(function(rec){
-                        var unread = rec.read_at == null;
-                        var cls = unread ? 'digest-bulletin' : 'digest-bulletin read';
-                        var dot = unread ? '<span class="db-unread-dot" title="未读"></span>' : '';
-                        var markBtn = unread
-                            ? '<button class="db-mark-read" onclick="event.stopPropagation();window.markZhongliBulletinRead(\''+_esc(rec.id)+'\')">标记已读</button>'
-                            : '';
                         var runningChip = (running && isToday)
                             ? '<span class="db-running">采集中</span>' : '';
-                        return '<div class="' + cls + '" data-id="' + _esc(rec.id) + '">'
+                        return '<div class="digest-bulletin" data-id="' + _esc(rec.id) + '">'
                             + '<div class="db-head">'
                             + '<div class="db-head-left">'
-                            + dot
-                            + '<span class="db-source" title="' + _esc(rec.source) + '">' + _esc(_sourceDisplay(rec.source)) + '</span>'
-                            + runningChip
                             + '<span class="db-time" title="同日多次扫描会刷新此时间">最后更新 ' + _fmtTime(rec.created_at) + '</span>'
+                            + runningChip
                             + '</div>'
-                            + markBtn
                             + '</div>'
-                            + '<div class="db-body md-body">' + (window.renderMarkdown ? window.renderMarkdown(rec.message_md || '') : _esc(rec.message_md || '')) + '</div>'
+                            + '<div class="db-body markdown-body">' + (window.safeMd ? window.safeMd(_normalizeMd(rec.message_md) || '') : _esc(rec.message_md || '')) + '</div>'
                             + '</div>';
                     }).join('');
                 }
@@ -270,13 +259,6 @@
             inp.value = _todayStr();
             _reloadDayPanels();
         };
-        window.markZhongliBulletinRead = async function(id){
-            try{
-                await fetch('/api/push_archive/' + encodeURIComponent(id) + '/read', {method: 'POST'});
-                await loadZhongliBulletins();
-                if(typeof window.refreshNavBadge === 'function') window.refreshNavBadge();
-            }catch(e){}
-        };
         window.toggleZhongliHistory = function(){
             _zhongliHistoryShown = !_zhongliHistoryShown;
             document.getElementById('zhongliHistoryWrap').style.display = _zhongliHistoryShown ? 'block' : 'none';
@@ -303,48 +285,26 @@
                     return;
                 }
                 listEl.innerHTML=records.map(function(rec){
-                    var unread = rec.read_at == null;
                     var preview = (rec.message_md||'').slice(0,200);
-                    return '<div class="push-item '+(unread?'unread':'')+'" data-id="'+_esc(rec.id)+'" onclick="window.toggleZhongliDigest(this)">'
+                    return '<div class="push-item" data-id="'+_esc(rec.id)+'" onclick="window.toggleZhongliDigest(this)">'
                         + '<div class="push-item-head">'
-                        + '<span class="push-item-source" title="'+_esc(rec.source)+'">'+_esc(_sourceDisplay(rec.source))+'</span>'
                         + '<span class="push-item-time">'+_fmtTime(rec.created_at)+'</span>'
                         + '</div>'
                         + '<div class="push-item-preview">'+_esc(preview)+'</div>'
-                        + '<div class="push-item-body md-body">'+(window.renderMarkdown?window.renderMarkdown(rec.message_md||''):_esc(rec.message_md||''))+'</div>'
+                        + '<div class="push-item-body markdown-body">'+(window.safeMd?window.safeMd(_normalizeMd(rec.message_md)||''):_esc(rec.message_md||''))+'</div>'
                         + '</div>';
                 }).join('');
             }catch(e){
                 listEl.innerHTML='<div class="push-empty">加载失败: '+_esc(String(e))+'</div>';
             }
         }
-        window.toggleZhongliDigest = async function(el){
+        window.toggleZhongliDigest = function(el){
             var wasExpanded = el.classList.contains('expanded');
             document.querySelectorAll('#zhongliDigestList .push-item.expanded').forEach(function(x){
                 if(x!==el) x.classList.remove('expanded');
             });
             if(wasExpanded){ el.classList.remove('expanded'); return; }
             el.classList.add('expanded');
-            if(el.classList.contains('unread')){
-                var id = el.getAttribute('data-id');
-                try{
-                    await fetch('/api/push_archive/'+encodeURIComponent(id)+'/read', {method:'POST'});
-                    el.classList.remove('unread');
-                    if(typeof window.refreshNavBadge==='function') window.refreshNavBadge();
-                }catch(e){}
-            }
-        };
-        window.markAllZhongliRead = async function(){
-            try{
-                await fetch('/api/push_archive/read_all?actor='+encodeURIComponent('岩神'),
-                    {method:'POST'});
-                document.querySelectorAll('#zhongliDigestList .push-item.unread').forEach(function(el){
-                    el.classList.remove('unread');
-                });
-                // 公告区也刷新
-                await loadZhongliBulletins();
-                if(typeof window.refreshNavBadge==='function') window.refreshNavBadge();
-            }catch(e){}
         };
         document.addEventListener('keydown', function(e){
             if(e.key==='Enter' && document.activeElement && document.activeElement.id==='zhongliDigestSearch'){
@@ -375,6 +335,8 @@
             loadZhongliBulletins(); loadScanScope();
             // 先 await loadUserWatchlist 拿到 _userWatchCodes，再渲染推荐/排名（已关注的会标 added）
             await loadUserWatchlist();
+            // 资讯 tab 是默认 active，进页面时 loadStockSubs 渲染右栏关注股资讯
+            if (typeof loadStockSubs === 'function') loadStockSubs();
             loadRecommended(); loadRanking(); loadChanges();
             // 历史折叠区按需加载（用户点「查看更多」时才 loadZhongliDigests）
         };
@@ -1007,7 +969,7 @@
             }
             listEl.innerHTML = all.map(function(item){
                 var t = _fmtTime(item.push.created_at || item.push.updated_at);
-                var body = window.renderMarkdown ? window.renderMarkdown(item.push.message_md || '') : _esc(item.push.message_md || '');
+                var body = window.safeMd ? window.safeMd(_normalizeMd(item.push.message_md) || '') : _esc(item.push.message_md || '');
                 // 显示名字优先，code 作 title 兜底；map 缺失时退回 code
                 var name = _userWatchCodeToName[_normCode(item.code)] || '';
                 var label = name || item.code;

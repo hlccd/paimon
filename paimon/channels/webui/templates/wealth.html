@@ -23,18 +23,31 @@
             </div>
         </div>
 
-        <!-- 大框：head 在最顶，日期工具放右边。
-             body 双栏：左 = 日报内容（无小 head），右 = 关注股资讯（带 📰 小 head 区分） -->
-        <div id="digest" class="digest-section dt-twin">
-            <div class="ds-head">
-                <h2>📨 理财日报 <span id="zhongliBulletinHint" style="font-size:12px;color:var(--pm-text-muted);font-weight:normal;margin-left:8px"></span></h2>
+        <div class="stats-row">
+            <div class="stat-card"><div class="stat-num" id="statWatchlist">-</div><div class="stat-label">推荐股池</div></div>
+            <div class="stat-card"><div class="stat-num" id="statLatest">-</div><div class="stat-label">最新扫描</div></div>
+            <div class="stat-card"><div class="stat-num" id="statP0P1" style="color:var(--pm-warning)">-</div><div class="stat-label">近 7 天 P0+P1</div></div>
+            <div class="stat-card"><div class="stat-num" id="statCronStatus">-</div><div class="stat-label">定时任务</div></div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('digest',this);loadZhongliBulletins();if(typeof loadStockSubs==='function')loadStockSubs();">资讯</button>
+            <button class="tab-btn" onclick="switchTab('userWatch',this);loadUserWatchlist();">我的关注</button>
+            <button class="tab-btn" onclick="switchTab('recommended',this)">推荐选股</button>
+            <button class="tab-btn" onclick="switchTab('ranking',this)">评分排行</button>
+            <button class="tab-btn" onclick="switchTab('changes',this)">变化事件</button>
+        </div>
+
+        <!-- 资讯 tab：双栏 = 左 理财日报 / 右 关注股资讯 -->
+        <div id="digest" class="tab-panel active dt-twin">
+            <div class="ds-tools-row">
                 <div class="ds-tools">
                     <button onclick="window.zhongliDayShift(-1)" title="前一天">←</button>
                     <input type="date" id="zhongliDateInput" onchange="window.zhongliDateChange()" />
                     <button onclick="window.zhongliDayShift(1)" title="后一天">→</button>
                     <button onclick="window.zhongliJumpToday()" title="跳到今天">今天</button>
-                    <button onclick="window.markAllZhongliRead()">全部已读</button>
                 </div>
+                <span id="zhongliBulletinHint" class="ds-hint"></span>
             </div>
             <div class="dt-body">
                 <div class="dt-col dt-col-bulletins">
@@ -70,21 +83,7 @@
             </div>
         </div>
 
-        <div class="stats-row">
-            <div class="stat-card"><div class="stat-num" id="statWatchlist">-</div><div class="stat-label">推荐股池</div></div>
-            <div class="stat-card"><div class="stat-num" id="statLatest">-</div><div class="stat-label">最新扫描</div></div>
-            <div class="stat-card"><div class="stat-num" id="statP0P1" style="color:var(--status-warning)">-</div><div class="stat-label">近 7 天 P0+P1</div></div>
-            <div class="stat-card"><div class="stat-num" id="statCronStatus">-</div><div class="stat-label">定时任务</div></div>
-        </div>
-
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('userWatch',this);loadUserWatchlist();">我的关注</button>
-            <button class="tab-btn" onclick="switchTab('recommended',this)">推荐选股</button>
-            <button class="tab-btn" onclick="switchTab('ranking',this)">评分排行</button>
-            <button class="tab-btn" onclick="switchTab('changes',this)">变化事件</button>
-        </div>
-
-        <div id="userWatch" class="tab-panel active">
+        <div id="userWatch" class="tab-panel">
             <div class="uw-toolbar">
                 <input id="uwCodeInput" placeholder="股票代码（如 600519）" maxlength="12" />
                 <input id="uwNoteInput" placeholder="备注（可选）" maxlength="50" />

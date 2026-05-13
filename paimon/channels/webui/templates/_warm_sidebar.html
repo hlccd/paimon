@@ -18,14 +18,13 @@
     </ul>
   </nav>
   <div class="dash-sidebar__footer">
-    <button class="dash-bell" aria-label="推送通知" title="推送通知">
-      <span data-icon="inbox"></span>
-      <span>通知</span>
-    </button>
     <button class="dash-theme-toggle" id="dashThemeToggle" type="button" aria-label="切换深浅色" title="切换深浅色">
-      <span class="dash-theme-icon dash-theme-icon--light" data-icon="sun"></span>
-      <span class="dash-theme-icon dash-theme-icon--dark" data-icon="moon"></span>
-      <span class="dash-theme-label" id="dashThemeLabel">深色</span>
+      <span class="dash-theme-track" aria-hidden="true">
+        <span class="dash-theme-knob"></span>
+        <span class="dash-theme-icon dash-theme-icon--sun" data-icon="sun"></span>
+        <span class="dash-theme-icon dash-theme-icon--moon" data-icon="moon"></span>
+      </span>
+      <span class="dash-theme-label" id="dashThemeLabel">浅色模式</span>
     </button>
   </div>
 </aside>

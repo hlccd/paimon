@@ -126,7 +126,7 @@ class _DigestMixin:
         p2 = events.get('p2') or []
 
         lines: list[str] = [
-            f"# 📊 岩神·理财日报 · {scan_date} · {mode}",
+            f"# 📊 理财日报 · {scan_date} · {mode}",
             "",
             f"**概览**：扫描 {total_scanned} 只 · 通过筛选 {len(stocks)} 只 · 推荐 {len(recommended)} 只",
             "",

@@ -207,30 +207,12 @@ html[data-theme="dark"] {
   padding: var(--pm-space-3);
   border-top: 1px solid var(--pm-border);
 }
-.dash-bell {
-  display: flex;
-  align-items: center;
-  gap: var(--pm-space-3);
-  padding: var(--pm-space-2) var(--pm-space-3);
-  width: 100%;
-  border: none;
-  background: transparent;
-  border-radius: var(--pm-radius-md);
-  color: var(--pm-text-secondary);
-  font-family: inherit;
-  font-size: var(--pm-font-sm);
-  font-weight: var(--pm-weight-medium);
-  cursor: pointer;
-  text-align: left;
-  transition: background var(--pm-transition), color var(--pm-transition);
-}
-.dash-bell [data-icon] svg { width: 18px; height: 18px; }
-.dash-bell:hover { background: var(--pm-bg-hover); color: var(--pm-text-primary); }
 
-/* 主题切换按钮 — 在通知下方，跟 dash-bell 同风格 */
+/* 主题切换按钮 — switch 滑块风格 */
 .dash-theme-toggle {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--pm-space-3);
   padding: var(--pm-space-2) var(--pm-space-3);
   width: 100%;
@@ -243,15 +225,53 @@ html[data-theme="dark"] {
   font-weight: var(--pm-weight-medium);
   cursor: pointer;
   text-align: left;
-  margin-top: 4px;
   transition: background var(--pm-transition), color var(--pm-transition);
 }
-.dash-theme-toggle [data-icon] svg { width: 18px; height: 18px; }
 .dash-theme-toggle:hover { background: var(--pm-bg-hover); color: var(--pm-text-primary); }
 .dash-theme-toggle:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
-/* 当前主题显示对侧 icon（light 模式显 moon 提示"点了变 dark"，dark 模式显 sun） */
-html[data-theme="light"] .dash-theme-icon--light { display: none; }
-html[data-theme="dark"] .dash-theme-icon--dark { display: none; }
+.dash-theme-label { flex: 1; min-width: 0; }
+/* switch track */
+.dash-theme-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 24px;
+  background: var(--pm-bg-active);
+  border: 1px solid var(--pm-border);
+  border-radius: 9999px;
+  transition: background var(--pm-transition), border-color var(--pm-transition);
+}
+/* knob：主题切换时左右滑 */
+.dash-theme-knob {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  background: var(--pm-bg-card);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  transition: transform 0.2s ease, background var(--pm-transition);
+}
+/* sun / moon 在 track 两端轻显示 */
+.dash-theme-icon {
+  position: absolute;
+  top: 50%; transform: translateY(-50%);
+  display: inline-flex;
+  width: 14px; height: 14px;
+  pointer-events: none;
+  transition: opacity var(--pm-transition);
+}
+.dash-theme-icon svg { width: 14px; height: 14px; }
+.dash-theme-icon--sun { left: 4px; color: var(--pm-warning); }
+.dash-theme-icon--moon { right: 4px; color: var(--pm-text-muted); }
+/* 浅色态：knob 在左，sun 显，moon 弱 */
+html[data-theme="light"] .dash-theme-knob { transform: translateX(0); }
+html[data-theme="light"] .dash-theme-icon--sun { opacity: 0; }
+html[data-theme="light"] .dash-theme-icon--moon { opacity: 0.7; }
+/* 深色态：knob 滑到右边，sun 隐 / moon 显 */
+html[data-theme="dark"] .dash-theme-track { background: var(--pm-primary-subtle); border-color: var(--pm-primary-border); }
+html[data-theme="dark"] .dash-theme-knob { transform: translateX(20px); background: var(--pm-primary); }
+html[data-theme="dark"] .dash-theme-icon--sun { opacity: 0.7; }
+html[data-theme="dark"] .dash-theme-icon--moon { opacity: 0; }
 
 /* ═══ 主内容区 ═══════════════════════════════════ */
 .dash-main {

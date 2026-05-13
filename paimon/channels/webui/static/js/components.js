@@ -310,7 +310,7 @@
     const themeBtn = document.getElementById('dashThemeToggle');
     const themeLabel = document.getElementById('dashThemeLabel');
     function syncLabel() {
-      if (themeLabel) themeLabel.textContent = pmTheme.get() === 'dark' ? '浅色' : '深色';
+      if (themeLabel) themeLabel.textContent = pmTheme.get() === 'dark' ? '深色模式' : '浅色模式';
     }
     if (themeBtn) {
       syncLabel();
