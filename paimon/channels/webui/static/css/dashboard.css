@@ -1,5 +1,18 @@
 /* dashboard 专属样式（柱状图 + 控制条），通用部分走 components.css 和 warm.css */
 
+/* 让 stat-card 数字更紧凑 + hint 行高标准 */
+.pm-stat-card__value { letter-spacing: -0.01em; }
+.pm-stat-card__hint { line-height: var(--pm-line-normal); }
+
+/* dashboard 用量明细表 — 用途列保留更多宽度，数字列紧凑等宽 */
+#dash-detail .pm-table th:first-child,
+#dash-detail .pm-table td:first-child { width: 30%; min-width: 180px; }
+#dash-detail .pm-table th:not(:first-child),
+#dash-detail .pm-table td:not(:first-child) {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .dash-chart-controls {
   display: flex;
   align-items: center;
@@ -7,7 +20,15 @@
   flex-wrap: wrap;
   margin-bottom: var(--pm-space-5);
 }
-.dash-ctrl-group { display: flex; align-items: center; gap: var(--pm-space-1); }
+.dash-ctrl-group {
+  display: flex;
+  align-items: center;
+  gap: var(--pm-space-1);
+  padding: var(--pm-space-1);
+  background: var(--pm-bg-subtle);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-md);
+}
 .dash-ctrl-sep {
   width: 1px;
   height: 20px;
@@ -53,17 +74,17 @@
   justify-content: flex-end;
 }
 .dash-chart-bar {
-  width: 80%;
-  max-width: 64px;
-  min-width: 6px;
+  width: 90%;
+  max-width: 96px;
+  min-width: 8px;
   border-radius: 4px 4px 0 0;
   background: var(--pm-primary);
   cursor: pointer;
   position: relative;
   transition: height 250ms ease, opacity var(--pm-transition);
 }
-.dash-chart-bar.is-cost { background: var(--pm-info); }
-.dash-chart-bar:hover { opacity: 0.85; }
+.dash-chart-bar.is-cost { background: var(--pm-warning); }
+.dash-chart-bar:hover { filter: brightness(1.08); box-shadow: 0 -2px 6px rgba(120, 80, 50, 0.12); }
 .dash-chart-tip {
   display: none;
   position: absolute;
@@ -71,7 +92,7 @@
   left: 50%;
   transform: translateX(-50%);
   background: var(--pm-bg-card);
-  border: 1px solid var(--pm-border);
+  border: 1px solid var(--pm-border-strong);
   border-radius: var(--pm-radius-md);
   padding: var(--pm-space-2) var(--pm-space-3);
   font-size: var(--pm-font-xs);
@@ -79,10 +100,11 @@
   white-space: pre-line;
   z-index: 20;
   pointer-events: none;
-  min-width: 140px;
-  text-align: center;
-  line-height: 1.5;
-  box-shadow: var(--pm-shadow-md);
+  min-width: 160px;
+  text-align: left;
+  line-height: var(--pm-line-relaxed);
+  box-shadow: var(--pm-shadow-lg);
+  font-variant-numeric: tabular-nums;
 }
 .dash-chart-bar:hover .dash-chart-tip { display: block; }
 .dash-chart-labels {

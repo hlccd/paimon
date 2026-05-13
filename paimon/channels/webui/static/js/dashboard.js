@@ -36,14 +36,13 @@
       el.innerHTML =
         '<div class="pm-empty"><span class="pm-empty__icon" data-icon="inbox"></span>' +
         '<p class="pm-empty__title">暂无数据</p>' +
-        '<p class="pm-empty__desc">尚未产生任何 LLM 调用记录。</p></div>';
+        '<p class="pm-empty__desc">还没有 LLM 调用记录。聊一两句话或等下次定时任务跑完，这里会出现统计明细。</p></div>';
       window.pmIcon && window.pmIcon.enhanceAll(el);
       return;
     }
     const rows = detail.map((d) => {
       const t = (d.input_tokens || 0) + (d.output_tokens || 0);
       return '<tr>' +
-        '<td>' + esc(d.component) + '</td>' +
         '<td>' + esc(d.purpose || '-') + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums">' + fN(t) + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums">' + fN(d.input_tokens) + '</td>' +
@@ -54,7 +53,7 @@
         '</tr>';
     }).join('');
     el.innerHTML = '<table class="pm-table"><thead><tr>' +
-      '<th>组件</th><th>用途</th>' +
+      '<th>用途</th>' +
       '<th style="text-align:right">总 Token</th><th style="text-align:right">输入</th>' +
       '<th style="text-align:right">输出</th><th style="text-align:right">缓存命中</th>' +
       '<th style="text-align:right">花费</th><th style="text-align:right">调用次数</th>' +

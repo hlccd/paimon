@@ -766,7 +766,7 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 
 ### Phase 4 — 10 page × 10 轮 PDCA
 - [x] `/` (chat) 第 1-10 轮 ✅ — 修 safeMd undefined / 命名净化 / 紫主色一致 / a11y / pmModal 替换 confirm
-- [ ] `/dashboard` 第 1-10 轮
+- [x] `/dashboard` 第 1-10 轮 ✅ — 命名净化 + bar 加宽 + 控制条段控件化 + cost bar amber + tip 增强 + 表格列宽 + a11y
 - [ ] `/tasks` 第 1-10 轮
 - [ ] `/knowledge` 第 1-10 轮
 - [ ] `/llm` 第 1-10 轮
