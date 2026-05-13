@@ -796,13 +796,15 @@ Phase 5 rebase 已完成，`git log --oneline` 看到约 10 个干净 commit，m
 - [x] `/feed` 第 1-10 轮 ✅ — 副标题去"风神管辖" + handler 加 marked.min.js（修复 hotspot/weekly md 不渲染）+ alert/confirm 全改 pmModal/pmToast + 4 个 tab 去 emoji + role=tab/aria-selected + btn-primary 去 linear-gradient + qr-modal 遮罩用 token
 - [x] `/plugins` 第 1-10 轮 ✅ — pending 引导文 / verdict badge / 修订状态文 / modal 提示文 全去"四影/死执/生执"内部命名 → "审查/重写"功能描述 + alert/confirm 全改 pmModal/pmToast + tab role=tab/aria-selected + sub-tab 主色 #1a1a1a 改 #fff + tab-badge 黄底改白字 + 全部 rgba 半透明 badge 改 *-subtle token + modal-backdrop 用 var(--pm-bg-overlay)
 
-### Phase 5 — rebase
-- [ ] `git branch backup-pre-rebase`
-- [ ] `git rebase -i ca1c6d5`
-- [ ] 每个 page 的 commit 都 fixup 到原 commit
-- [ ] 全部 conflict 解决 + 0 error
-- [ ] git log --oneline 检查最终 commit 链整洁
-- [ ] **不 push**，等用户验收
+### Phase 5 — rebase ⚠️ punt（21 commit 留着，让用户决定要不要再 squash）
+- [x] `git branch backup-pre-rebase`（已建分支，可随时回退）
+- [x] 尝试 `git rebase -i ca1c6d5` + 21 行 todo（10 个 P4 commit fixup 到对应 P0/P2-* commit）
+- [⚠️] **首步即结构冲突**：
+  - `docs/current-task.md` 在 19965d6（P2-9）才首次出现，回到 P0 base 时该文件不存在 → 修改/删除冲突
+  - `dashboard.css` 在 19965d6 commit 里有用户手改（bar 加宽），P4-dashboard 基于这状态写的，回到 P0 base 后 bar 加宽部分变独立 hunk → 内容冲突
+  - 后续 9 个 fixup 估计每个都有同类冲突（21 个 fixup × 2-3 个冲突文件 ≈ 50+ 处人工解冲突）
+- [x] **决策 abort**：保留 21 commit 链，不强行 squash。Phase 6 功能回归测试的价值远大于"git log 漂亮"。回退点 `backup-pre-rebase` 分支保留
+- [x] **不 push**，等用户验收
 
 ### Phase 6 — 全功能回归测试 3 轮
 - [ ] 第 1 轮 UI 加载 + 路径覆盖（10 个 page 全过）
