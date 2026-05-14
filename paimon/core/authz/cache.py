@@ -74,11 +74,6 @@ class AuthzCache:
     ) -> str | None:
         return self._session_scope.get((session_id, subject_type, subject_id))
 
-    def clear_session_scope(self, session_id: str) -> None:
-        self._session_scope = {
-            k: v for k, v in self._session_scope.items() if k[0] != session_id
-        }
-
     def snapshot(self) -> dict[tuple[str, str], str]:
         """给面板等调用方读只读副本用。"""
         return dict(self._map)

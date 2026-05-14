@@ -25,8 +25,6 @@ from ..token import TokenRow
 
 class _BasicsMixin:
     # ============ 域 1: 授权 ============
-    async def authz_get(self, subject_type: str, subject_id: str, *, user_id: str = "default") -> Authz | None:
-        return await self._authz.get(subject_type, subject_id, user_id=user_id)
 
     async def authz_set(
         self, subject_type: str, subject_id: str, decision: str,
@@ -53,20 +51,11 @@ class _BasicsMixin:
     async def skill_declare(self, decl: SkillDecl, *, actor: str) -> None:
         await self._skill.declare(decl, actor=actor)
 
-    async def skill_get(self, name: str) -> SkillDecl | None:
-        return await self._skill.get(name)
-
     async def skill_list(self, *, source: str | None = None, include_orphaned: bool = False) -> list[SkillDecl]:
         return await self._skill.list(source=source, include_orphaned=include_orphaned)
 
     async def skill_mark_orphaned(self, name: str, orphaned: bool, *, actor: str) -> None:
         await self._skill.mark_orphaned(name, orphaned, actor=actor)
-
-    async def skill_remove(self, name: str, *, actor: str) -> bool:
-        return await self._skill.remove(name, actor=actor)
-
-    async def skill_snapshot(self, *, include_orphaned: bool = False) -> list[SkillDecl]:
-        return await self._skill.snapshot(include_orphaned=include_orphaned)
 
     # ============ 域 16: Skill 自进化提案 ============
     async def skill_proposal_create(
@@ -226,9 +215,6 @@ class _BasicsMixin:
     async def memory_delete(self, mem_id: str, *, actor: str) -> bool:
         return await self._memory.delete(mem_id, actor=actor)
 
-    async def memory_expire(self, now: float, *, actor: str) -> int:
-        return await self._memory.expire(now, actor=actor)
-
     # ============ 域 6: Token 记录 ============
     async def token_write(
         self, session_id: str, component: str, model_name: str,
@@ -242,16 +228,6 @@ class _BasicsMixin:
             cache_creation_tokens=cache_creation_tokens,
             cache_read_tokens=cache_read_tokens,
             purpose=purpose, timestamp=timestamp, actor=actor,
-        )
-
-    async def token_rows(
-        self, *, session_id: str | None = None, component: str | None = None,
-        purpose: str | None = None, since: float | None = None,
-        until: float | None = None, limit: int = 10000,
-    ) -> list[TokenRow]:
-        return await self._token.rows(
-            session_id=session_id, component=component, purpose=purpose,
-            since=since, until=until, limit=limit,
         )
 
     async def token_aggregate(
@@ -270,12 +246,4 @@ class _BasicsMixin:
         await self._audit.append(
             event_type, payload,
             task_id=task_id, session_id=session_id, actor=actor,
-        )
-
-    async def audit_list(
-        self, *, event_type: str | None = None,
-        task_id: str | None = None, since: float | None = None, limit: int = 100,
-    ) -> list[AuditEntry]:
-        return await self._audit.list(
-            event_type=event_type, task_id=task_id, since=since, limit=limit,
         )

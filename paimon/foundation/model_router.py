@@ -81,8 +81,6 @@ KNOWN_CALLSITES: list[tuple[str, str]] = [
     ("audio_process", "音视频分析"),
 ]
 
-KNOWN_COMPONENTS: list[str] = sorted({c for c, _ in KNOWN_CALLSITES})
-
 
 class ModelRouter:
     """路由内存索引 + 世界树持久化薄壳 + 命中记录。

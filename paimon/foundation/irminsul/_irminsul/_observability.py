@@ -100,18 +100,6 @@ class _ObservabilityMixin:
             level=level, extra=extra,
         )
 
-    async def push_archive_touch_daily(
-        self, *,
-        source: str,
-        actor: str,
-        day_start: float,
-        day_end: float,
-    ) -> tuple[bool, str]:
-        return await self._push_archive.touch_daily(
-            source=source, actor=actor,
-            day_start=day_start, day_end=day_end,
-        )
-
     async def push_archive_get(self, rec_id: str) -> PushArchiveRecord | None:
         return await self._push_archive.get(rec_id)
 
@@ -128,11 +116,6 @@ class _ObservabilityMixin:
             since=since, until=until, limit=limit,
         )
 
-    async def push_archive_count_unread(
-        self, *, actor: str | None = None,
-    ) -> int:
-        return await self._push_archive.count_unread(actor=actor)
-
     async def push_archive_count_unread_grouped(self) -> dict[str, int]:
         return await self._push_archive.count_unread_grouped()
 
@@ -143,13 +126,6 @@ class _ObservabilityMixin:
         self, *, actor: str | None = None,
     ) -> int:
         return await self._push_archive.mark_read_all(actor=actor)
-
-    async def push_archive_sweep_old(
-        self, *, retention_seconds: float, actor: str = "三月",
-    ) -> int:
-        return await self._push_archive.sweep_old(
-            retention_seconds=retention_seconds, actor=actor,
-        )
 
     # ============ 域 14: LLM Profile ============
     async def llm_profile_create(
@@ -199,16 +175,8 @@ class _ObservabilityMixin:
     async def llm_route_delete(self, route_key: str, *, actor: str) -> bool:
         return await self._llm_route.delete(route_key, actor=actor)
 
-    async def llm_route_get(self, route_key: str) -> LLMRoute | None:
-        return await self._llm_route.get(route_key)
-
     async def llm_route_list_all(self) -> list[LLMRoute]:
         return await self._llm_route.list_all()
-
-    async def llm_route_clear_for_profile(
-        self, profile_id: str, *, actor: str,
-    ) -> int:
-        return await self._llm_route.clear_for_profile(profile_id, actor=actor)
 
     async def llm_route_delete_purpose_overrides(
         self, component: str, *, actor: str,

@@ -9,7 +9,6 @@ from loguru import logger
 
 from ._models import (
     _DIGEST_PROMPT,
-    _DIGEST_RETRY_DELAYS,
     _build_fallback_digest,
 )
 

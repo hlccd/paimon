@@ -68,9 +68,6 @@ _SKILL_MIHOYO = (
     Path(__file__).resolve().parent.parent.parent.parent / "skills" / "mihoyo" / "main.py"
 )
 
-# 便笺抓取常量
-RESIN_ALERT_THRESHOLD = 150   # ≥此值推送提醒（上限 160，留点缓冲）
-
 # 签到间隔保护：同一账号一天只签一次
 SIGN_COOLDOWN = 23 * 3600     # 23 小时
 

@@ -44,7 +44,7 @@ async def toggle_dividend_cron(
         # 且 /tasks 面板上仍能看到"已停止"的卡，透明度更好
         paused = 0
         already_off = 0
-        for mode_key, t in existing.items():
+        for t in existing.values():
             if not t.enabled:
                 already_off += 1
                 continue

@@ -6,14 +6,6 @@
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
                 .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
         }
-        function fmtTime(ts){
-            if(!ts||ts<=0)return'-';
-            var d=new Date(ts*1000);
-            return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+
-                String(d.getDate()).padStart(2,'0')+' '+
-                String(d.getHours()).padStart(2,'0')+':'+
-                String(d.getMinutes()).padStart(2,'0');
-        }
         function relTime(ts){
             if(!ts||ts<=0) return '-';
             var sec = Math.max(0, Math.floor(Date.now()/1000 - ts));

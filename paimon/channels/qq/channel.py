@@ -48,10 +48,9 @@ class QQChannel(Channel):
     # docs 规则：QQ 上不推送，数据仍存，用户需主动查询
     supports_push = False
 
-    def __init__(self, appid: str, secret: str, owner_ids: str = ""):
+    def __init__(self, appid: str, secret: str):
         self._appid = appid
         self._secret = secret
-        self._owner_ids = owner_ids
         self._client: botpy.Client | None = None
         self._task: asyncio.Task | None = None
         self._chat_contexts: dict[str, dict[str, Any]] = {}

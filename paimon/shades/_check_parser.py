@@ -53,18 +53,6 @@ def parse_candidates_file(path: Path) -> list[dict]:
     return findings
 
 
-def parse_candidates_tree(root: Path) -> list[dict]:
-    """在 root 下递归查找所有 `.check/candidates.jsonl`，合并解析。
-
-    某些场景下 task workspace 可能有多个 `.check/` 子目录，需要 rglob 汇总。
-    三月自检只在项目根单层，可以直接用 `parse_candidates_file`。
-    """
-    all_findings: list[dict] = []
-    for cand in root.rglob(".check/candidates.jsonl"):
-        all_findings.extend(parse_candidates_file(cand))
-    return all_findings
-
-
 def count_severity(findings: list[dict]) -> dict[str, int]:
     """按 severity 统计 findings 数。未知/缺失视为 P2。"""
     counts = {"P0": 0, "P1": 0, "P2": 0, "P3": 0}
@@ -83,31 +71,3 @@ def sort_by_severity(findings: list[dict]) -> list[dict]:
     )
 
 
-def findings_to_issues(
-    findings: list[dict], *, subtask_id: str, limit: int = 20,
-) -> list[dict]:
-    """把 findings 规范化成 ReviewVerdict.issues 结构。
-
-    前 `limit` 条（按 severity 排序后）+ 截断字段长度。
-    三月自检面板可直接用 `findings` 原始列表，不需要这层。
-    """
-    sorted_findings = sort_by_severity(findings)
-    issues: list[dict] = []
-    for f in sorted_findings[:limit]:
-        desc = str(f.get("description") or "")[:300]
-        ev = str(f.get("evidence") or "")[:200]
-        loc = ""
-        if f.get("file"):
-            loc = f"[{f['file']}"
-            if f.get("line"):
-                loc += f":{f['line']}"
-            loc += "] "
-        reason = loc + desc
-        issues.append({
-            "subtask_id": subtask_id,
-            "severity": (f.get("severity") or "P2").upper(),
-            "reason": reason[:400],
-            "suggestion": ev[:400],
-            "module": f.get("module", ""),
-        })
-    return issues

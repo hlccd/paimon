@@ -17,7 +17,7 @@ from typing import Optional
 
 from loguru import logger
 
-from .site_cookies import COOKIES_BASE, cookies_exists, cookies_path
+from .site_cookies import COOKIES_BASE, cookies_path
 
 # 各站登录配置：登录 URL + 登录成功 cookie 名 + 显示名 + QR 元素 selector 列表
 # qr_selectors 按顺序试，命中第一个就只截那部分；全部 miss 才 fallback 整页
@@ -618,49 +618,3 @@ class LoginSession:
         return {"ok": True}
 
 
-# ─────────────────────────────────────────────────────────────
-# cookies 健康检查
-# ─────────────────────────────────────────────────────────────
-
-async def is_cookies_valid(
-    site: str,
-    probe_url: str,
-    *,
-    marker: str | None = None,
-    expect_status: int = 200,
-    timeout_seconds: float = 20.0,
-) -> bool:
-    """headless 跑一次请求，看是否仍是登录态。
-
-    Args:
-        site:        站点名（决定从 ~/.paimon/cookies/{site}.json 读 cookies）
-        probe_url:   探测 URL（用站点的"我的主页"或登录态 API）
-        marker:      返回内容里必须含的字符串（None 则只看状态码）
-        expect_status: 期望 HTTP 状态码
-
-    Returns:
-        True = cookies 有效；False = 失效或文件不存在。
-    """
-    if not cookies_exists(site):
-        return False
-    apw = _import_playwright()
-
-    try:
-        async with apw() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                context = await browser.new_context(storage_state=str(cookies_path(site)))
-                page = await context.new_page()
-                response = await page.goto(probe_url, wait_until="domcontentloaded",
-                                           timeout=int(timeout_seconds * 1000))
-                if not response or response.status != expect_status:
-                    return False
-                if marker is None:
-                    return True
-                content = await page.content()
-                return marker in content
-            finally:
-                await browser.close()
-    except Exception as e:
-        logger.warning("[浏览器·健康检查] {} 失败：{}", site, e)
-        return False

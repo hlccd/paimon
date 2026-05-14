@@ -220,10 +220,7 @@ async def create_app(cfg: Config) -> list[Channel]:
 
     if cfg.bot_token:
         from paimon.channels.telegram import TelegramChannel
-        tg_channel = TelegramChannel(
-            token=cfg.bot_token,
-            owner_id=cfg.owner_id,
-        )
+        tg_channel = TelegramChannel(token=cfg.bot_token)
         channels.append(tg_channel)
 
     if cfg.qq_appid and cfg.qq_secret:
@@ -231,7 +228,6 @@ async def create_app(cfg: Config) -> list[Channel]:
         qq_channel = QQChannel(
             appid=cfg.qq_appid,
             secret=cfg.qq_secret,
-            owner_ids=cfg.qq_owner_ids,
         )
         channels.append(qq_channel)
 

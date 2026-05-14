@@ -57,11 +57,6 @@ class Leyline:
             self._handlers[topic].append(handler)
             logger.debug("[地脉] 订阅 {} -> {}", topic, _handler_name(handler))
 
-    def unsubscribe(self, topic: str, handler: Handler) -> None:
-        handlers = self._handlers.get(topic)
-        if handlers and handler in handlers:
-            handlers.remove(handler)
-
     async def publish(self, topic: str, payload: dict, source: str = "") -> None:
         event = Event(topic=topic, payload=payload, source=source)
         try:

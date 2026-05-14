@@ -60,7 +60,6 @@ async def chat_impl(
     """多轮 tool-loop 主流程：append user → for 15 轮 → 拼 tool_calls → 强制收尾 → 计费。"""
     model.last_chat_cost_usd = 0.0
     model.last_chat_model_name = ""
-    model.last_chat_provider_source = ""
     total_usage = model._empty_usage()
     model._sanitize_session_messages(session.messages)
     session.messages.append({"role": "user", "content": user_input})
@@ -77,7 +76,6 @@ async def chat_impl(
 
         active_provider, provider_source = await model._pick_provider(component, purpose)
         model.last_chat_model_name = active_provider.model_name
-        model.last_chat_provider_source = provider_source
         if round_idx == 0:
             logger.debug(
                 "[神之心·路由] {} / {} → {} ({})",
@@ -107,7 +105,6 @@ async def chat_impl(
                     active_provider = fallback
                     provider_source = fallback_source
                     model.last_chat_model_name = active_provider.model_name
-                    model.last_chat_provider_source = provider_source
                     try:
                         stream_iter = active_provider.chat_stream(runtime_messages, tools=tools)
                     except Exception as e2:

@@ -43,9 +43,6 @@ class _FinanceMixin:
     ) -> None:
         await self._dividend.snapshot.upsert(scan_date, snap, actor=actor)
 
-    async def snapshot_clear_date(self, scan_date: str, *, actor: str) -> int:
-        return await self._dividend.snapshot.clear_date(scan_date, actor=actor)
-
     async def snapshot_latest_date(self) -> str | None:
         return await self._dividend.snapshot.latest_date()
 
@@ -68,11 +65,6 @@ class _FinanceMixin:
     ) -> list[ScoreSnapshot]:
         return await self._dividend.snapshot.history(stock_code, days)
 
-    async def snapshot_get(
-        self, scan_date: str, stock_code: str,
-    ) -> ScoreSnapshot | None:
-        return await self._dividend.snapshot.get_one(scan_date, stock_code)
-
     # -- changes --
     async def change_save(
         self, events: list[ChangeEvent], *, actor: str,
@@ -83,8 +75,6 @@ class _FinanceMixin:
         return await self._dividend.changes.recent(days)
 
     # -- 生命周期 --
-    async def dividend_cleanup(self, keep_days: int = 180, *, actor: str) -> dict:
-        return await self._dividend.cleanup(keep_days, actor=actor)
 
     # ============ 域 8.5: 理财事件聚类 ============
 
@@ -111,31 +101,6 @@ class _FinanceMixin:
         return await self._dividend_event.mark_resolved(
             stock_code, exclude_types=exclude_types, actor=actor,
         )
-
-    async def dividend_event_list(
-        self, *, severity: str | None = None,
-        status: str | None = "active",
-        stock_code: str | None = None,
-        days: int | None = None,
-        limit: int = 200,
-    ) -> list[DividendEvent]:
-        return await self._dividend_event.list(
-            severity=severity, status=status, stock_code=stock_code,
-            days=days, limit=limit,
-        )
-
-    async def dividend_event_count_by_severity(
-        self, *, days: int | None = None, status: str | None = "active",
-    ) -> dict[str, int]:
-        return await self._dividend_event.count_by_severity(days=days, status=status)
-
-    async def dividend_event_get(self, event_id: str) -> DividendEvent | None:
-        return await self._dividend_event.get(event_id)
-
-    async def dividend_event_cleanup(
-        self, keep_days: int = 180, *, actor: str,
-    ) -> int:
-        return await self._dividend_event.cleanup_before(keep_days, actor=actor)
 
     # ============ 域 8.6: 用户关注股 ============
 
@@ -196,9 +161,6 @@ class _FinanceMixin:
             sources=sources, duration_s=duration_s,
         )
 
-    async def stock_watch_news_get(self, stock_code: str) -> dict | None:
-        return await self._user_watchlist.stock_news_get(stock_code)
-
     async def stock_watch_news_list_all(self) -> list[dict]:
         return await self._user_watchlist.stock_news_list_all()
 
@@ -233,9 +195,6 @@ class _FinanceMixin:
     async def mihoyo_note_get(self, game: str, uid: str) -> MihoyoNote | None:
         return await self._mihoyo.note_get(game, uid)
 
-    async def mihoyo_note_list(self) -> list[MihoyoNote]:
-        return await self._mihoyo.note_list()
-
     async def mihoyo_abyss_upsert(self, a: MihoyoAbyss, *, actor: str) -> None:
         await self._mihoyo.abyss_upsert(a, actor=actor)
 
@@ -251,11 +210,6 @@ class _FinanceMixin:
 
     async def mihoyo_gacha_max_id(self, game: str, uid: str, gacha_type: str) -> str:
         return await self._mihoyo.gacha_max_id(game, uid, gacha_type)
-
-    async def mihoyo_gacha_list(
-        self, game: str, uid: str, gacha_type: str, *, limit: int = 500,
-    ) -> list[MihoyoGacha]:
-        return await self._mihoyo.gacha_list(game, uid, gacha_type, limit=limit)
 
     async def mihoyo_gacha_stats(self, game: str, uid: str, gacha_type: str) -> dict:
         return await self._mihoyo.gacha_stats(game, uid, gacha_type)

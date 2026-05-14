@@ -60,7 +60,6 @@ async def _persist_turn(
     # REL-009 加固：用 strip() 比较抹平尾部空格/换行差异
     # （旧实现严格相等，stream 处理偶发尾换行差异会让 case 1 不命中触发重复 append）
     user_text_n = (user_text or "").strip()
-    reply_text_n = (reply_text or "").strip()
 
     def _eq(a: str | None, b: str) -> bool:
         return (a or "").strip() == b
@@ -91,41 +90,3 @@ async def _persist_turn(
     except Exception as e:
         # REL-005 升级：原 debug 静默 → warning，落盘失败需 user 可观测
         logger.warning("[派蒙·落盘] save 失败 (case 2): {}", e)
-
-
-def _persist_shades_turn(
-    session: Session,
-    user_text: str,
-    assistant_text: str,
-    ok: bool,
-) -> None:
-    """把四影一轮的 user/assistant 消息补进 session.messages。
-
-    幂等：若最后一条已是当前 user_text（入口可能已 append user 占位），
-    就不重复 append user；assistant 则按需追加。
-    """
-    # 取最后一条 LLM 标准 role 消息做 last 检查（跳过 notice 等扩展条目）
-    tail = _meaningful_tail(session.messages, 1)
-    if not tail:
-        # 极端情况：新会话还没被 handle_chat 处理过（纯 complex 直送）
-        session.messages.append({"role": "user", "content": user_text})
-    else:
-        last = tail[-1]
-        last_role = last.get("role")
-        last_content = last.get("content") or ""
-        # 情况 A：最后一条就是当前用户消息 → 不重复 append user
-        if last_role == "user" and last_content == user_text:
-            pass
-        # 情况 B：最后一条是 assistant，说明 handle_chat 已闭环了一轮；
-        # user 消息肯定在更早之前已 append（由 model.chat 做）。不再补 user。
-        elif last_role == "assistant":
-            pass
-        # 情况 C：最后一条不是当前 user 也不是 assistant（或完全别的 session 结构）
-        else:
-            session.messages.append({"role": "user", "content": user_text})
-
-    # 追加四影产物作为 assistant message
-    if assistant_text:
-        # 失败也记录，避免历史空洞；带 [四影失败] 前缀便于后续识别
-        content = assistant_text if ok else f"[四影未完成] {assistant_text}"
-        session.messages.append({"role": "assistant", "content": content})

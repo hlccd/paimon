@@ -39,7 +39,7 @@ async def run_agents(
 
     # ─── scout 阶段：晨星拆议题 + 调研 ───
     await _on_notice("🧭 晨星·拆议题…")
-    background, scout_meta = await run_scout(
+    background, _ = await run_scout(
         topic, state.model,
         on_notice=_on_notice,
         session_id=main_session.id,

@@ -63,11 +63,6 @@ def render(template_name: str, ctx: dict[str, Any] | None = None) -> str:
     return _PLACEHOLDER.sub(_sub, raw)
 
 
-def clear_cache() -> None:
-    """开发期热重载用 — 清模板缓存让下次 render 重新读盘。"""
-    _read_template.cache_clear()
-
-
 _NAV_KEYS = (
     "chat", "dashboard", "tasks", "feed", "wealth",
     "game", "knowledge", "plugins", "selfcheck", "llm",

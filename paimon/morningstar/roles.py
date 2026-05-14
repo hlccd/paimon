@@ -153,7 +153,3 @@ def list_roles_for_assemble() -> list[dict[str, str]]:
             "category": meta["category"], "brief": brief,
         })
     return out
-
-
-def get_role(key: str) -> dict[str, str] | None:
-    return ROLES.get(key)

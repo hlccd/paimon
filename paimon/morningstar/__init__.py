@@ -7,6 +7,6 @@
 """
 from .council import CouncilResult, run_council
 from .morningstar import run_agents
-from .roles import ROLES, get_role
+from .roles import ROLES
 
-__all__ = ["run_agents", "run_council", "CouncilResult", "ROLES", "get_role"]
+__all__ = ["run_agents", "run_council", "CouncilResult", "ROLES"]

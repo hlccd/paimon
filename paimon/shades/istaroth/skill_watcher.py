@@ -18,10 +18,7 @@ from typing import TYPE_CHECKING, Callable
 from loguru import logger
 
 try:
-    from watchdog.events import (
-        FileSystemEventHandler, FileCreatedEvent, FileModifiedEvent,
-        FileDeletedEvent, FileMovedEvent,
-    )
+    from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
     _WATCHDOG_OK = True
 except ImportError:

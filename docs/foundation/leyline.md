@@ -33,7 +33,6 @@ class Event:
 | 方法 | 说明 |
 |------|------|
 | `subscribe(topic, handler)` | 注册订阅，handler 为 `async def handler(event)` |
-| `unsubscribe(topic, handler)` | 取消订阅 |
 | `publish(topic, payload, source)` | 发布事件，非阻塞入队 |
 | `start()` | 启动分发循环（在 `asyncio.gather` 中运行） |
 | `stop()` | 停止分发循环 |

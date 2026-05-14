@@ -47,11 +47,6 @@ def read_skill_body(skill_name: str) -> str:
     return text
 
 
-def project_root_repr() -> str:
-    """返回项目根的相对引用（"."），避免绝对路径进入 LLM system prompt。"""
-    return "."
-
-
 def setup_tools(
     session: "Session",
     *,

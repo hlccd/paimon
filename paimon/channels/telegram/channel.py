@@ -18,9 +18,8 @@ from paimon.channels.telegram.reply import (
 class TelegramChannel(Channel):
     name = "telegram"
 
-    def __init__(self, token: str, owner_id: int):
+    def __init__(self, token: str):
         self._token = token
-        self._owner_id = owner_id
         self._bot: Bot | None = None
         self._dp: Dispatcher | None = None
 

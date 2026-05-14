@@ -24,11 +24,6 @@ class IncomingMessage:
 
 
 class ChannelReply(ABC):
-    # 是否是"逐 chunk 即时送达"的流式渠道。
-    # WebUI SSE=True（每 chunk 立刻推）；QQ / TG=False（累加到 buffer，flush 才发）。
-    # 业务层不用这个判断，只给想优化节奏的地方（比如 watchdog 只在流式渠道开）。
-    streaming: bool = False
-
     @abstractmethod
     async def send(self, text: str) -> None: ...
 

@@ -27,9 +27,6 @@ class _RuntimeMixin:
     async def session_upsert(self, rec: SessionRecord, *, actor: str) -> None:
         await self._session.upsert(rec, actor=actor)
 
-    async def session_load(self, session_id: str) -> SessionRecord | None:
-        return await self._session.load(session_id)
-
     async def session_list(
         self, *, channel_key: str | None = None,
         archived: bool = False, limit: int = 50,
@@ -45,9 +42,6 @@ class _RuntimeMixin:
     async def session_delete(self, session_id: str, *, actor: str) -> bool:
         return await self._session.delete(session_id, actor=actor)
 
-    async def session_archive(self, session_id: str, *, actor: str) -> bool:
-        return await self._session.archive(session_id, actor=actor)
-
     async def session_archive_if_idle(
         self, *, now: float, inactive_seconds: float, actor: str,
     ) -> list[str]:
@@ -61,9 +55,6 @@ class _RuntimeMixin:
         return await self._session.purge_expired(
             now=now, archived_ttl_seconds=archived_ttl_seconds, actor=actor,
         )
-
-    async def session_clear_channel_binding(self, channel_key: str, *, except_session: str = "") -> None:
-        await self._session.clear_channel_binding(channel_key, except_session=except_session)
 
     # ============ 域 10: 定时任务（三月）============
     async def schedule_create(self, task: ScheduledTask, *, actor: str) -> str:
@@ -136,11 +127,6 @@ class _RuntimeMixin:
         return await self._subscription.clear_for(
             binding_kind, binding_id, actor=actor,
         )
-
-    async def feed_items_insert(
-        self, sub_id: str, items: list[dict], *, actor: str,
-    ) -> list[int]:
-        return await self._subscription.insert_feed_items(sub_id, items, actor=actor)
 
     async def feed_items_list(
         self, *,
@@ -218,4 +204,3 @@ class _RuntimeMixin:
 
     async def weekly_hotspot_get_latest(self) -> dict | None:
         return await self._hotspot.weekly_get_latest()
-

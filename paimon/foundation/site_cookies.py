@@ -48,10 +48,3 @@ def cookies_age_days(site: str) -> float | None:
     if not p.exists():
         return None
     return (time.time() - p.stat().st_mtime) / 86400.0
-
-
-def list_sites() -> list[str]:
-    """列出所有已存的 cookies 站点（按文件名）。"""
-    if not COOKIES_BASE.exists():
-        return []
-    return sorted(p.stem for p in COOKIES_BASE.glob("*.json"))

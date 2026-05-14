@@ -81,11 +81,6 @@ def derive_sensitivity(allowed_tools: list[str] | None) -> tuple[str, list[str]]
     return ("sensitive" if hits else "normal"), hits
 
 
-def describe_tool_risk(tool: str) -> str:
-    """按归一化后的工具名查风险描述；未知工具返回空串。"""
-    return TOOL_RISK_DESC.get(_normalize(tool), "")
-
-
 def describe_tools(tools: list[str]) -> str:
     """把命中的敏感工具清单转成给用户看的友好描述。
 

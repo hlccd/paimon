@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -129,17 +128,6 @@ class Gnosis:
 
         return self._providers[pool.primary].provider
 
-    @asynccontextmanager
-    async def acquire(self, depth: Depth = "shallow"):
-        pool = self._pools.get(depth)
-        if pool and pool.semaphore:
-            await pool.semaphore.acquire()
-            try:
-                yield self.get_provider(depth)
-            finally:
-                pool.semaphore.release()
-        else:
-            yield self.get_provider(depth)
 
     def report_failure(self, provider_name: str) -> None:
         ph = self._providers.get(provider_name)

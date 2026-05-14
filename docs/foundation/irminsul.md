@@ -140,9 +140,8 @@ await irminsul.authz_set(
 1. 世界树 initialize（建表 / 建目录 / 路径校验就绪 / schema 迁移）
 2. 空执启动：扫 skills/ → skill_declare（幂等写入）→ 从世界树 load plugin 历史声明
 3. 派蒙 / 死执启动：
-   a. 世界树.skill_snapshot() → 本地缓存
-   b. 世界树.authz_snapshot() → 本地缓存
-   c. 等待运行时服务层通知（派蒙内部闭环 / 四影通知）
+   a. 世界树.authz_snapshot() → 本地缓存
+   b. 等待运行时服务层通知（派蒙内部闭环 / 四影通知）
 4. 原石、时执、岩神按需初始化，直接调世界树 API 读写
 ```
 
@@ -310,15 +309,15 @@ CREATE INDEX IF NOT EXISTS idx_session_updated ON session_records(updated_at);
 
 | 域 | 主要方法 |
 |---|---|
-| authz | `authz_get` / `authz_set` / `authz_revoke` / `authz_list` / `authz_snapshot` |
-| skill | `skill_declare` / `skill_get` / `skill_list` / `skill_mark_orphaned` / `skill_remove` / `skill_snapshot` |
+| authz | `authz_set` / `authz_revoke` / `authz_list` / `authz_snapshot` |
+| skill | `skill_declare` / `skill_list` / `skill_mark_orphaned` |
 | knowledge | `knowledge_read` / `knowledge_write` / `knowledge_list` / `knowledge_delete` |
-| memory | `memory_write` / `memory_get` / `memory_list` / `memory_update` / `memory_delete` / `memory_expire` |
+| memory | `memory_write` / `memory_get` / `memory_list` / `memory_update` / `memory_delete` |
 | task | `task_create` / `task_get` / `task_update_status` / `task_update_lifecycle` / `task_list` / `subtask_*` / `flow_*` / `progress_*`（共 10 个） |
-| token | `token_write` / `token_rows` / `token_aggregate` |
-| audit | `audit_append` / `audit_list` |
-| dividend | `watchlist_save` / `watchlist_get` / `watchlist_last_refresh` / `snapshot_upsert` / `snapshot_clear_date` / `snapshot_latest_date` / `snapshot_latest_top` / `snapshot_latest_for_watchlist` / `snapshot_history` / `snapshot_get` / `change_save` / `change_recent` / `dividend_cleanup` |
-| session | `session_create` / `session_save` / `session_load` / `session_list` / `session_delete` / `session_archive` |
+| token | `token_write` / `token_aggregate` |
+| audit | `audit_append` |
+| dividend | `watchlist_save` / `watchlist_get` / `watchlist_last_refresh` / `snapshot_upsert` / `snapshot_latest_date` / `snapshot_latest_top` / `snapshot_latest_for_watchlist` / `snapshot_history` / `change_save` / `change_recent` |
+| session | `session_upsert` / `session_list` / `session_delete` / `session_list_all_full` / `session_archive_if_idle` / `session_purge_expired` |
 
 **所有写 / 删方法必传 `actor: str` 参数**（服务方中文名），世界树统一按 §日志约定 打 INFO 日志。
 
@@ -334,13 +333,6 @@ async def token_write(
     cache_creation_tokens: int = 0, cache_read_tokens: int = 0,
     purpose: str = "", actor: str,
 ) -> None
-
-# 读原始行（条件过滤）
-async def token_rows(
-    *, session_id: str | None = None, component: str | None = None,
-    purpose: str | None = None, since: float | None = None,
-    until: float | None = None, limit: int = 10000,
-) -> list[TokenRow]
 
 # GROUP BY 聚合（原石用来画 dashboard）
 async def token_aggregate(

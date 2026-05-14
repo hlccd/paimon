@@ -24,10 +24,8 @@ class Model:
         self.gnosis = gnosis
         self.router = router              # M2：按 (component, purpose) 路由到 profile
         self.last_chat_cost_usd: float = 0.0
-        # 上一次 chat 实际用的 model_name / 路由来源（聊天气泡尾巴展示用）
-        # —— 按 _pick_provider(component, purpose) 的实际返回记录，不是默认 profile
+        # 上一次 chat 实际用的 model_name（聊天气泡尾巴展示用）
         self.last_chat_model_name: str = ""
-        self.last_chat_provider_source: str = ""
 
     async def _pick_provider(
         self, component: str, purpose: str,

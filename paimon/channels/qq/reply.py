@@ -11,9 +11,7 @@ from paimon.channels.base import ChannelReply
 if TYPE_CHECKING:
     from paimon.channels.qq.channel import QQChannel
 
-QQ_MAX_MESSAGE_LENGTH = 2000  # 腾讯硬限制，仍保留作上限保护
 QQ_CHUNK_LIMIT = 1500          # 实际拆分门限，留 500 字余量给 markdown 控制字符
-PASSIVE_REPLY_TIMEOUT = 290
 
 # notice kind 的处理策略。
 # 见 docs/interaction.md §3.4 渠道 degrade 表。
@@ -32,8 +30,6 @@ def _chunk_text(text: str, max_len: int = QQ_CHUNK_LIMIT) -> list[str]:
 
 class QQChannelReply(ChannelReply):
     # QQ 是批次渠道：send 累加 buffer，flush 才发；notice 是一条独立消息直发。
-    streaming = False
-
     def __init__(
         self,
         channel: "QQChannel",

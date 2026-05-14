@@ -7,8 +7,6 @@ from paimon.channels.base import ChannelReply
 
 
 class WebUIChannelReply(ChannelReply):
-    streaming = True
-
     def __init__(self, reply_callback):
         self._reply = reply_callback
 
