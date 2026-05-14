@@ -220,8 +220,36 @@ import asyncio as _aio_upgrade
 _upgrade_lock = _aio_upgrade.Lock()
 
 
+async def upgrade_local_api(channel, request: web.Request) -> web.Response:
+    """只读本地 HEAD（不 fetch 远端）—— 进页面时秒回，避免阻塞 UX。
+
+    跟 upgrade_check 区别：不跑 `git fetch origin`（最耗时的网络 IO），
+    所以拿不到 behind / commits 列表，只能显示当前版本。
+    用户点「🔄 检查更新」按钮时才调 upgrade_check 看远程状态。
+    """
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    from paimon.__main__ import _run_git
+    _git = lambda args: asyncio.to_thread(_run_git, args)
+    rc, head_out, _ = await _git(["rev-parse", "HEAD"])
+    if rc != 0:
+        return web.json_response({"ok": False, "error": "git rev-parse 失败"}, status=500)
+    rc_s, head_short, _ = await _git(["rev-parse", "--short", "HEAD"])
+    rc_t, head_subject_out, _ = await _git(["log", "-1", "--pretty=%s"])
+    return web.json_response({
+        "ok": True,
+        "head": head_out.strip(),
+        "head_short": head_short.strip() if rc_s == 0 else head_out.strip()[:7],
+        "head_subject": head_subject_out.strip() if rc_t == 0 else "",
+    })
+
+
 async def upgrade_check_api(channel, request: web.Request) -> web.Response:
-    """检查远程是否有更新：git fetch + git log local..origin。返回是否落后 + commit list。"""
+    """检查远程是否有更新：git fetch + git log local..origin。返回是否落后 + commit list。
+
+    走网络 IO（git fetch），5-30s 不等。**只在用户主动点「检查更新」时调**，
+    进页面默认走 upgrade_local_api 拿本地 HEAD 即可。
+    """
     if not channel._check_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
 
@@ -495,6 +523,7 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_get("/api/selfcheck/runs/{run_id}/quick", lambda r, ch=channel: selfcheck_run_quick_api(ch, r))
     app.router.add_delete("/api/selfcheck/runs/{run_id}", lambda r, ch=channel: selfcheck_run_delete_api(ch, r))
     app.router.add_post("/api/selfcheck/deep/run", lambda r, ch=channel: selfcheck_deep_run_api(ch, r))
+    app.router.add_get("/api/selfcheck/upgrade/local", lambda r, ch=channel: upgrade_local_api(ch, r))
     app.router.add_get("/api/selfcheck/upgrade/check", lambda r, ch=channel: upgrade_check_api(ch, r))
     app.router.add_post("/api/selfcheck/upgrade/trigger", lambda r, ch=channel: upgrade_trigger_api(ch, r))
     app.router.add_post("/api/selfcheck/restart", lambda r, ch=channel: restart_api(ch, r))

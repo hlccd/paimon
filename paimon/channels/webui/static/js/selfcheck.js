@@ -391,6 +391,36 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // 仅读本地 HEAD，秒回 —— 进页面用这个，避免 git fetch 走网络阻塞 UX
+  async function loadUpgradeLocal() {
+    const bar = document.getElementById('upgradeBar');
+    const headEl = document.getElementById('upgradeHead');
+    const behindEl = document.getElementById('upgradeBehind');
+    const btnApply = document.getElementById('btnUpgradeApply');
+    const commitsEl = document.getElementById('upgradeCommits');
+    try {
+      const r = await fetch('/api/selfcheck/upgrade/local');
+      const d = await r.json();
+      if (!d.ok) {
+        headEl.textContent = '读取失败';
+        return;
+      }
+      let sub = d.head_subject || '';
+      if (sub.length > 70) sub = sub.substring(0, 70) + '…';
+      headEl.textContent = sub
+        ? '当前: ' + sub + ' (' + d.head_short + ')'
+        : '当前 ' + d.head_short;
+      behindEl.textContent = '· 点「检查更新」查看远程';
+      behindEl.className = '';
+      bar.classList.remove('has-update');
+      btnApply.style.display = 'none';
+      commitsEl.style.display = 'none';
+    } catch (e) {
+      // 静默：本地 git 应该不会失败
+    }
+  }
+
+  // 主动 git fetch 检查远程是否有更新（5-30s 网络 IO，仅按钮触发）
   async function loadUpgradeStatus() {
     if (_upgradeChecking) return;
     _upgradeChecking = true;
@@ -684,14 +714,13 @@
 
     loadLatestQuick();
     loadRuns(currentTab);
-    loadUpgradeStatus();
+    loadUpgradeLocal();   // 进页面只读本地 HEAD，不 fetch 远端（避免 30s 卡顿）
     loadRollbackStatus();
     setInterval(() => {
       loadLatestQuick();
       loadRuns(currentTab);
     }, 30000);
     setInterval(() => {
-      loadUpgradeStatus();
       loadRollbackStatus();
     }, 300000);
 
