@@ -206,3 +206,54 @@ class UserWatchlistRepo:
         ) as cur:
             row = await cur.fetchone()
         return row[0] if row and row[0] else None
+
+    # ─── 关注股资讯（域 8.8，覆盖式每股一条最新；同水神 mihoyo_game_news 模式）───
+    async def stock_news_upsert(
+        self, *, stock_code: str, markdown: str,
+        sources: str = "", duration_s: int = 0,
+    ) -> None:
+        """每股一条最新：INSERT OR REPLACE 覆盖。"""
+        import time as _t
+        await self._db.execute(
+            "INSERT OR REPLACE INTO stock_watch_news "
+            "(stock_code, markdown, sources, duration_s, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (stock_code, markdown, sources, duration_s, int(_t.time())),
+        )
+        await self._db.commit()
+
+    async def stock_news_get(self, stock_code: str) -> dict | None:
+        async with self._db.execute(
+            "SELECT stock_code, markdown, sources, duration_s, updated_at "
+            "FROM stock_watch_news WHERE stock_code = ?",
+            (stock_code,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        return {
+            "stock_code": row[0], "markdown": row[1], "sources": row[2],
+            "duration_s": row[3], "updated_at": row[4],
+        }
+
+    async def stock_news_list_all(self) -> list[dict]:
+        """所有关注股的最新资讯，按 updated_at 倒序。"""
+        async with self._db.execute(
+            "SELECT stock_code, markdown, sources, duration_s, updated_at "
+            "FROM stock_watch_news ORDER BY updated_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "stock_code": r[0], "markdown": r[1], "sources": r[2],
+                "duration_s": r[3], "updated_at": r[4],
+            }
+            for r in rows
+        ]
+
+    async def stock_news_delete(self, stock_code: str) -> None:
+        """取消关注时清掉对应资讯（防孤儿）。"""
+        await self._db.execute(
+            "DELETE FROM stock_watch_news WHERE stock_code = ?", (stock_code,),
+        )
+        await self._db.commit()

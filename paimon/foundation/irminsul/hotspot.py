@@ -1,6 +1,7 @@
 """风神 · 每日热点数据域 11.7。
 
-每天 cron 11/17 两个 slot 各跑一次，按 (capture_date, capture_slot) 自然累积历史。
+整张表只保留 1 条最新（同 weekly_hotspot 模式）：每次 upsert 前 DELETE 全表，
+跨日 / 跨 slot / 手动触发都覆盖。前端进面板只展示最新这份，不存历史。
 失败的源走 sources_fail 记录但仍 upsert（前端能看见状态）。
 """
 from __future__ import annotations
@@ -30,15 +31,12 @@ class HotspotRepo:
         duration_s: int,
         actor: str = "风神",
     ) -> None:
-        """每天只保留 1 条最新：先删同 date 所有记录，再 INSERT。
+        """整张表只保留 1 条最新：先 DELETE 全表，再 INSERT。
 
-        capture_slot 仅作信息字段记录"最后一次什么时段触发的"（morning/afternoon/manual），
-        不参与唯一约束。下午跑覆盖中午跑，手动跑也覆盖。
+        跨日 / 跨 slot / 手动触发都覆盖；不再保留历史（用户明确要求）。
+        capture_slot 仅作信息字段记录"最后一次什么时段触发的"。
         """
-        await self._db.execute(
-            "DELETE FROM daily_hotspot WHERE capture_date = ?",
-            (capture_date,),
-        )
+        await self._db.execute("DELETE FROM daily_hotspot")
         await self._db.execute(
             "INSERT INTO daily_hotspot "
             "(captured_at, capture_date, capture_slot, markdown, "
@@ -51,13 +49,13 @@ class HotspotRepo:
         )
         await self._db.commit()
         logger.info(
-            "[世界树] {}·每日热点 upsert {} (slot={}) ok={} fail={} items={} duration={}s",
+            "[世界树] {}·每日热点 upsert {} (slot={}) ok={} fail={} items={} duration={}s（覆盖式单条）",
             actor, capture_date, capture_slot,
             sources_ok or "-", sources_fail or "-", items_total, duration_s,
         )
 
     async def get_latest(self) -> dict[str, Any] | None:
-        """拿最新一份（按 captured_at 倒序，跨 date+slot 第一条）。"""
+        """拿唯一一份（整张表只 1 条）。"""
         async with self._db.execute(
             "SELECT id, captured_at, capture_date, capture_slot, markdown, "
             "       sources_ok, sources_fail, items_total, duration_s "
@@ -65,30 +63,6 @@ class HotspotRepo:
         ) as cur:
             row = await cur.fetchone()
         return self._row_to_dict(row) if row else None
-
-    async def get_by_slot(self, capture_date: str, capture_slot: str) -> dict[str, Any] | None:
-        """拿指定 (date, slot) 的记录。"""
-        async with self._db.execute(
-            "SELECT id, captured_at, capture_date, capture_slot, markdown, "
-            "       sources_ok, sources_fail, items_total, duration_s "
-            "FROM daily_hotspot WHERE capture_date=? AND capture_slot=?",
-            (capture_date, capture_slot),
-        ) as cur:
-            row = await cur.fetchone()
-        return self._row_to_dict(row) if row else None
-
-    async def list_recent(self, days: int = 7) -> list[dict[str, Any]]:
-        """近 N 天的所有 slot（最多 N×2 条），按 captured_at 倒序。"""
-        since_ts = int(time.time()) - days * 86400
-        async with self._db.execute(
-            "SELECT id, captured_at, capture_date, capture_slot, markdown, "
-            "       sources_ok, sources_fail, items_total, duration_s "
-            "FROM daily_hotspot WHERE captured_at >= ? "
-            "ORDER BY captured_at DESC",
-            (since_ts,),
-        ) as cur:
-            rows = await cur.fetchall()
-        return [self._row_to_dict(r) for r in rows]
 
     @staticmethod
     def _row_to_dict(row: tuple) -> dict[str, Any]:

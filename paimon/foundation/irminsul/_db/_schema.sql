@@ -191,6 +191,17 @@ CREATE TABLE IF NOT EXISTS user_watchlist_price (
 CREATE INDEX IF NOT EXISTS idx_user_price_code_date
     ON user_watchlist_price(stock_code, date DESC);
 
+-- ============ 域 8.8: 岩神 · 关注股资讯（覆盖式，每股一条最新）============
+-- run_stock_topic_collect 跑完写这里；同水神 mihoyo_game_news 模式（PK=stock_code）。
+-- 不再走 push_archive 累积历史；前端进 /wealth 资讯 tab 直接拉这张表展示。
+CREATE TABLE IF NOT EXISTS stock_watch_news (
+    stock_code  TEXT PRIMARY KEY,
+    markdown    TEXT NOT NULL DEFAULT '',
+    sources     TEXT NOT NULL DEFAULT '',  -- 'bili,xhs'
+    duration_s  INTEGER NOT NULL DEFAULT 0,
+    updated_at  INTEGER NOT NULL DEFAULT 0
+);
+
 -- ============ 域 8.7: 米哈游账号（水神 · mihoyo）============
 -- 唯一写入者：水神（经 mihoyo skill 调米游社 API 后）
 -- 读取者：水神（签到/便笺/深渊/抽卡流程）、WebUI /game 面板

@@ -236,6 +236,11 @@ async def clear_stock_subscriptions(
     deleted = await irminsul.subscription_clear_for(
         "stock_watch", binding_id, actor="岩神",
     )
+    # 同步清掉关注股资讯单条记录（避免取消关注后还残留 stock_watch_news 孤儿数据）
+    try:
+        await irminsul.stock_watch_news_delete(stock_code)
+    except Exception as e:
+        logger.warning("[岩神·关注股订阅] 清资讯记录失败 stock={}: {}", stock_code, e)
     if deleted:
         logger.info(
             "[岩神·关注股订阅] clear 完成 stock={} 删 {} 条",

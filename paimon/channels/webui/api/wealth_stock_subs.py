@@ -73,6 +73,28 @@ async def wealth_stock_subs_toggle_api(channel, request: web.Request,
     return web.json_response({"ok": True})
 
 
+async def wealth_stock_news_list_api(channel, request: web.Request) -> web.Response:
+    """列所有关注股的最新资讯（每股一条，按 updated_at 倒序）。
+
+    替代原来按 source='岩神·stock_watch:CODE' 在 push_archive 里分桶的方案 ——
+    现在直接读单条覆盖式表 stock_watch_news。
+    """
+    if not channel._check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    irminsul = channel.state.irminsul
+    if not irminsul:
+        return web.json_response({"items": []})
+    items = await irminsul.stock_watch_news_list_all()
+    # 给前端补上 stock_name（资讯卡按名字展示比代码友好）
+    for it in items:
+        try:
+            entry = await irminsul.user_watch_get(it.get("stock_code") or "")
+            it["stock_name"] = (entry.stock_name or "") if entry else ""
+        except Exception:
+            it["stock_name"] = ""
+    return web.json_response({"items": items})
+
+
 async def wealth_stock_subs_run_api(channel, request: web.Request,
 ) -> web.Response:
     """立即触发一次岩神关注股资讯采集。"""
@@ -103,7 +125,8 @@ async def wealth_stock_subs_run_api(channel, request: web.Request,
 
 
 def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
-    """注册 wealth_stock_subs 面板的 3 个路由。"""
+    """注册 wealth_stock_subs 面板的 4 个路由。"""
     app.router.add_get("/api/wealth/stock_subscriptions", lambda r, ch=channel: wealth_stock_subs_list_api(ch, r))
+    app.router.add_get("/api/wealth/stock_news", lambda r, ch=channel: wealth_stock_news_list_api(ch, r))
     app.router.add_post("/api/wealth/stock_subscriptions/{sub_id}/toggle", lambda r, ch=channel: wealth_stock_subs_toggle_api(ch, r))
     app.router.add_post("/api/wealth/stock_subscriptions/{sub_id}/run", lambda r, ch=channel: wealth_stock_subs_run_api(ch, r))

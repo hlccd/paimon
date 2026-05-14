@@ -1,10 +1,10 @@
-"""岩神·关注股 topic 资讯 collector：跑 topic skill 拉 UGC，落 push_archive。
+"""岩神·关注股 topic 资讯 collector：跑 topic skill 拉 UGC，覆盖式落 stock_watch_news。
 
 binding_kind='stock_watch' 的订阅走这里：
 - 直接调 skills/topic/scripts/research.py subprocess（同水神 furina/news.py），跳 LLM 综合
 - query 直接用股票名（不再加'公告 资讯'后缀）
-- markdown 通过 march.ring_event 落 push_archive，source='岩神·stock_watch:CODE'
-- 前端 /wealth 资讯 tab 按 source 过滤展示
+- markdown 写 stock_watch_news（PK=stock_code，每股一条最新覆盖；不再走 push_archive 累积）
+- 前端 /wealth 资讯 tab 直接拉 stock_watch_news 展示
 
 时间预算：topic subprocess 30-60s（bili+xhs UGC 抓取）。
 """
@@ -14,7 +14,6 @@ import asyncio
 import sys
 import time
 from pathlib import Path
-from uuid import uuid4
 
 from loguru import logger
 
@@ -57,9 +56,9 @@ async def run_stock_topic_collect(sub, state) -> None:
     """关注股 topic 资讯订阅 cron 入口。
 
     sub.binding_id = stock_code；用 user_watch_get 拿 stock_name 当 query。
-    走 push_archive，source 形如 '岩神·stock_watch:600519'，前端按此过滤。
+    覆盖式落 stock_watch_news 表（每股一条最新，不再累积历史）。
     """
-    if not state.irminsul or not state.march:
+    if not state.irminsul:
         logger.error("[岩神·关注股 topic] state 未就绪 sub={}", sub.id)
         return
     if not sub.enabled:
@@ -67,7 +66,6 @@ async def run_stock_topic_collect(sub, state) -> None:
         return
 
     irminsul = state.irminsul
-    march = state.march
     code = (sub.binding_id or "").strip()
     if not code:
         logger.warning("[岩神·关注股 topic] 无 stock_code sub={}", sub.id)
@@ -93,7 +91,6 @@ async def run_stock_topic_collect(sub, state) -> None:
         )
         return
 
-    source_label = f"岩神·stock_watch:{code}"
     logger.info(
         "[岩神·关注股 topic] 开始采集 sub={} code={} query={!r}",
         sub.id, code, query,
@@ -123,27 +120,20 @@ async def run_stock_topic_collect(sub, state) -> None:
     idx = markdown.find("## 各源采集情况")
     display_md = markdown[:idx].rstrip() + "\n" if idx >= 0 else markdown
 
-    digest_id = uuid4().hex[:12]
     try:
-        await march.ring_event(
-            channel_name=sub.channel_name,
-            chat_id=sub.chat_id,
-            source=source_label,
-            message=display_md,
-            extra={
-                "sub_id": sub.id,
-                "binding_kind": sub.binding_kind,
-                "binding_id": sub.binding_id,
-                "stock_code": code,
-                "stock_name": stock_name,
-                "query": query,
-                "digest_id": digest_id,
-                "duration_s": duration_s,
-            },
-            dedup_per_day=True,
+        await irminsul.stock_watch_news_upsert(
+            stock_code=code, markdown=display_md,
+            sources="bili,xhs", duration_s=duration_s,
         )
     except Exception as e:
-        logger.error("[岩神·关注股 topic] ring_event 失败 sub={} err={}", sub.id, e)
+        logger.error(
+            "[岩神·关注股 topic] 落库失败 code={} err={}", code, e,
+        )
+        await irminsul.subscription_update(
+            sub.id, actor="岩神", last_run_at=time.time(),
+            last_error=f"落库失败: {e}"[:500],
+        )
+        return
 
     await irminsul.subscription_update(
         sub.id, actor="岩神", last_run_at=time.time(), last_error="",

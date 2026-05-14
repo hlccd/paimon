@@ -185,6 +185,26 @@ class _FinanceMixin:
     async def user_watch_price_max_date(self, stock_code: str) -> str | None:
         return await self._user_watchlist.price_max_date(stock_code)
 
+    # ============ 域 8.8: 关注股资讯（覆盖式每股一条）============
+
+    async def stock_watch_news_upsert(
+        self, *, stock_code: str, markdown: str,
+        sources: str = "", duration_s: int = 0,
+    ) -> None:
+        await self._user_watchlist.stock_news_upsert(
+            stock_code=stock_code, markdown=markdown,
+            sources=sources, duration_s=duration_s,
+        )
+
+    async def stock_watch_news_get(self, stock_code: str) -> dict | None:
+        return await self._user_watchlist.stock_news_get(stock_code)
+
+    async def stock_watch_news_list_all(self) -> list[dict]:
+        return await self._user_watchlist.stock_news_list_all()
+
+    async def stock_watch_news_delete(self, stock_code: str) -> None:
+        await self._user_watchlist.stock_news_delete(stock_code)
+
     # ============ 域 8.7: 米哈游账号 ============
 
     async def mihoyo_account_upsert(self, acc: MihoyoAccount, *, actor: str) -> None:

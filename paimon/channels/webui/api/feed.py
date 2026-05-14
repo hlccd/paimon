@@ -194,21 +194,6 @@ async def hotspot_today_api(channel, request: web.Request) -> web.Response:
     return web.json_response({"hotspot": rec, "running": running})
 
 
-async def hotspot_list_api(channel, request: web.Request) -> web.Response:
-    """近 N 天的所有 slot 列表（最多 N×2 条，倒序）。"""
-    if not channel._check_auth(request):
-        return web.json_response({"error": "Unauthorized"}, status=401)
-    irminsul = channel.state.irminsul
-    if not irminsul:
-        return web.json_response({"items": []})
-    try:
-        days = max(1, min(int(request.query.get("days", "7")), 30))
-    except (TypeError, ValueError):
-        days = 7
-    items = await irminsul.daily_hotspot_list_recent(days)
-    return web.json_response({"items": items})
-
-
 async def hotspot_run_api(channel, request: web.Request) -> web.Response:
     """手动触发一次每日热点采集（前端「立即跑」按钮）。
 
@@ -377,7 +362,6 @@ def register_routes(app: web.Application, channel: "WebUIChannel") -> None:
     app.router.add_post("/api/feed/subs/{sub_id}/run", lambda r, ch=channel: feed_subs_run_api(ch, r))
     app.router.add_get("/api/feed/topic_research/{sub_id}", lambda r, ch=channel: feed_topic_research_api(ch, r))
     app.router.add_get("/api/feed/hotspot/today", lambda r, ch=channel: hotspot_today_api(ch, r))
-    app.router.add_get("/api/feed/hotspot/list", lambda r, ch=channel: hotspot_list_api(ch, r))
     app.router.add_post("/api/feed/hotspot/run", lambda r, ch=channel: hotspot_run_api(ch, r))
     app.router.add_get("/api/feed/weekly/latest", lambda r, ch=channel: weekly_latest_api(ch, r))
     app.router.add_post("/api/feed/weekly/run", lambda r, ch=channel: weekly_run_api(ch, r))

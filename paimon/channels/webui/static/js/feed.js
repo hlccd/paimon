@@ -32,21 +32,15 @@
             else if(key==='login') loadLoginOverview();
         };
 
-        // ── 每日热点 ──
-        var _hotspotItems = [];   // 历史 list（每天 1 条）
+        // ── 每日热点 ──（单条覆盖式：整张表只 1 条最新，无历史 picker）
         var _hotspotCurrent = null;
         var _hotspotRunning = false;  // 后端 inflight 状态（API running 字段，render 据此设按钮）
         var _hotspotPollTimer = null;
 
         async function loadHotspot(){
             try{
-                var [todayResp, listResp] = await Promise.all([
-                    fetch('/api/feed/hotspot/today'),
-                    fetch('/api/feed/hotspot/list?days=7'),
-                ]);
+                var todayResp = await fetch('/api/feed/hotspot/today');
                 var td = await todayResp.json();
-                var ld = await listResp.json();
-                _hotspotItems = ld.items || [];
                 _hotspotCurrent = td.hotspot || null;
                 _hotspotRunning = !!td.running;
                 renderHotspot();
@@ -64,7 +58,6 @@
         function renderHotspot(){
             var meta = document.getElementById('hotspotMeta');
             var body = document.getElementById('hotspotBody');
-            var picker = document.getElementById('hotspotPicker');
             var btn = document.getElementById('hotspotRunBtn');
 
             // 按钮 = 后端 running 的镜像（参考订阅卡 sub.running 模式）：
@@ -84,19 +77,7 @@
                     + (_hotspotRunning ? '正在跑 6 源 + LLM 综合，约 1-2 分钟…' : '点 ▶ 立即跑 看看 6 源热榜综合（约 1-2 分钟）')
                     + '<br><span style="font-size:11px;opacity:.6">每天 11:00 / 17:00 cron 自动跑</span>'
                     + '</div>';
-                picker.style.display='none';
                 return;
-            }
-
-            // 历史下拉：每天最多 1 条，按 capture_date 列
-            if(_hotspotItems.length > 1){
-                picker.style.display='';
-                picker.innerHTML = _hotspotItems.map(function(it){
-                    var sel = (it.id === _hotspotCurrent.id) ? ' selected' : '';
-                    return '<option value="'+it.id+'"'+sel+'>'+esc(it.capture_date)+'</option>';
-                }).join('');
-            } else {
-                picker.style.display='none';
             }
 
             var ts = fmtTime(_hotspotCurrent.captured_at);
@@ -123,15 +104,6 @@
                 a.setAttribute('rel','noopener noreferrer');
             });
         }
-
-        window.onHotspotPick = function(){
-            var id = parseInt(document.getElementById('hotspotPicker').value);
-            var match = _hotspotItems.find(function(x){return x.id===id;});
-            if(match){
-                _hotspotCurrent = match;
-                renderHotspot();
-            }
-        };
 
         window.runHotspot = async function(){
             // 立即视觉反馈，不等后端 race（同订阅卡的 runSub 模式）

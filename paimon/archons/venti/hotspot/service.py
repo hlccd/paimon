@@ -85,16 +85,11 @@ async def _do_run_daily(state) -> None:
     )
 
     if not ok:
-        # 全部失败：仍 upsert 一条占位，markdown 写错误说明
-        markdown = (
-            f"## ⚠️ 全部 {len(_SOURCES)} 源采集失败\n\n"
-            + "\n".join(f"- **{SOURCE_LABELS.get(r.source, r.source)}**：{r.error}" for r in failed)
-        )
-        duration_s = int(time.time() - t0)
-        await irminsul.daily_hotspot_upsert(
-            capture_date=capture_date, capture_slot=capture_slot,
-            markdown=markdown, sources_ok="", sources_fail=sources_fail,
-            items_total=0, duration_s=duration_s,
+        # 全部失败：不写表（避免覆盖之前那次成功跑出的好数据）；
+        # 失败原因走日志，前端继续展示之前那次的内容。下次 cron 或手动「立即跑」会再试。
+        logger.error(
+            "[风神·hotspot] 全 {} 源采集失败，保留旧数据不写表 fail={}",
+            len(_SOURCES), sources_fail,
         )
         return
 
@@ -156,12 +151,21 @@ async def _do_run_weekly(state) -> None:
     logger.info("[风神·近期回顾] 开始汇总 {} ~ {}", range_start, range_end)
     t0 = time.time()
 
-    items = await irminsul.daily_hotspot_list_recent(days=7)
-    items_in_range = [
-        r for r in items
-        if r.get("capture_date") and range_start <= r["capture_date"] <= range_end
-    ]
-    items_in_range.sort(key=lambda r: r.get("captured_at", 0))
+    # daily_hotspot 改成单条覆盖式后，整张表只剩最新一条；
+    # weekly 综合"过去 7 天"实际只能基于这 1 条 daily（compose_weekly 已支持数据不足场景）
+    latest = await irminsul.daily_hotspot_get_latest()
+    items_in_range = (
+        [latest] if latest and latest.get("capture_date")
+        and range_start <= latest["capture_date"] <= range_end
+        else []
+    )
+    if not items_in_range:
+        # 没数据可综合：保留之前那次成功的 weekly（不覆盖），失败原因走日志
+        logger.warning(
+            "[风神·近期回顾] 窗口 {} ~ {} 无 daily 数据，保留旧 weekly 不写表",
+            range_start, range_end,
+        )
+        return
 
     from ._compose_weekly import compose_weekly
     try:
@@ -170,12 +174,10 @@ async def _do_run_weekly(state) -> None:
             range_start=range_start, range_end=range_end,
         )
     except Exception as e:
-        logger.error("[风神·近期回顾] LLM 综合失败: {}", e)
-        # 即使 LLM 失败也落一条占位（带数据范围），让前端能展示"暂无内容 + 范围"
-        markdown = (
-            f"## 近期回顾 · {range_start} ~ {range_end}\n\n"
-            f"⚠️ 本次合成失败：{str(e)[:160]}"
+        logger.error(
+            "[风神·近期回顾] LLM 综合失败: {}，保留旧 weekly 不写表", e,
         )
+        return
 
     duration_s = int(time.time() - t0)
     await irminsul.weekly_hotspot_upsert(

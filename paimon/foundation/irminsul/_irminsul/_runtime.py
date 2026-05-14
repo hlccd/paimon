@@ -205,14 +205,6 @@ class _RuntimeMixin:
     async def daily_hotspot_get_latest(self) -> dict | None:
         return await self._hotspot.get_latest()
 
-    async def daily_hotspot_get_by_slot(
-        self, capture_date: str, capture_slot: str,
-    ) -> dict | None:
-        return await self._hotspot.get_by_slot(capture_date, capture_slot)
-
-    async def daily_hotspot_list_recent(self, days: int = 7) -> list[dict]:
-        return await self._hotspot.list_recent(days)
-
     # ============ 域 11.8: 风神 · 近期回顾 ============
     async def weekly_hotspot_upsert(
         self, *, capture_date: str, range_start: str, range_end: str,
