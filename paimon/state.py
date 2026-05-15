@@ -43,6 +43,9 @@ class RuntimeState:
     channels: dict[str, "Channel"] = field(default_factory=dict)
     session_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     session_task_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
+    # channel_key → 该渠道当前所有活跃 session_id 集合（含主 session + ephemeral skill + agents）
+    # /stop 用此反查批量 cancel；session_tasks 仍按 session_id 索引保持不变。
+    channel_active_session_ids: dict[str, set[str]] = field(default_factory=dict)
     # 授权体系
     authz_cache: AuthzCache | None = None
     authz_decision: AuthzDecision | None = None

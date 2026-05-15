@@ -1,6 +1,8 @@
 """/agents 命令 — 多视角讨论入口（晨星召集 3-5 个天使讨论议题）。"""
 from __future__ import annotations
 
+import asyncio
+
 from loguru import logger
 
 from paimon.state import state
@@ -47,11 +49,33 @@ async def cmd_agents(ctx: CommandContext) -> str:
     )
 
     from paimon.morningstar import run_agents
+    from paimon.core.chat.session import (
+        _register_session_task, _unregister_session_task,
+    )
+    # 包成 task 注册到 channel index → /stop 才能 cancel；不直接 await
+    task = asyncio.create_task(run_agents(
+        topic=topic, msg=ctx.msg, channel=ctx.channel,
+        main_session=main_session,
+    ))
+    _register_session_task(ctx.msg.channel_key, main_session.id, task)
     try:
-        await run_agents(
-            topic=topic, msg=ctx.msg, channel=ctx.channel,
-            main_session=main_session,
-        )
+        await task
+    except asyncio.CancelledError:
+        # /stop 触发的取消：吞掉异常 + 给用户一行回执，不再走异常 reply 路径
+        logger.info("[晨星] /agents 被 /stop 取消")
+        try:
+            await ctx.msg.reply("已停止讨论。")
+        except Exception:
+            pass
+        main_session.messages.append({
+            "role": "assistant", "content": "（讨论被 /stop 取消）",
+            "meta": _MERGE_META,
+        })
+        try:
+            await state.session_mgr.save_session_async(main_session)
+        except Exception:
+            pass
+        return SKILL_HANDLED_SENTINEL
     except Exception as e:
         logger.error("[晨星] 讨论异常: {}", e)
         err_msg = f"晨星讨论异常：{type(e).__name__}: {e}"
@@ -69,6 +93,8 @@ async def cmd_agents(ctx: CommandContext) -> str:
         except Exception as save_e:
             logger.warning("[晨星] 异常路径 save 失败: {}", save_e)
         return SKILL_HANDLED_SENTINEL
+    finally:
+        _unregister_session_task(ctx.msg.channel_key, main_session.id, task)
 
     # 已自行 stream + merge 主 session，让 entry 跳过 reply / persist 避免重复
     return SKILL_HANDLED_SENTINEL

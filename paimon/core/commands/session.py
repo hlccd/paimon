@@ -88,17 +88,22 @@ async def cmd_switch(ctx: CommandContext) -> str:
 
 @command("stop")
 async def cmd_stop(ctx: CommandContext) -> str:
-    """中止当前会话正在生成的回复。"""
+    """中止当前渠道所有正在生成的任务（主 chat / skill / /agents 一并停）。"""
     from paimon.core.chat import stop_session_task
 
-    session_mgr = state.session_mgr
-    if not session_mgr:
-        return "会话管理器未初始化"
-    current = session_mgr.get_current(ctx.msg.channel_key)
-    if not current:
-        return "当前没有活跃会话"
-    stopped = await stop_session_task(current.id)
-    return "已停止当前回复" if stopped else "当前没有正在生成的回复"
+    channel_key = ctx.msg.channel_key
+    # channel_active_session_ids 含主 session + ephemeral skill session + agents 包装 task
+    # 三类活跃任务全部反查批量 cancel
+    sids = list(state.channel_active_session_ids.get(channel_key, set()))
+    if not sids:
+        return "当前没有正在生成的回复"
+    stopped = 0
+    for sid in sids:
+        if await stop_session_task(sid):
+            stopped += 1
+    if stopped == 0:
+        return "当前没有正在生成的回复"
+    return f"已停止 {stopped} 个活跃任务" if stopped > 1 else "已停止当前回复"
 
 
 @command("clear")

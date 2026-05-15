@@ -18,6 +18,27 @@ from ._handler import handle_chat
 from ._persist import _persist_turn
 
 
+def _register_session_task(channel_key: str, session_id: str, task: asyncio.Task) -> None:
+    """注册 task 到 session_tasks + channel_active_session_ids 双索引。
+
+    /stop 通过 channel_active_session_ids 反查渠道下所有活跃 session_id，
+    再调 stop_session_task 批量 cancel（覆盖主 chat / ephemeral skill / agents）。
+    """
+    state.session_tasks[session_id] = task
+    state.channel_active_session_ids.setdefault(channel_key, set()).add(session_id)
+
+
+def _unregister_session_task(channel_key: str, session_id: str, task: asyncio.Task) -> None:
+    """清理双索引。task 比对避免误删后续覆盖的同 id task。"""
+    if state.session_tasks.get(session_id) is task:
+        state.session_tasks.pop(session_id, None)
+    sids = state.channel_active_session_ids.get(channel_key)
+    if sids:
+        sids.discard(session_id)
+        if not sids:
+            state.channel_active_session_ids.pop(channel_key, None)
+
+
 async def run_session_chat(
     msg: IncomingMessage, channel: Channel, session: Session,
     skill_name: str = "",
@@ -53,7 +74,7 @@ async def run_session_chat(
                 logger.debug("[派蒙·对话] 会话{}旧任务结束: {}", session.id, e)
 
         task = asyncio.create_task(handle_chat(msg, channel, session, skill_name=skill_name))
-        state.session_tasks[session.id] = task
+        _register_session_task(msg.channel_key, session.id, task)
 
     # skill 路径（skill_name 非空）套整体超时；闲聊路径不套
     cfg = state.cfg
@@ -86,8 +107,7 @@ async def run_session_chat(
         raise
     finally:
         async with lock:
-            if state.session_tasks.get(session.id) is task:
-                del state.session_tasks[session.id]
+            _unregister_session_task(msg.channel_key, session.id, task)
 
     if timeout_reason is not None:
         # skill 整体超时：直接 reply 错误信息终止，不再升级四影
