@@ -54,10 +54,12 @@ class QQChannel(Channel):
         self._client: botpy.Client | None = None
         self._task: asyncio.Task | None = None
         self._chat_contexts: dict[str, dict[str, Any]] = {}
-        # markdown 进程级降级标志：API 调用失败一次（通常是无权限）后永久关闭 md 尝试，
-        # 避免每条 md 消息都先试再 fallback，浪费 API 配额且增加延迟。
-        # 重启 paimon 进程会重置（让用户在开通权限后无需改代码就生效）。
+        # markdown 进程级降级：原来 1 次失败就永久关闭，间歇性抖动会污染整个进程 →
+        # 改成"连续 N 次失败才永久关"。中间任何一次成功 → 计数器清零。
+        # 单次失败：本条 fallback 纯文本，下条仍尝试 md。
         self._md_disabled: bool = False
+        self._md_fail_streak: int = 0
+        self._MD_FAIL_THRESHOLD: int = 3   # 连续 3 次失败 → 进程级降级（典型权限问题信号）
 
     def register_chat_context(self, chat_id: str, msg_type: str, msg_id: str):
         self._chat_contexts[chat_id] = {
@@ -134,7 +136,7 @@ class QQChannel(Channel):
             msg_id = ctx.get("last_msg_id")
 
         # markdown 路径：默认开启，仅含 md 语法的消息走 msg_type=2；
-        # API 调用失败一次（如 bot 无 md 权限）→ _md_disabled 永久关闭，后续走纯文本。
+        # 失败计数器：单次失败本条 fallback；连续 _MD_FAIL_THRESHOLD 次才永久降级。
         use_md = (not self._md_disabled) and _looks_like_markdown(text)
 
         if use_md:
@@ -147,6 +149,7 @@ class QQChannel(Channel):
                         msg_id=msg_id,
                         msg_seq=msg_seq,
                     )
+                    self._md_fail_streak = 0   # 成功一次 → 清零计数
                     return
                 elif msg_type == "c2c":
                     await api.post_c2c_message(
@@ -156,18 +159,26 @@ class QQChannel(Channel):
                         msg_id=msg_id,
                         msg_seq=msg_seq,
                     )
+                    self._md_fail_streak = 0
                     return
                 else:
                     logger.warning("[派蒙·QQ频道] 未知消息类型 {}", msg_type)
                     return
             except Exception as e:
-                # 通常是 bot 无 markdown 权限。记一次 WARNING + 进程级降级 +
-                # fallback 到纯文本（避免本条消息丢失）。
-                self._md_disabled = True
-                logger.warning(
-                    "[派蒙·QQ频道] markdown 发送失败，本进程降级为纯文本（重启后会再次尝试 md）: {}",
-                    e,
-                )
+                # 单次失败本条 fallback 纯文本；累计连续 N 次才永久降级。
+                # 中间任何一次成功 → fail_streak 清零（间歇性抖动不污染进程）。
+                self._md_fail_streak += 1
+                if self._md_fail_streak >= self._MD_FAIL_THRESHOLD:
+                    self._md_disabled = True
+                    logger.warning(
+                        "[派蒙·QQ频道] markdown 连续 {} 次失败 → 本进程永久降级为纯文本（重启重置）。最后一次错误: {}",
+                        self._md_fail_streak, e,
+                    )
+                else:
+                    logger.warning(
+                        "[派蒙·QQ频道] markdown 发送失败 ({}/{}) 本条 fallback 纯文本: {}",
+                        self._md_fail_streak, self._MD_FAIL_THRESHOLD, e,
+                    )
                 # 继续走下面的纯文本路径
 
         try:

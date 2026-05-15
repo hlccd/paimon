@@ -26,11 +26,24 @@ if TYPE_CHECKING:
 
 @dataclass
 class IntentResult:
-    kind: str  # "chat" | "skill"
+    kind: str  # "chat" | "skill" | "hotspot"
     skill_name: str = ""
+    hotspot_kind: str = ""  # "daily" | "weekly"，仅 kind=="hotspot" 有意义
 
 
 # ============ 规则引擎：常见高置信度 pattern ============
+
+# 风神热点资讯快捷入口（chat 里直接问"今日热点"/"近期回顾"）
+# weekly 先匹配（含"近期"/"本周"等明确范围词，daily 触发词更宽容易抢）
+_HOTSPOT_WEEKLY_PATTERNS = [
+    re.compile(r"近期回顾|这周热点|本周热点|周热点回顾|本周.{0,3}回顾|近期.{0,3}总结"),
+    re.compile(r"周末.{0,4}(看什么|有什么|大事)"),
+]
+_HOTSPOT_DAILY_PATTERNS = [
+    re.compile(r"今日热点|今天热点|今日热搜|今日.{0,3}新闻|最近热点|近日热点"),
+    re.compile(r"今天.{0,4}(看什么|有什么|大事|新鲜事|热搜)"),
+    re.compile(r"(给我|说说|讲讲|来.{0,2})(今日|今天|最近)(的)?热点"),
+]
 
 # 定时 / 提醒 / 推送：几乎 100% 是 schedule 工具调用
 _SCHEDULE_PATTERNS = [
@@ -106,6 +119,16 @@ def _rule_classify(user_input: str, skill_registry: SkillRegistry) -> IntentResu
     t = user_input.strip()
     if not t:
         return None
+
+    # 0) 风神热点 chat 入口：触发词命中即直接读 daily/weekly_hotspot facade，无需 LLM
+    for pat in _HOTSPOT_WEEKLY_PATTERNS:
+        if pat.search(t):
+            logger.info("[派蒙·意图·规则] 命中近期回顾模式 → hotspot:weekly")
+            return IntentResult(kind="hotspot", hotspot_kind="weekly")
+    for pat in _HOTSPOT_DAILY_PATTERNS:
+        if pat.search(t):
+            logger.info("[派蒙·意图·规则] 命中今日热点模式 → hotspot:daily")
+            return IntentResult(kind="hotspot", hotspot_kind="daily")
 
     # 1) 定时 / 提醒类 → chat（派蒙直接调 schedule 工具）
     for pat in _SCHEDULE_PATTERNS:

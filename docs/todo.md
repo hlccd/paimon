@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 只记录**尚未实现 / 待完善**的事项。已完成项请查 git log。
-> 更新时间：2026-05-08
+> 更新时间：2026-05-15
 
 ## 0. ⚠️ 最高优
 
@@ -18,12 +18,6 @@
     - 评估多轮 LLM 工作流的轮数上限——体量决定 max_rounds 不能照搬 methodology
 
 ## 1. 职能层面
-
-- [ ] **风神 · 热点资讯 chat 入口** —— 让用户在 chat 里直接问"今日热点"/"近期回顾"也能拿到内容
-  - 现状：只有 webui `/feed` 面板能看（`daily_hotspot` / `weekly_hotspot` 表已存好）
-  - 候选实现：thin skill 包装 `daily_hotspot_get_latest` + `weekly_hotspot_get_latest` facade，
-    意图分类规则引擎加触发词（"今日热点"/"今天热点"/"最近热点"/"近期回顾"/"这周热点"等）
-  - 不需要重写底层（hotspot collector / cron / LLM 综合都已实装）
 
 - [ ] **推送策略深化**
   - **已做**：`march.ring_event` 60s/10 次滑窗限流 + `dedup_per_day=True` 日级 upsert + `push_archive` 持久化 + 审计 + leyline `push.archived` publish + PushHub 进程内 SSE 扇出
@@ -94,27 +88,21 @@
 
 ## 4. 已知 bug
 
-### 1. /dividend rescore 等"立即返回"命令的 web 显示问题
+### 1. /stop 在 skill / /agents 跑期间无效
 
-- 现象：bg task 启动 + push_archive 写入完成，但 webui 前端没显示「已触发...」回复
-- 排查：前端 SSE handler 在 dedup 跳过持久化时的 race
-- 文件：`paimon/core/chat/_persist.py:_persist_turn`、`paimon/channels/webui/static_html/_chat_html_body_*.py`
-
-### 2. /stop 在 skill / /agents 跑期间无效
-
-- 副作用：天使 skill 调用建独立 ephemeral session.id，但 `state.session_tasks` 按 session.id 索引、`/stop` 按当前 channel 主 session.id 反查 → skill 跑时 /stop 找不到 ephemeral 任务
+- 副作用：天使 skill 调用建独立 ephemeral session.id,但 `state.session_tasks` 按 session.id 索引、`/stop` 按当前 channel 主 session.id 反查 → skill 跑时 /stop 找不到 ephemeral 任务
 - /agents 同样：`run_council` 在 cmd_agents 里 await，没注册到 state.session_tasks
 - 修复路径：`/stop` 扩展为按 channel_key 反查所有活跃任务批量 cancel
 - 文件：`paimon/core/chat/session.py:stop_session_task`、`paimon/core/commands/_dispatch.py:_run_skill_isolated`、`paimon/core/commands/agents.py`
 
-### 3. xhs collector 补抓笔记摘要
+### 2. xhs collector 补抓笔记摘要
 
 - 现状：xhs 搜索列表 DOM 卡片只有 title/author/like，没有正文摘要 → topic skill 输出无 50 字摘要
 - 升级路径：search 阶段先拿 note_id list → 二次抓详情页 DOM 拿 body
 - 复杂度：每条多一次 chromium goto，N=15 多 30-60s
 - 文件：`skills/topic/scripts/lib/sources/xhs.py`
 
-### 4. 提高贴吧 collector 覆盖度
+### 3. 提高贴吧 collector 覆盖度
 
 - 现状：贴吧 web 搜索 SPA 每 topic 实际只渲染 3-5 个 .threadcardclass
 - 改进路径：百度通用搜索 + `site:tieba.baidu.com/p/` 拿更多链接

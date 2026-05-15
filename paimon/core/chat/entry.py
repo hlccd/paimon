@@ -110,6 +110,11 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
     from paimon.core.intent import classify_intent
     intent = await classify_intent(model, session, msg.text, state.skill_registry)
 
+    if intent.kind == "hotspot":
+        # 风神热点 chat 快捷入口：直接读 daily/weekly_hotspot 单条覆盖式表
+        await _handle_hotspot_intent(intent.hotspot_kind, msg, channel, channel_key)
+        return
+
     if intent.kind == "skill":
         reply = await channel.make_reply(msg)
         sk = state.skill_registry.get(intent.skill_name) if state.skill_registry else None
@@ -144,3 +149,48 @@ async def on_channel_message(msg: IncomingMessage, channel: Channel):
             name=f"chat-nudge-{session.id[:8]}",
         )
 
+
+async def _handle_hotspot_intent(
+    hotspot_kind: str, msg: IncomingMessage, channel: Channel, channel_key: str,
+) -> None:
+    """风神热点 chat 入口处理器。
+
+    数据已存好（每天 11/17 cron 跑 daily / 每周六 10:00 跑 weekly），直接拉表展示。
+    没数据时告诉用户 cron 时间 + /feed 立即跑入口。
+    """
+    irminsul = state.irminsul
+    reply = await channel.make_reply(msg)
+    if not irminsul:
+        body = "世界树未就绪，无法读取热点数据。"
+        await reply.send(body)
+        await _persist_turn(channel_key, msg.text, body)
+        return
+
+    if hotspot_kind == "weekly":
+        rec = await irminsul.weekly_hotspot_get_latest()
+        empty_tip = (
+            "暂无近期回顾内容。每周六 10:00 自动汇总过去 7 天热点；"
+            "也可在 /feed 面板「近期回顾」tab 立即跑（耗时 1-2 分钟）。"
+        )
+        title = "📅 近期回顾"
+    else:
+        rec = await irminsul.daily_hotspot_get_latest()
+        empty_tip = (
+            "暂无今日热点内容。每天 11:00 / 17:00 自动跑 6 源 UGC 综合；"
+            "也可在 /feed 面板「今日热点」tab 立即跑（耗时 1-2 分钟）。"
+        )
+        title = "🔥 今日热点"
+
+    if not rec or not (rec.get("markdown") or "").strip():
+        body = empty_tip
+    else:
+        # 已有 markdown 自带标题（compose_daily/weekly 输出含 ## 段）；前面只补一个简短上下文
+        ts = rec.get("captured_at") or rec.get("updated_at") or 0
+        if ts:
+            from datetime import datetime as _dt
+            tstr = _dt.fromtimestamp(ts).strftime("%m-%d %H:%M")
+            body = f"{title}（更新于 {tstr}）\n\n{rec['markdown']}"
+        else:
+            body = f"{title}\n\n{rec['markdown']}"
+    await reply.send(body)
+    await _persist_turn(channel_key, msg.text, body)
