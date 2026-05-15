@@ -95,14 +95,7 @@
 - 修复路径：`/stop` 扩展为按 channel_key 反查所有活跃任务批量 cancel
 - 文件：`paimon/core/chat/session.py:stop_session_task`、`paimon/core/commands/_dispatch.py:_run_skill_isolated`、`paimon/core/commands/agents.py`
 
-### 2. xhs collector 补抓笔记摘要
-
-- 现状：xhs 搜索列表 DOM 卡片只有 title/author/like，没有正文摘要 → topic skill 输出无 50 字摘要
-- 升级路径：search 阶段先拿 note_id list → 二次抓详情页 DOM 拿 body
-- 复杂度：每条多一次 chromium goto，N=15 多 30-60s
-- 文件：`skills/topic/scripts/lib/sources/xhs.py`
-
-### 3. 提高贴吧 collector 覆盖度
+### 2. 提高贴吧 collector 覆盖度
 
 - 现状：贴吧 web 搜索 SPA 每 topic 实际只渲染 3-5 个 .threadcardclass
 - 改进路径：百度通用搜索 + `site:tieba.baidu.com/p/` 拿更多链接

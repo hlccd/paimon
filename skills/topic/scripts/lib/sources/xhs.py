@@ -13,6 +13,10 @@ cookies 来源：~/.paimon/cookies/xhs.json（playwright storage_state 格式）
 ⚠️ 日期：搜索列表卡片不带 published_at（要点进笔记详情才有）。
    MVP 阶段把 published_at 设为 range_to（今天作为占位），
    牺牲精确时效换覆盖度——后续可优化为详情页二次抓。
+
+⚠️ 摘要补抓（fetch_detail，默认开）：搜索卡片只有 title/like，没正文。
+   补抓阶段对每条 item 串行打开详情页 → 拿 .desc/.note-content 截 200 字填 body。
+   代价：N=15 条 × ~3-5s ≈ 45-75s。不愿等可调用方传 fetch_detail=False。
 """
 from __future__ import annotations
 
@@ -100,16 +104,87 @@ _EXTRACT_JS = r"""
 """
 
 
+# 详情页正文提取脚本：xhs SSR + SPA 混合，常见正文容器多种命名都试一遍。
+# 多 selector fallback 防 hash class 改名；最差返空（保 body="" 跟现状一致）。
+_DETAIL_BODY_JS = r"""
+() => {
+    const candidates = [
+        '#detail-desc', '.note-content .desc', '.note-content #detail-desc',
+        '.desc', '.note-content', '[class*="note-content"] [class*="desc"]',
+        '[class*="desc"]', '[class*="note-content"]',
+    ];
+    for (const sel of candidates) {
+        const el = document.querySelector(sel);
+        if (el) {
+            const txt = (el.innerText || '').trim();
+            // 排除明显非正文（< 10 字 / 是按钮文案）
+            if (txt && txt.length >= 10) return txt;
+        }
+    }
+    return '';
+}
+"""
+
+# 详情页 timeout（每条独立，超时跳过该条不阻塞批次）
+_DETAIL_GOTO_TIMEOUT_MS = 10_000
+# DOM 渲染等待（SSR 1.5-2s 应该有 .desc）
+_DETAIL_WAIT_MS = 2_000
+# 单条间隔（模拟人操作，降低风控概率）
+_DETAIL_BETWEEN_S = 0.5
+# body 截断长度（render._summarize 默认 80~120 字，多截一点给 score 用）
+_BODY_MAX_CHARS = 200
+
+
+def _enrich_body(context, items: list[Item], log_fn) -> None:
+    """串行打开每个 item 的详情页拿 body 填回 item.body。
+
+    复用搜索阶段的 browser context（cookies + 反检测脚本就位）。
+    单条 try/except + timeout cap：拿不到就保留 body=""，不阻塞批次。
+    """
+    import time as _t
+    ok = 0
+    fail = 0
+    for it in items:
+        if not it.url:
+            continue
+        page = None
+        try:
+            page = context.new_page()
+            page.goto(it.url, wait_until="domcontentloaded",
+                      timeout=_DETAIL_GOTO_TIMEOUT_MS)
+            page.wait_for_timeout(_DETAIL_WAIT_MS)
+            body_raw = page.evaluate(_DETAIL_BODY_JS) or ""
+            body = body_raw.strip()
+            if body:
+                it.body = body[:_BODY_MAX_CHARS]
+                ok += 1
+            else:
+                fail += 1
+        except Exception as e:
+            fail += 1
+            log_fn(f"详情页拿 body 失败 nid={it.item_id[:12]}: {type(e).__name__}")
+        finally:
+            if page is not None:
+                try: page.close()
+                except Exception: pass
+        _t.sleep(_DETAIL_BETWEEN_S)
+    log_fn(f"摘要补抓完成 ok={ok} fail={fail}")
+
+
 def collect(
     topic: str,
     range_from: str,
     range_to: str,
     *,
     limit: int = 20,
+    fetch_detail: bool = True,
 ) -> list[Item]:
     """xhs collector 入口：playwright 跑搜索页拿笔记列表。
 
     无 cookies / playwright 未装 / chromium 未装 / 反爬阻挡 → 返回 [] + 清晰 log。
+
+    fetch_detail=True（默认）：search 拿到 items 后串行打开每个详情页拿正文摘要填
+    item.body（耗时 +30~60s）；False 则只拿搜索列表数据，body 保持空。
     """
     cookies_path = _cookies_storage_path()
     if not cookies_path:
@@ -222,6 +297,18 @@ def collect(
                     ))
                     if len(items) >= limit:
                         break
+
+                # 摘要补抓：复用 context 串行 goto 详情页填 body
+                # 单条失败不阻塞批次；不愿等的调用方传 fetch_detail=False
+                if fetch_detail and items:
+                    log.source_log(
+                        "xhs",
+                        f"开始详情页摘要补抓 N={len(items)}（预计 +{len(items)*4}s）",
+                    )
+                    _enrich_body(
+                        context, items,
+                        log_fn=lambda m: log.source_log("xhs", m),
+                    )
             finally:
                 browser.close()
     except Exception as e:
