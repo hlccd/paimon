@@ -145,7 +145,14 @@ class AnthropicProvider(Provider):
             "messages": anthropic_messages,
         }
         if system:
-            kwargs["system"] = system
+            # 标 ephemeral prompt cache（5 分钟 TTL）— system 通常稳定（人格 +
+            # 规则），重复调用第二次起命中：input token 价 0.1 折 + 跳过 prefill。
+            # >1024 tokens 才真缓存（Opus / Sonnet 阈值），不到也不报错只是没收益。
+            kwargs["system"] = [{
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }]
         if anthropic_tools:
             kwargs["tools"] = anthropic_tools
 
