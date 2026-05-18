@@ -52,15 +52,9 @@
   - **UIGF 标准导入**：从 Paimon.moe / Snap Hutao / 椰羊 等工具导出的 UIGF JSON 直接导入
   - **本地抽卡模拟器**：基于官方公告概率 + 保底/小保底规则
 
-- [ ] **用户帮助/教程体系** —— 当前 `/help` 是二级目录硬编码 plain text；docs/ 全是开发者文档无新手 onboarding；WebUI 无引导界面入口
-  - 二级 `/help <cmd>` 显示子命令详情 + 典型例子
-  - WebUI 新手引导（首次空对话 welcome card）
-  - `docs/getting-started.md`：用户视角的"30 分钟上手"
-  - 隐式 skill 触发提示（intent 命中 skill 时 UI 显示）
-
-- [ ] **自进化执行时长优化** —— `/evolve` 调 propose+review 串行 LLM
-  - **轻量验证用浅层模型**：派蒙 task_review "明显安全"路径用 shallow LLM
-  - **prompt cache 命中率**：feedback 注入已稳态排序，但 system prompt 主体仍每次 from scratch；改用模板化稳定前缀
+- [ ] **自进化执行时长优化（剩浅池验证档）** —— `/evolve` 调 propose+review 串行 LLM
+  - prompt cache 已实装（cc08724：anthropic system 标 ephemeral，实测命中 6462 tokens）
+  - 剩：派蒙 task_review "明显安全"路径用 shallow LLM（要先有"明显安全"判定逻辑，待实际痛点显化再做）
 
 ## 2. 自进化
 
