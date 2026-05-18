@@ -19,14 +19,6 @@
 
 ## 1. 职能层面
 
-- [ ] **推送策略深化**
-  - **已做**：`march.ring_event` 60s/10 次滑窗限流 + `dedup_per_day=True` 日级 upsert + `push_archive` 持久化 + 审计 + leyline `push.archived` publish + PushHub 进程内 SSE 扇出
-  - **未做**：
-    - `level='loud'` 的实际打断 UX —— 字段已预留但全仓无差异化
-    - 多事件响铃并发时的优先级仲裁（目前 FIFO）
-    - 派蒙 crash 后的积压重播
-    - 按 source 分级的频率策略
-
 - [ ] **三月·自检 Deep 暂缓**
   - 底层全部实装；`config.selfcheck_deep_hidden=True` 默认隐藏
   - **卡点**：mimo-v2-omni 对 check skill 的多轮迭代执行不充分

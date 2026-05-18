@@ -1,6 +1,6 @@
-"""三月调度服务核心：MarchService 类（poll / fire / 任务管理 / 响铃 delegator）。
+"""三月调度服务核心：MarchService 类（poll / fire / 任务管理）。
 
-事件响铃实现拆到 _ring.py（148 行），通用 helper 拆到 _helpers.py，避免单文件超 500。
+通用 helper 拆到 _helpers.py。
 """
 from __future__ import annotations
 

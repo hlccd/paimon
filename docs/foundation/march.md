@@ -14,17 +14,11 @@
   - **岩神**：定时追踪股价 / 分红
   - **时执**：过期数据清理 ✅ —— `_maybe_trigger_lifecycle_sweep` 在 `_poll` 末尾 hook，每 6h 触发 `paimon/shades/_lifecycle.run_lifecycle_sweep`；单例守护 + sweep 独立 task 失败不影响主轮询
   - **世界树**：缓存预热
-- **推送响铃**（两种触发方式）：
-  - **定时响铃**：三月按预设时间触发 → 通知对应数据收集者整理内容 → 把整理好的内容交给派蒙
-    - 实装：[`MarchService._fire_task`](../../paimon/foundation/march/)（`_poll` 扫 `scheduled_tasks` 域）
-  - **事件响铃**：接收数据收集者的响铃请求（感知到重要数据） → 把整理好的内容交给派蒙
-    - 实装：[`MarchService.ring_event`](../../paimon/foundation/march/)（复用地脉 `march.ring` 订阅路径，派蒙侧零改动）
-    - 接入：`await state.march.ring_event(channel_name=..., chat_id=..., source="风神", message="...")`；`message` / `prompt` 至少一个非空
-    - 限流：同 `(source, channel, chat_id)` 三元组 60s 内最多 10 次，超限返 False + warning log
-    - audit：每次成功推送记 `event_type="march_ring_event"`；限流拒绝不记
-- **响铃约束**：
-  - 三月是**唯一响铃入口**（数据收集者不直接找派蒙）
-  - 三月**不直发**给用户（送达由派蒙承担，详见 [派蒙](../paimon/paimon.md)）
+- **定时响铃**：三月按预设时间触发 → 通知对应数据收集者整理内容
+  - 实装：[`MarchService._fire_task`](../../paimon/foundation/march/)（`_poll` 扫 `scheduled_tasks` 域）
+  - 数据收集者跑完直接落业务表（如 `dividend_snapshot` / `daily_hotspot` / `mihoyo_note`）；
+    需要"事件归档"性质的内容直接调 `irminsul.push_archive_create` 落 `push_archive`，
+    各自面板进入时拉历史展示。三月不再做主动推送（无 ring_event / 无红点 / 无限流）。
 - **自检体系**（Quick ✅ 已上线 / Deep ⏸ 暂缓 · 2026-04-25）：
   - **运行时诊断（Quick）** — ✅ 可用：`/selfcheck` 斜杠命令触发；秒级纯代码
     探针 9 组件（irminsul / leyline / gnosis / march / session_mgr / skill_registry /

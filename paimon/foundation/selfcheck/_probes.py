@@ -142,7 +142,6 @@ async def _probe_march(svc: "SelfCheckService") -> dict:
             "running_scheduled_tasks": len(m._running_tasks),
             "lifecycle_sweep_age_seconds": round(sweep_age, 1),
             "lifecycle_sweep_running": m._lifecycle_sweep_running,
-            "event_rate_limit_keys": len(m._event_rate_limit),
             "deep_selfcheck_running": deep_running,
         }
     }

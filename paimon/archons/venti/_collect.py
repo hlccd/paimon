@@ -1,18 +1,9 @@
-"""风神 · 订阅采集 mixin：collect_subscription 入口 + impl + 空跑占位 + web_search 调用。"""
+"""风神 · 订阅采集 mixin：collect_subscription 入口（按 binding_kind 分发）。"""
 from __future__ import annotations
 
-import asyncio
-import json
-import sys
-import time
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 from loguru import logger
-
-from paimon.foundation.march import today_local_bounds
-
-from ._models import _DEDUP_WINDOW_SECONDS, _SKILL_SEARCH_PY, _WEB_SEARCH_TIMEOUT
 
 if TYPE_CHECKING:
     from paimon.foundation.irminsul import Irminsul
@@ -63,71 +54,3 @@ class _CollectMixin:
         finally:
             self._inflight.discard(sub_id)
 
-    async def _run_web_search(
-        self, query: str, limit: int, engine: str,
-    ) -> list[dict]:
-        """调用 web-search skill 的 search.py，返回 JSON list。"""
-        if not _SKILL_SEARCH_PY.exists():
-            raise RuntimeError(
-                f"web-search skill 不存在: {_SKILL_SEARCH_PY}；"
-                "请确认 skills/web-search 已安装"
-            )
-
-        args: list[str] = [
-            sys.executable, str(_SKILL_SEARCH_PY),
-            query, "--limit", str(max(1, min(limit, 50))),
-        ]
-        if engine:
-            args.extend(["--engine", engine])
-
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            out_b, err_b = await asyncio.wait_for(
-                proc.communicate(), timeout=_WEB_SEARCH_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            raise RuntimeError(f"web-search 超时 > {_WEB_SEARCH_TIMEOUT}s")
-
-        rc = proc.returncode or 0
-        if rc != 0:
-            err_txt = (err_b or b"").decode("utf-8", "ignore").strip()
-            # USB-001：rc 数字 → 中文行动建议
-            # rc=3 = 所有引擎都挂；rc=2 = 参数错
-            hint_map = {
-                2: "搜索参数错误（query/limit/engine 配置异常）",
-                3: "全部搜索引擎暂时不可用（网络/反爬/限流），请稍后重试",
-            }
-            hint = hint_map.get(rc, f"搜索失败（退出码 {rc}）")
-            raise RuntimeError(f"{hint}：{err_txt[:200]}")
-
-        out_txt = (out_b or b"").decode("utf-8", "ignore").strip()
-        if not out_txt:
-            return []
-        try:
-            data = json.loads(out_txt)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"web-search 输出非 JSON: {e}") from e
-
-        if not isinstance(data, list):
-            return []
-        # 规范化：只保留必要字段 + 去空 url
-        out: list[dict] = []
-        for it in data:
-            if not isinstance(it, dict):
-                continue
-            url = (it.get("url") or "").strip()
-            if not url:
-                continue
-            out.append({
-                "url": url,
-                "title": (it.get("title") or "").strip(),
-                "description": (it.get("description") or "").strip(),
-                "engine": (it.get("engine") or "").strip(),
-            })
-        return out
