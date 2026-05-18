@@ -15,8 +15,6 @@ from paimon.foundation.irminsul.schedule import ScheduledTask
 from ._helpers import (
     MAX_FAILURES,
     MIN_INTERVAL,
-    RING_EVENT_MAX_PER_WINDOW,
-    RING_EVENT_WINDOW_SECONDS,
     _cron_next,
 )
 
@@ -33,8 +31,6 @@ class MarchService:
         self._leyline = leyline
         self._running = False
         self._running_tasks: set[str] = set()
-        # 事件响铃限流状态（内存滑动窗口；重启清零可接受）
-        self._event_rate_limit: dict[tuple[str, str, str], list[float]] = {}
         # 时执生命周期清扫（docs/shades/istaroth.md §核心能力）
         # 首次启动延后一个周期再扫，避免刚起服就清旧数据
         self._last_lifecycle_sweep: float = time.time()
@@ -332,42 +328,6 @@ class MarchService:
     async def list_tasks(self) -> list[ScheduledTask]:
         """列全部任务（启用/未启用都返回，给 /tasks 面板）。"""
         return await self._irminsul.schedule_list()
-
-    # ---- 事件响铃 ----
-
-    async def ring_event(
-        self,
-        *,
-        channel_name: str,
-        chat_id: str,
-        source: str,
-        message: str = "",
-        prompt: str = "",
-        task_id: str = "",
-        level: str = "silent",
-        extra: dict | None = None,
-        dedup_per_day: bool = False,
-    ) -> bool:
-        """事件响铃 delegator → _ring.ring_event_impl；行为见该文件 docstring。"""
-        from ._ring import ring_event_impl
-        return await ring_event_impl(
-            self,
-            channel_name=channel_name, chat_id=chat_id,
-            source=source, message=message, prompt=prompt, task_id=task_id,
-            level=level, extra=extra, dedup_per_day=dedup_per_day,
-        )
-
-    def _rate_limit_check(self, key: tuple) -> bool:
-        """事件响铃滑动窗口限流。返回 True=允许通过；False=超限拒绝。"""
-        now = time.time()
-        window = self._event_rate_limit.setdefault(key, [])
-        cutoff = now - RING_EVENT_WINDOW_SECONDS
-        while window and window[0] < cutoff:
-            window.pop(0)
-        if len(window) >= RING_EVENT_MAX_PER_WINDOW:
-            return False
-        window.append(now)
-        return True
 
     @staticmethod
     def _calc_initial_next_run(trigger_type: str, trigger_value: dict, now: float) -> float:

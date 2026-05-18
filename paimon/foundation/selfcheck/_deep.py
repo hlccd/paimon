@@ -340,12 +340,12 @@ async def _notify_deep_result(
             f"  P0={sev['P0']} P1={sev['P1']} P2={sev['P2']} P3={sev['P3']}\n"
             f"  详情 → /selfcheck"
         )
-        await svc._march.ring_event(
-            channel_name="webui", chat_id=PUSH_CHAT_ID,
-            source="三月·自检", message=msg,
+        await svc._irminsul.push_archive_create(
+            source="三月·自检", actor="三月",
+            message_md=msg, channel_name="webui", chat_id=PUSH_CHAT_ID,
         )
     except Exception as e:
-        logger.debug("[三月·自检·Deep] 推送失败（静默）: {}", e)
+        logger.debug("[三月·自检·Deep] 归档失败（静默）: {}", e)
 
 
 async def mark_deep_failed(

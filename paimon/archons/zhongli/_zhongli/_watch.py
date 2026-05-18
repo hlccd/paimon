@@ -149,16 +149,18 @@ class _WatchMixin:
             len(codes), total_upserted, len(alerts),
         )
 
-        # 推送（有波动才发；dedup_per_day 同日多次扫描复用同一条卡）
-        if alerts and march and chat_id and channel_name:
+        # 波动告警归档（用户进 /wealth 关注股 tab 看 sparkline + 历史）
+        if alerts and irminsul:
             try:
                 md = self._compose_watch_alert(alerts)
-                await march.ring_event(
-                    channel_name=channel_name, chat_id=chat_id,
-                    source="岩神·关注股波动", message=md, dedup_per_day=True,
+                await irminsul.push_archive_create(
+                    source="岩神·关注股波动", actor="岩神",
+                    message_md=md,
+                    channel_name=channel_name or "webui",
+                    chat_id=chat_id or "",
                 )
             except Exception as e:
-                logger.error("[岩神·关注股] 推送失败: {}", e)
+                logger.error("[岩神·关注股] 告警归档失败: {}", e)
 
         return {'count': len(codes), 'alerts': alerts, 'upserted': total_upserted}
 

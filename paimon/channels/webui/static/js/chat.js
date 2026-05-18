@@ -32,9 +32,6 @@ let currentSession = 'default';
             const empty = !active || active.children.length === 0;
             hero.style.display = empty ? '' : 'none';
         }
-        // 推送已迁移到顶部红点抽屉（push_archive 表 + /api/push_archive/* 路由），
-        // 不再有 push 会话实体，前端 chat 不再监听 /api/push 长连接。
-
         document.addEventListener('DOMContentLoaded', () => {
             loadSessions();
             setupInput();

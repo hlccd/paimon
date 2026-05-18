@@ -199,21 +199,20 @@ class ZhongliArchon(_ScanMixin, _SkillMixin, _WatchMixin, _DigestMixin, Archon):
                     logger.info("[岩神·采集] 完成（无新数据） mode={}", mode)
                     return
 
-                # 推送日报（digest · markdown）—— source="岩神·理财日报"
-                # dedup_per_day=True：当日多次扫描（cron 19:00 + 手动日更/重评分）
-                # 复用同一条公告卡片，内容变就更新+置顶+重置未读，不变只 bump 时间戳。
+                # 日报 markdown 直接归档（前端 /wealth 资讯 tab 拉 records[0] 显示）
                 # extra 塞 {p0_count, p1_count, ...} 供 /api/wealth/stats 查近 7 天统计
-                if channel_name and chat_id:
+                if irminsul:
                     try:
                         events = result.get('events') or {'p0': [], 'p1': [], 'p2': []}
                         digest_md, meta = self._compose_daily_digest(mode, result, events)
-                        await march.ring_event(
-                            channel_name=channel_name, chat_id=chat_id,
-                            source="岩神·理财日报", message=digest_md,
-                            extra=meta, dedup_per_day=True,
+                        await irminsul.push_archive_create(
+                            source="岩神·理财日报", actor="岩神",
+                            message_md=digest_md,
+                            channel_name=channel_name or "webui",
+                            chat_id=chat_id, extra=meta,
                         )
                     except Exception as e:
-                        logger.error("[岩神·推送] 失败: {}", e)
+                        logger.error("[岩神·日报归档] 失败: {}", e)
 
                 p0n = len((result.get('events') or {}).get('p0') or [])
                 p1n = len((result.get('events') or {}).get('p1') or [])

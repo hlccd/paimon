@@ -80,52 +80,19 @@ class _ObservabilityMixin:
             level=level, extra=extra,
         )
 
-    async def push_archive_upsert_daily(
-        self,
-        *,
-        source: str,
-        actor: str,
-        message_md: str,
-        day_start: float,
-        day_end: float,
-        channel_name: str = "webui",
-        chat_id: str = "",
-        level: str = "silent",
-        extra: dict | None = None,
-    ) -> tuple[str, str]:
-        return await self._push_archive.upsert_daily(
-            source=source, actor=actor, message_md=message_md,
-            day_start=day_start, day_end=day_end,
-            channel_name=channel_name, chat_id=chat_id,
-            level=level, extra=extra,
-        )
-
     async def push_archive_get(self, rec_id: str) -> PushArchiveRecord | None:
         return await self._push_archive.get(rec_id)
 
     async def push_archive_list(
         self, *,
         actor: str | None = None,
-        only_unread: bool = False,
         since: float | None = None,
         until: float | None = None,
         limit: int = 50,
     ) -> list[PushArchiveRecord]:
         return await self._push_archive.list(
-            actor=actor, only_unread=only_unread,
-            since=since, until=until, limit=limit,
+            actor=actor, since=since, until=until, limit=limit,
         )
-
-    async def push_archive_count_unread_grouped(self) -> dict[str, int]:
-        return await self._push_archive.count_unread_grouped()
-
-    async def push_archive_mark_read(self, rec_id: str) -> bool:
-        return await self._push_archive.mark_read(rec_id)
-
-    async def push_archive_mark_read_all(
-        self, *, actor: str | None = None,
-    ) -> int:
-        return await self._push_archive.mark_read_all(actor=actor)
 
     # ============ 域 14: LLM Profile ============
     async def llm_profile_create(

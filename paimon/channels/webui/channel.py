@@ -76,12 +76,10 @@ class WebUIChannel(Channel):
         return bool(token and token in self.valid_tokens)
 
     async def send_text(self, chat_id: str, text: str) -> None:
-        """派蒙侧推送入口：静默归档到 push_archive 表 + 通过 leyline 通知前端红点。
+        """派蒙侧推送入口：静默归档到 push_archive 表（事件历史）。
 
-        架构：webui 不像 QQ/TG 能主动推 IM 消息，所有"派蒙→用户"的推送统一落
-        push_archive 表，WebUI 顶部红点抽屉消费。chat_id 仅作元信息标识来源。
-        与 march.ring_event 的差异：本路径**不限流**（webui 自身路径调用，已可信），
-        ring_event 是给 archon 主动推送用的需要限流防刷屏。
+        架构：webui 不像 QQ/TG 能主动推 IM 消息，"派蒙→用户"的事件统一落
+        push_archive 当历史；面板按 actor 拉历史展示。chat_id 仅元信息标识来源。
         """
         if not text or not text.strip():
             return
@@ -91,28 +89,15 @@ class WebUIChannel(Channel):
 
         try:
             rec_id = await self.state.irminsul.push_archive_create(
-                source="派蒙",
-                actor="派蒙",
+                source="派蒙", actor="派蒙",
                 message_md=text,
                 channel_name=self.name,
                 chat_id=chat_id,
-                level="silent",
                 extra={},
             )
         except Exception as e:
             logger.error("[派蒙·WebUI·推送] 归档失败: {}", e)
             return
-
-        # 通知前端红点更新（前端 SSE 订阅 push.archived 或轮询）
-        if self.state.leyline:
-            try:
-                await self.state.leyline.publish(
-                    "push.archived",
-                    {"id": rec_id, "actor": "派蒙", "source": "派蒙", "level": "silent"},
-                    source="WebUI·send_text",
-                )
-            except Exception as e:
-                logger.debug("[派蒙·WebUI·推送] leyline publish 失败（不影响归档）: {}", e)
 
         logger.info(
             "[派蒙·WebUI·推送] 已归档 push_archive id={} (chat_id={} 长度={})",

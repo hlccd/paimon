@@ -12,17 +12,10 @@ MAX_FAILURES = 3
 # interval 下限：小于 60s 的设置会被提升到 60s，避免虚假的高精度预期
 MIN_INTERVAL = 60
 
-# 事件响铃限流（内存滑动窗口）：每个 (source, channel, chat_id) 60s 最多 10 条
-# docs/foundation/march.md §推送响铃
-RING_EVENT_WINDOW_SECONDS = 60
-RING_EVENT_MAX_PER_WINDOW = 10
-
-
 def today_local_bounds(now: float | None = None) -> tuple[float, float]:
     """返回当地时区今天 [00:00, 次日 00:00) 的 unix 秒区间。
 
-    用于 ring_event(dedup_per_day=True) 计算日级幂等键。与前端的
-    `new Date(Y, M-1, D, 0,0,0).getTime()/1000` 保持一致（同机器时区）。
+    与前端的 `new Date(Y, M-1, D, 0,0,0).getTime()/1000` 保持一致（同机器时区）。
     """
     t = time.time() if now is None else now
     lt = time.localtime(t)

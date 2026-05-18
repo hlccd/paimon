@@ -70,18 +70,19 @@ class _NoteMixin:
         note = self._note_from_raw(game, uid, d, now_ts)
         await self._ir.mihoyo_note_upsert(note, actor="水神")
 
-        # 满额阈值推送（三游戏通用：current / max ≥ 90% 推送）
+        # 满额阈值告警归档（≥ 90% 落 push_archive；用户进 /game 看 mihoyo_note 数字也能判断）
         if (note.max_resin > 0
-                and note.current_resin >= note.max_resin * self._FULL_RATIO
-                and march and chat_id and channel_name):
+                and note.current_resin >= note.max_resin * self._FULL_RATIO):
             try:
                 md = self._compose_resin_alert(note, acc.note, game)
-                await march.ring_event(
-                    channel_name=channel_name, chat_id=chat_id,
-                    source="水神·便笺提醒", message=md, dedup_per_day=True,
+                await self._ir.push_archive_create(
+                    source="水神·便笺提醒", actor="水神",
+                    message_md=md,
+                    channel_name=channel_name or "webui",
+                    chat_id=chat_id or "",
                 )
             except Exception as e:
-                logger.error("[水神·游戏] 便笺推送失败: {}", e)
+                logger.error("[水神·游戏] 便笺归档失败: {}", e)
 
         return note
 

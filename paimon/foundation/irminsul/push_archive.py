@@ -72,133 +72,6 @@ class PushArchiveRepo:
         )
         return rec_id
 
-    async def upsert_daily(
-        self,
-        *,
-        source: str,
-        actor: str,
-        message_md: str,
-        day_start: float,
-        day_end: float,
-        channel_name: str = "webui",
-        chat_id: str = "",
-        level: str = "silent",
-        extra: dict[str, Any] | None = None,
-    ) -> tuple[str, str]:
-        """日级幂等写入：(actor, source, [day_start, day_end)) 唯一。
-
-        - 命中且 message_md 一致 → 只 bump created_at=now，read_at 保留，
-          返回 ("unchanged", id)
-        - 命中但 message_md 变 → 更新文本/extra/level，bump created_at=now，
-          reset read_at=NULL，返回 ("updated", id)
-        - 未命中 → 新建一条，返回 ("created", id)
-
-        卡片主时间戳即「最后聚合时间」：cron + 手动刷新 / 有数据→有新数据
-        的场景统一把卡片推到公告区顶部。unchanged 刷新不动红点（用户既已
-        读、内容也没变）；updated 重置红点（内容变了值得再看一眼）。
-
-        典型用途：每日订阅日报 / 红利股变化等「一天一篇」型推送，避免
-        cron + 手动刷新两次推送在同一天产生两条公告。
-        事件驱动型推送（如 P0 预警）不应走这条路径。
-        """
-        async with self._db.execute(
-            "SELECT id, message_md, created_at FROM push_archive "
-            "WHERE actor = ? AND source = ? "
-            "AND created_at >= ? AND created_at < ? "
-            "ORDER BY created_at ASC LIMIT 1",
-            (actor, source, day_start, day_end),
-        ) as cur:
-            row = await cur.fetchone()
-
-        extra_json = json.dumps(extra or {}, ensure_ascii=False)
-
-        if row is None:
-            rec_id = uuid4().hex[:12]
-            now = time.time()
-            await self._db.execute(
-                "INSERT INTO push_archive "
-                "(id, source, actor, channel_name, chat_id, message_md, level, "
-                "extra_json, created_at, read_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,NULL)",
-                (
-                    rec_id, source, actor, channel_name, chat_id,
-                    message_md, level, extra_json, now,
-                ),
-            )
-            await self._db.commit()
-            logger.info(
-                "[世界树·推送归档] daily-upsert 新建 {} actor={} source={} len={}",
-                rec_id, actor, source, len(message_md),
-            )
-            return ("created", rec_id)
-
-        rec_id = row[0]
-        now = time.time()
-        if (row[1] or "") == (message_md or ""):
-            # 内容未变：只 bump created_at（卡片置顶=最后刷新），保留 read_at
-            await self._db.execute(
-                "UPDATE push_archive SET created_at = ? WHERE id = ?",
-                (now, rec_id),
-            )
-            await self._db.commit()
-            logger.debug(
-                "[世界树·推送归档] daily-upsert 内容未变 {} actor={} source={}"
-                "（已读状态保留，时间戳刷新）",
-                rec_id, actor, source,
-            )
-            return ("unchanged", rec_id)
-
-        await self._db.execute(
-            "UPDATE push_archive SET message_md = ?, extra_json = ?, "
-            "level = ?, read_at = NULL, created_at = ? "
-            "WHERE id = ?",
-            (message_md, extra_json, level, now, rec_id),
-        )
-        await self._db.commit()
-        logger.info(
-            "[世界树·推送归档] daily-upsert 内容更新 {} actor={} source={} len={}（重置未读）",
-            rec_id, actor, source, len(message_md),
-        )
-        return ("updated", rec_id)
-
-    async def touch_daily(
-        self,
-        *,
-        source: str,
-        actor: str,
-        day_start: float,
-        day_end: float,
-    ) -> tuple[bool, str]:
-        """刷新「(actor, source, 当地日期)」命中行的 created_at 为 now。
-
-        用途：订阅空跑（搜到 0 条 / 全被去重过滤）但当天已有 digest 时，
-        只更新「最后聚合时间」——卡片时间戳前移，read_at 保持（不红点）。
-
-        返回 (found, rec_id)。未命中时 found=False。
-        """
-        async with self._db.execute(
-            "SELECT id FROM push_archive "
-            "WHERE actor = ? AND source = ? "
-            "AND created_at >= ? AND created_at < ? "
-            "ORDER BY created_at DESC LIMIT 1",
-            (actor, source, day_start, day_end),
-        ) as cur:
-            row = await cur.fetchone()
-        if row is None:
-            return (False, "")
-        rec_id = row[0]
-        now = time.time()
-        await self._db.execute(
-            "UPDATE push_archive SET created_at = ? WHERE id = ?",
-            (now, rec_id),
-        )
-        await self._db.commit()
-        logger.info(
-            "[世界树·推送归档] daily-touch 刷新时间戳 {} actor={} source={}（read_at 不动）",
-            rec_id, actor, source,
-        )
-        return (True, rec_id)
-
     # ---------- 查询 ----------
 
     async def get(self, rec_id: str) -> PushArchiveRecord | None:
@@ -214,7 +87,6 @@ class PushArchiveRepo:
         self,
         *,
         actor: str | None = None,
-        only_unread: bool = False,
         since: float | None = None,
         until: float | None = None,
         limit: int = 50,
@@ -222,8 +94,6 @@ class PushArchiveRepo:
         clauses, params = [], []
         if actor is not None:
             clauses.append("actor = ?"); params.append(actor)
-        if only_unread:
-            clauses.append("read_at IS NULL")
         if since is not None:
             clauses.append("created_at >= ?"); params.append(since)
         if until is not None:
@@ -238,66 +108,6 @@ class PushArchiveRepo:
         async with self._db.execute(sql, tuple(params)) as cur:
             rows = await cur.fetchall()
         return [self._row_to_record(r) for r in rows]
-
-    async def count_unread(self, *, actor: str | None = None) -> int:
-        clauses = ["read_at IS NULL"]
-        params: list[Any] = []
-        if actor is not None:
-            clauses.append("actor = ?"); params.append(actor)
-        where = " AND ".join(clauses)
-        async with self._db.execute(
-            f"SELECT COUNT(*) FROM push_archive WHERE {where}", tuple(params),
-        ) as cur:
-            row = await cur.fetchone()
-        return int(row[0]) if row else 0
-
-    async def count_unread_grouped(self) -> dict[str, int]:
-        """按 actor 分组的未读数。返回 {actor: count}。"""
-        async with self._db.execute(
-            "SELECT actor, COUNT(*) FROM push_archive "
-            "WHERE read_at IS NULL GROUP BY actor",
-        ) as cur:
-            rows = await cur.fetchall()
-        return {actor: int(n) for actor, n in rows}
-
-    # ---------- 标记已读 ----------
-
-    async def mark_read(self, rec_id: str) -> bool:
-        now = time.time()
-        async with self._db.execute(
-            "UPDATE push_archive SET read_at = ? "
-            "WHERE id = ? AND read_at IS NULL",
-            (now, rec_id),
-        ) as cur:
-            ok = cur.rowcount > 0
-        await self._db.commit()
-        if ok:
-            logger.debug("[世界树·推送归档] 标记已读 {}", rec_id)
-        return ok
-
-    async def mark_read_all(self, *, actor: str | None = None) -> int:
-        """批量标记已读；返回实际更新条数。"""
-        now = time.time()
-        if actor is not None:
-            async with self._db.execute(
-                "UPDATE push_archive SET read_at = ? "
-                "WHERE actor = ? AND read_at IS NULL",
-                (now, actor),
-            ) as cur:
-                changed = cur.rowcount
-        else:
-            async with self._db.execute(
-                "UPDATE push_archive SET read_at = ? WHERE read_at IS NULL",
-                (now,),
-            ) as cur:
-                changed = cur.rowcount
-        await self._db.commit()
-        if changed > 0:
-            logger.info(
-                "[世界树·推送归档] 批量已读 actor={} count={}",
-                actor or "ALL", changed,
-            )
-        return changed
 
     # ---------- 清理 ----------
 
