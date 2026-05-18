@@ -3,7 +3,7 @@
 > 隶属：[神圣规划](aimon.md)
 >
 > 只记录**尚未实现 / 待完善**的事项。已完成项请查 git log。
-> 更新时间：2026-05-15
+> 更新时间：2026-05-18
 
 ## 0. ⚠️ 最高优
 
@@ -80,14 +80,7 @@
 
 ## 4. 已知 bug
 
-### 1. /stop 在 skill / /agents 跑期间无效
-
-- 副作用：天使 skill 调用建独立 ephemeral session.id,但 `state.session_tasks` 按 session.id 索引、`/stop` 按当前 channel 主 session.id 反查 → skill 跑时 /stop 找不到 ephemeral 任务
-- /agents 同样：`run_council` 在 cmd_agents 里 await，没注册到 state.session_tasks
-- 修复路径：`/stop` 扩展为按 channel_key 反查所有活跃任务批量 cancel
-- 文件：`paimon/core/chat/session.py:stop_session_task`、`paimon/core/commands/_dispatch.py:_run_skill_isolated`、`paimon/core/commands/agents.py`
-
-### 2. 提高贴吧 collector 覆盖度
+### 1. 提高贴吧 collector 覆盖度
 
 - 现状：贴吧 web 搜索 SPA 每 topic 实际只渲染 3-5 个 .threadcardclass
 - 改进路径：百度通用搜索 + `site:tieba.baidu.com/p/` 拿更多链接
